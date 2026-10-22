@@ -243,7 +243,7 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = { viewModel.confirmSettlementSuggestion(suggestion.id) },
+                                onClick = { viewModel.confirmAndSaveAlias(suggestion.id) },
                                 colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.height(30.dp)

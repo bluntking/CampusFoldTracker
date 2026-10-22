@@ -111,7 +111,7 @@ fun MonospaceCurrencyText(
     }
     val formatted = formatter.format(amount)
 
-    Row(modifier = modifier, verticalAlignment = Alignment.Baseline) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = prefix,
             fontFamily = FontFamily.Monospace,

@@ -6,6 +6,7 @@ import android.util.Log
 import com.campusfold.tracker.data.TransactionRepository
 import com.campusfold.tracker.data.entity.PendingSettlementSuggestionEntity
 import com.campusfold.tracker.data.entity.SettlementSuggestionStatus
+import com.campusfold.tracker.data.entity.TransactionEntity
 import com.campusfold.tracker.data.entity.TransactionType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

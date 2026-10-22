@@ -452,6 +452,10 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun confirmSettlementSuggestion(suggestionId: Long) {
+        confirmAndSaveAlias(suggestionId)
+    }
+
     fun dismissSettlementSuggestion(suggestionId: Long) {
         viewModelScope.launch {
             repository.dismissSettlementSuggestion(suggestionId)
