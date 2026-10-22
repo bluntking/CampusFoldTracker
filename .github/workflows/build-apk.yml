@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -108,14 +110,36 @@ jobs:
           TAG="v1.0.${{ github.run_number }}"
           APK_FILE="release-apk/CampusFold-1.0.${{ github.run_number }}.apk"
           if [ -f "$APK_FILE" ]; then
-            echo "Publishing release $TAG with direct APK..."
-            gh release create "$TAG" "$APK_FILE" \
-              --title "CampusFold v1.0.${{ github.run_number }}" \
-              --notes "Direct APK download without ZIP for build 1.0.${{ github.run_number }}." \
-              --latest || true
-
+            echo "Publishing release $TAG with direct APK and changelog..."
             REPO="${{ github.repository }}"
             APK_URL="https://github.com/$REPO/releases/download/$TAG/CampusFold-1.0.${{ github.run_number }}.apk"
+
+            git fetch --tags --force 2>/dev/null || true
+            PREV_TAG=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+            echo "## 🚀 What's New in CampusFold v1.0.${{ github.run_number }}" > release_notes.md
+            echo "" >> release_notes.md
+            echo "### 📋 Changelog" >> release_notes.md
+            if [ -n "$PREV_TAG" ]; then
+              echo "Changes since **$PREV_TAG**:" >> release_notes.md
+              git log "$PREV_TAG..HEAD" --pretty=format:"- %s (%h)" --no-merges >> release_notes.md
+            else
+              git log -n 15 --pretty=format:"- %s (%h)" --no-merges >> release_notes.md
+            fi
+            echo "" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "---" >> release_notes.md
+            echo "### 📱 Direct APK Download (No ZIP)" >> release_notes.md
+            echo "Download directly to your Android device without unzipping:" >> release_notes.md
+            echo "- [CampusFold-1.0.${{ github.run_number }}.apk]($APK_URL)" >> release_notes.md
+            echo "- **In-Place Update:** Installs smoothly over your existing installation preserving all local databases and configurations." >> release_notes.md
+
+            gh release create "$TAG" "$APK_FILE" \
+              --title "CampusFold v1.0.${{ github.run_number }}" \
+              --notes-file release_notes.md \
+              --generate-notes \
+              --latest || gh release upload "$TAG" "$APK_FILE" --clobber || true
+
             echo "## 📱 Direct APK Download (No ZIP)" >> $GITHUB_STEP_SUMMARY
             echo "Download directly to your Android device without unzipping:" >> $GITHUB_STEP_SUMMARY
             echo "[Download CampusFold-1.0.${{ github.run_number }}.apk]($APK_URL)" >> $GITHUB_STEP_SUMMARY
