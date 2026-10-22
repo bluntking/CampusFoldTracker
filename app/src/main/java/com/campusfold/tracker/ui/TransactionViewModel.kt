@@ -225,6 +225,13 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun toggleCcBillTransfer(transactionId: Long) {
+        viewModelScope.launch {
+            repository.toggleCcBillTransfer(transactionId)
+            _statusMessage.value = "Toggled CC Bill Transfer status."
+        }
+    }
+
     // ─── Category CRUD ────────────────────────────────────────────────────────
 
     fun addCategory(name: String, colorHex: String, monthlyBudget: Double) {
@@ -341,26 +348,20 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
 
     // ─── Inbox Scanning ───────────────────────────────────────────────────────
 
-    fun scanInbox() {
+    fun scanInbox(daysBack: Int = 90) {
         if (_isScanning.value) return
         _isScanning.value = true
-        _statusMessage.value = "Scanning SMS inbox for bank transactions..."
+        _statusMessage.value = "Scanning SMS inbox ($daysBack days) with CampusSmsParser..."
 
         viewModelScope.launch {
             try {
-                val parsedList = SmsReader.readInboxTransactions(getApplication(), daysBack = 90)
-                var imported = 0
-                for (item in parsedList) {
-                    val (friendlyName, categoryId) = repository.resolveVendor(item.rawMerchant)
-                    val finalized = item.copy(
-                        friendlyVendorName = friendlyName,
-                        categoryId = categoryId
-                    )
-                    repository.addTransaction(finalized)
-                    imported++
-                }
-                repository.setLastSmsSyncTimestamp(System.currentTimeMillis())
-                _statusMessage.value = "Imported $imported transactions from SMS inbox."
+                val result = com.campusfold.tracker.util.InboxSmsScanner.scanInbox(
+                    context = getApplication(),
+                    repository = repository,
+                    daysBack = daysBack
+                )
+                val limitInfo = if (result.latestCreditLimit != null) " • PNB Limit: ₹${result.latestCreditLimit}" else ""
+                _statusMessage.value = "Imported ${result.importedCount} new txns (${result.skippedDuplicates} dupes skipped)$limitInfo"
             } catch (e: Exception) {
                 _statusMessage.value = "Error scanning SMS: ${e.localizedMessage}"
             } finally {

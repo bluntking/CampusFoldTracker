@@ -11,14 +11,15 @@ import com.campusfold.tracker.data.entity.PendingSettlementSuggestionEntity
 import com.campusfold.tracker.data.entity.SettlementSuggestionStatus
 import com.campusfold.tracker.data.entity.TransactionType
 import com.campusfold.tracker.data.pref.AppPreferences
+import com.campusfold.tracker.util.CampusSmsParser
 import com.campusfold.tracker.util.NotificationHelper
-import com.campusfold.tracker.util.SmsParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
  * High-priority SMS BroadcastReceiver for incoming transaction messages.
+ * Uses CampusSmsParser to parse PNB CC 8598, Axis Bank XX2003, and general UPI alerts.
  */
 class SmsReceiver : BroadcastReceiver() {
 
@@ -47,52 +48,71 @@ class SmsReceiver : BroadcastReceiver() {
         val fullBody = bodyBuilder.toString()
         if (fullBody.isBlank()) return
 
-        val parsed = SmsParser.parse(fullBody, sender, timestamp)
-        if (parsed != null) {
-            val pendingResult = goAsync()
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val db = AppDatabase.getDatabase(context)
-                    val prefs = AppPreferences(context)
-                    val repository = TransactionRepository(db, prefs)
+        Log.d(TAG, "Incoming SMS from $sender: $fullBody")
 
-                    // Resolve friendly vendor & default category from campus vendor mappings
-                    val (friendlyName, categoryId) = repository.resolveVendor(parsed.rawMerchant)
-                    val resolvedTx = parsed.copy(
-                        friendlyVendorName = friendlyName,
-                        categoryId = categoryId
-                    )
+        val parsedResult = CampusSmsParser.parse(fullBody, sender, timestamp) ?: return
 
-                    val txId = repository.addTransaction(resolvedTx)
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val db = AppDatabase.getDatabase(context)
+                val prefs = AppPreferences(context)
+                val repository = TransactionRepository(db, prefs)
 
-                    // If incoming money (CREDIT), check if it matches a friend's aliases for 1-tap settlement
-                    if (resolvedTx.type == TransactionType.INCOME) {
-                        val persons = db.personDao().getAllPersonsList()
-                        val lowerBody = fullBody.lowercase()
-                        for (person in persons) {
-                            val aliases = person.exactSmsAliases.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }
-                            val isMatch = aliases.any { alias -> lowerBody.contains(alias) } || lowerBody.contains(person.name.lowercase())
-                            if (isMatch) {
-                                repository.createSettlementSuggestion(
-                                    PendingSettlementSuggestionEntity(
-                                        transactionId = txId,
-                                        suggestedPersonId = person.id,
-                                        detectedSenderName = parsed.rawMerchant,
-                                        amount = parsed.amount,
-                                        status = SettlementSuggestionStatus.PENDING
-                                    )
+                // Update credit limit if mentioned in PNB SMS
+                if (parsedResult.extractedCreditLimit != null) {
+                    repository.setPnbCreditLimit(parsedResult.extractedCreditLimit)
+                }
+
+                val rawTx = parsedResult.transaction
+
+                // Deduplication check
+                if (rawTx.upiRef != null && repository.isTransactionDuplicate(rawTx.upiRef)) {
+                    Log.d(TAG, "Skipping duplicate transaction with upiRef: ${rawTx.upiRef}")
+                    return@launch
+                }
+
+                // Resolve campus friendly vendor and default category
+                val (friendlyName, categoryId) = repository.resolveVendor(rawTx.rawMerchant)
+                val resolvedTx = rawTx.copy(
+                    friendlyVendorName = friendlyName,
+                    categoryId = categoryId
+                )
+
+                val txId = repository.addTransaction(resolvedTx)
+
+                // Route ONLY genuine INCOME to friend split settlement suggestions
+                // (PNB CC Bill confirmations are CC_BILL_TRANSFER and are NEVER routed here)
+                if (resolvedTx.type == TransactionType.INCOME && txId > 0) {
+                    val persons = repository.getAllPersonsList()
+                    val lowerBody = fullBody.lowercase()
+                    for (person in persons) {
+                        val aliases = person.exactSmsAliases.split(",")
+                            .map { it.trim().lowercase() }
+                            .filter { it.isNotEmpty() }
+                        val matchesAlias = aliases.any { alias -> lowerBody.contains(alias) }
+                        val matchesName = lowerBody.contains(person.name.lowercase())
+
+                        if (matchesAlias || matchesName) {
+                            repository.createSettlementSuggestion(
+                                PendingSettlementSuggestionEntity(
+                                    transactionId = txId,
+                                    suggestedPersonId = person.id,
+                                    detectedSenderName = rawTx.rawMerchant,
+                                    amount = rawTx.amount,
+                                    status = SettlementSuggestionStatus.PENDING
                                 )
-                                break
-                            }
+                            )
+                            break
                         }
                     }
-
-                    NotificationHelper.showTransactionNotification(context, resolvedTx)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error processing incoming SMS transaction", e)
-                } finally {
-                    pendingResult.finish()
                 }
+
+                NotificationHelper.showTransactionNotification(context, resolvedTx)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling incoming SMS", e)
+            } finally {
+                pendingResult.finish()
             }
         }
     }

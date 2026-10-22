@@ -94,6 +94,24 @@ class TransactionRepository(
         personDao.deletePerson(person)
     }
 
+    suspend fun getAllPersonsList(): List<PersonEntity> = withContext(Dispatchers.IO) {
+        personDao.getAllPersonsList()
+    }
+
+    suspend fun isTransactionDuplicate(upiRef: String): Boolean = withContext(Dispatchers.IO) {
+        transactionDao.findByUpiRef(upiRef) != null
+    }
+
+    suspend fun toggleCcBillTransfer(transactionId: Long) = withContext(Dispatchers.IO) {
+        val existing = transactionDao.getTransactionByIdSync(transactionId) ?: return@withContext
+        val newType = if (existing.type == TransactionType.CC_BILL_TRANSFER) {
+            TransactionType.EXPENSE
+        } else {
+            TransactionType.CC_BILL_TRANSFER
+        }
+        transactionDao.updateTransaction(existing.copy(type = newType))
+    }
+
     // ─── Transaction CRUD & Clean Split Recalculation ─────────────────────────
 
     /**
