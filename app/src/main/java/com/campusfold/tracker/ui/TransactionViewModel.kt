@@ -55,6 +55,9 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     val pnbCreditLimit: StateFlow<Double>
     val lastSmsSyncTimestamp: StateFlow<Long>
 
+    // Accounts
+    val accounts: StateFlow<List<com.campusfold.tracker.data.entity.AccountEntity>>
+
     // UI state
     private val _selectedFilter = MutableStateFlow("ALL")
     val selectedFilter = _selectedFilter.asStateFlow()
@@ -203,11 +206,28 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             0L
         )
 
+        accounts = repository.allAccounts.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
         filteredTransactions = combine(allTransactions, _selectedFilter) { list, filter ->
-            when (filter) {
-                "EXPENSE" -> list.filter { it.type == TransactionType.EXPENSE }
-                "INCOME" -> list.filter { it.type == TransactionType.INCOME }
-                "CC_BILL" -> list.filter { it.type == TransactionType.CC_BILL_TRANSFER }
+            when {
+                filter == "EXPENSE" -> list.filter { it.type == TransactionType.EXPENSE }
+                filter == "INCOME" -> list.filter { it.type == TransactionType.INCOME }
+                filter == "CC_BILL" -> list.filter { it.type == TransactionType.CC_BILL_TRANSFER }
+                filter.startsWith("CATEGORY:") -> {
+                    val catId = filter.removePrefix("CATEGORY:").substringBefore(":").toLongOrNull()
+                    if (catId != null) list.filter { it.categoryId == catId } else list
+                }
+                filter.startsWith("VENDOR:") -> {
+                    val vendorName = filter.removePrefix("VENDOR:").trim()
+                    list.filter {
+                        it.friendlyVendorName.equals(vendorName, ignoreCase = true) ||
+                        it.rawMerchant.contains(vendorName, ignoreCase = true)
+                    }
+                }
                 else -> list
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -215,6 +235,78 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setFilter(filter: String) {
         _selectedFilter.value = filter
+    }
+
+    fun filterByCategory(categoryId: Long, categoryName: String) {
+        _selectedFilter.value = "CATEGORY:${categoryId}:${categoryName}"
+    }
+
+    fun filterByVendor(vendorName: String) {
+        _selectedFilter.value = "VENDOR:${vendorName}"
+    }
+
+    // ─── Accounts CRUD ────────────────────────────────────────────────────────
+
+    fun addAccount(
+        name: String,
+        bankName: String,
+        accountType: String,
+        last4: String,
+        creditLimitOrBalance: Double,
+        colorHex: String
+    ) {
+        viewModelScope.launch {
+            val account = com.campusfold.tracker.data.entity.AccountEntity(
+                name = name,
+                bankName = bankName,
+                accountType = accountType,
+                last4 = last4,
+                creditLimitOrBalance = creditLimitOrBalance,
+                colorHex = colorHex
+            )
+            repository.addAccount(account)
+            _statusMessage.value = "Account '$name' added."
+        }
+    }
+
+    fun editAccount(
+        id: Long,
+        name: String,
+        bankName: String,
+        accountType: String,
+        last4: String,
+        creditLimitOrBalance: Double,
+        colorHex: String
+    ) {
+        viewModelScope.launch {
+            val account = com.campusfold.tracker.data.entity.AccountEntity(
+                id = id,
+                name = name,
+                bankName = bankName,
+                accountType = accountType,
+                last4 = last4,
+                creditLimitOrBalance = creditLimitOrBalance,
+                colorHex = colorHex
+            )
+            repository.updateAccount(account)
+            _statusMessage.value = "Account '$name' updated."
+        }
+    }
+
+    fun deleteAccount(account: com.campusfold.tracker.data.entity.AccountEntity) {
+        viewModelScope.launch {
+            repository.deleteAccount(account)
+            _statusMessage.value = "Account '${account.name}' removed."
+        }
+    }
+
+    // ─── Start Afresh: Reset All Transactions ─────────────────────────────────
+
+    fun clearAllTransactionsAndReset() {
+        viewModelScope.launch {
+            repository.clearAllTransactionsAndReset()
+            _statusMessage.value = "All transactions cleared. Fresh start active."
+        }
     }
 
     // ─── Transaction CRUD & Split Recalculation ──────────────────────────────

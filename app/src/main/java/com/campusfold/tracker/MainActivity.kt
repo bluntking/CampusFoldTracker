@@ -31,9 +31,7 @@ class MainActivity : ComponentActivity() {
         val smsGranted = permissions[Manifest.permission.READ_SMS] == true ||
                 ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
         hasSmsPermissionState.value = smsGranted
-        if (smsGranted) {
-            viewModel.scanInbox()
-        }
+        // Do not auto-scan inbox on permission grant to respect fresh start.
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

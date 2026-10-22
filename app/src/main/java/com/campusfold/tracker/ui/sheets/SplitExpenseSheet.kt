@@ -334,33 +334,52 @@ fun SplitExpenseSheet(
                                 }
 
                                 if (isSelected && splitMode == SplitMode.CUSTOM) {
-                                    OutlinedTextField(
-                                        value = customAmounts[person.id] ?: "",
-                                        onValueChange = { customAmounts[person.id] = it },
-                                        label = { Text("Owed ₹", fontSize = 10.sp) },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                        textStyle = androidx.compose.ui.text.TextStyle(
+                                    Row(
+                                        modifier = Modifier
+                                            .width(105.dp)
+                                            .height(36.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MatteCharcoal)
+                                            .border(1.dp, NeonAmber, RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "₹",
                                             fontFamily = FontFamily.Monospace,
+                                            fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            color = TextPrimary
-                                        ),
-                                        modifier = Modifier.width(100.dp),
-                                        shape = RoundedCornerShape(8.dp),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedContainerColor = MatteCharcoal,
-                                            unfocusedContainerColor = MatteCharcoal,
-                                            focusedBorderColor = NeonAmber,
-                                            unfocusedBorderColor = BorderCharcoal
+                                            color = NeonAmber
                                         )
-                                    )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        androidx.compose.foundation.text.BasicTextField(
+                                            value = customAmounts[person.id] ?: "",
+                                            onValueChange = { customAmounts[person.id] = it },
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                            textStyle = androidx.compose.ui.text.TextStyle(
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = TextPrimary
+                                            ),
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
                                 } else if (isSelected && splitMode == SplitMode.EQUAL) {
                                     val owedForThisPerson = calculatedSplits.find { it.personId == person.id }?.amountOwed ?: 0.0
-                                    MonospaceCurrencyText(
-                                        amount = owedForThisPerson,
-                                        fontSize = 13.sp,
-                                        color = NeonAmber
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .height(36.dp)
+                                            .padding(horizontal = 6.dp),
+                                        contentAlignment = Alignment.CenterEnd
+                                    ) {
+                                        MonospaceCurrencyText(
+                                            amount = owedForThisPerson,
+                                            fontSize = 13.sp,
+                                            color = NeonAmber
+                                        )
+                                    }
                                 }
                             }
                         }

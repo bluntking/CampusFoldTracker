@@ -64,7 +64,10 @@ data class ChartSlice(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AnalyticsScreen(viewModel: TransactionViewModel) {
+fun AnalyticsScreen(
+    viewModel: TransactionViewModel,
+    onNavigateToTransactions: ((filterType: String, filterValue: String) -> Unit)? = null
+) {
     val monthCategorySpending by viewModel.monthCategorySpending.collectAsState()
     val monthVendorSpending by viewModel.monthVendorSpending.collectAsState()
     val currentMonthTotalTrueSpend by viewModel.currentMonthTotalTrueSpend.collectAsState()
@@ -406,56 +409,93 @@ fun AnalyticsScreen(viewModel: TransactionViewModel) {
                             ) {
                                 chartSlices.forEach { slice ->
                                     val isSelected = slice.id == selectedSliceId
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (isSelected) slice.color.copy(alpha = 0.15f) else Color.Transparent)
-                                            .border(
-                                                1.dp,
-                                                if (isSelected) slice.color else Color.Transparent,
-                                                RoundedCornerShape(8.dp)
-                                            )
-                                            .clickable {
-                                                selectedSliceId = if (isSelected) null else slice.id
-                                            }
-                                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
                                         Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (isSelected) slice.color.copy(alpha = 0.15f) else Color.Transparent)
+                                                .border(
+                                                    1.dp,
+                                                    if (isSelected) slice.color else Color.Transparent,
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                                .clickable {
+                                                    selectedSliceId = if (isSelected) null else slice.id
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(10.dp)
-                                                    .clip(CircleShape)
-                                                    .background(slice.color)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = slice.name,
-                                                fontSize = 12.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                color = TextPrimary,
-                                                maxLines = 1
-                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(10.dp)
+                                                        .clip(CircleShape)
+                                                        .background(slice.color)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = slice.name,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    color = TextPrimary,
+                                                    maxLines = 1
+                                                )
+                                            }
+
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = "${slice.percentage.toInt()}%",
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 11.sp,
+                                                    color = TextMuted
+                                                )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                MonospaceCurrencyText(
+                                                    amount = slice.amount,
+                                                    fontSize = 13.sp,
+                                                    color = if (isSelected) slice.color else TextPrimary
+                                                )
+                                            }
                                         }
 
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = "${slice.percentage.toInt()}%",
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = 11.sp,
-                                                color = TextMuted
-                                            )
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            MonospaceCurrencyText(
-                                                amount = slice.amount,
-                                                fontSize = 13.sp,
-                                                color = if (isSelected) slice.color else TextPrimary
-                                            )
+                                        // View Every Transaction button when selected
+                                        if (isSelected) {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Button(
+                                                onClick = {
+                                                    if (breakdownMode == ChartBreakdownMode.CATEGORY) {
+                                                        onNavigateToTransactions?.invoke("CATEGORY", "${slice.id}:${slice.name}")
+                                                    } else {
+                                                        onNavigateToTransactions?.invoke("VENDOR", slice.name)
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = slice.color,
+                                                    contentColor = OledBlack
+                                                ),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(34.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.ReceiptLong,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "View Every '${slice.name}' Transaction →",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
                                     }
                                 }

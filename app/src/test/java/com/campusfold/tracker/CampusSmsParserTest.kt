@@ -116,4 +116,35 @@ class CampusSmsParserTest {
         assertEquals(hash1, hash2)
         assertEquals("HASH_1700000000_100.0_sekar_store", hash1)
     }
+
+    @Test
+    fun testJupiterFederalAccountDebit() {
+        val sms = "Rs 150.00 debited from Federal Bank A/c XX2548 on 22-10-26 to Swiggy UPI Ref 123456789012"
+        val parsed = CampusSmsParser.parse(sms, "FEDBNK")
+        assertNotNull(parsed)
+        val tx = parsed!!.transaction
+        assertEquals(150.0, tx.amount, 0.001)
+        assertEquals("Federal (Jupiter) 2548", tx.paymentMode)
+        assertEquals(TransactionType.EXPENSE, tx.type)
+    }
+
+    @Test
+    fun testPnbSavingsAccountDebit() {
+        val sms = "Rs 450.00 debited from PNB A/c XX5557 on 22-10-26 to Mohan UPI Ref 987654321012"
+        val parsed = CampusSmsParser.parse(sms, "PNBSMS")
+        assertNotNull(parsed)
+        val tx = parsed!!.transaction
+        assertEquals(450.0, tx.amount, 0.001)
+        assertEquals("PNB Savings Account 5557", tx.paymentMode)
+    }
+
+    @Test
+    fun testAxisSavingsAccountDebit() {
+        val sms = "INR 300.00 debited from Axis Bank A/c XX5476 on 22-10-26 to KARTHIK UPI Ref 456123789012"
+        val parsed = CampusSmsParser.parse(sms, "AXISBK")
+        assertNotNull(parsed)
+        val tx = parsed!!.transaction
+        assertEquals(300.0, tx.amount, 0.001)
+        assertEquals("Axis Bank Savings Account 5476", tx.paymentMode)
+    }
 }

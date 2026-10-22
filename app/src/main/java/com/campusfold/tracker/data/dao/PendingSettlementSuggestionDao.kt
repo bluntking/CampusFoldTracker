@@ -25,4 +25,7 @@ interface PendingSettlementSuggestionDao {
 
     @Query("DELETE FROM pending_settlement_suggestions WHERE id = :id")
     suspend fun deleteSuggestionById(id: Long)
+
+    @Query("DELETE FROM pending_settlement_suggestions")
+    suspend fun clearAll()
 }

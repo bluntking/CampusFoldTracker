@@ -90,6 +90,9 @@ interface SplitItemDao {
     @Query("DELETE FROM split_items WHERE transactionId = :transactionId")
     suspend fun deleteSplitsForTransaction(transactionId: Long)
 
+    @Query("DELETE FROM split_items")
+    suspend fun clearAll()
+
     @Query("UPDATE split_items SET isSettled = :isSettled WHERE id = :id")
     suspend fun markSettled(id: Long, isSettled: Boolean)
 

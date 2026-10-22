@@ -5,12 +5,14 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.campusfold.tracker.data.dao.AccountDao
 import com.campusfold.tracker.data.dao.CategoryDao
 import com.campusfold.tracker.data.dao.PendingSettlementSuggestionDao
 import com.campusfold.tracker.data.dao.PersonDao
 import com.campusfold.tracker.data.dao.SplitItemDao
 import com.campusfold.tracker.data.dao.TransactionDao
 import com.campusfold.tracker.data.dao.VendorMappingDao
+import com.campusfold.tracker.data.entity.AccountEntity
 import com.campusfold.tracker.data.entity.CategoryEntity
 import com.campusfold.tracker.data.entity.PendingSettlementSuggestionEntity
 import com.campusfold.tracker.data.entity.PersonEntity
@@ -28,9 +30,10 @@ import kotlinx.coroutines.launch
         TransactionEntity::class,
         PersonEntity::class,
         SplitItemEntity::class,
-        PendingSettlementSuggestionEntity::class
+        PendingSettlementSuggestionEntity::class,
+        AccountEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -41,6 +44,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun personDao(): PersonDao
     abstract fun splitItemDao(): SplitItemDao
     abstract fun pendingSettlementSuggestionDao(): PendingSettlementSuggestionDao
+    abstract fun accountDao(): AccountDao
 
     companion object {
         @Volatile
@@ -79,6 +83,14 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("INSERT INTO vendor_mappings (id, rawSmsKeyword, friendlyName, categoryId) VALUES (4, 'Mohan', 'Chennai beverage', 3)")
                 db.execSQL("INSERT INTO vendor_mappings (id, rawSmsKeyword, friendlyName, categoryId) VALUES (5, 'HungerBox', 'Hungerbox', 1)")
                 db.execSQL("INSERT INTO vendor_mappings (id, rawSmsKeyword, friendlyName, categoryId) VALUES (6, 'DD STORE', 'Utility store', 5)")
+
+                // Pre-seed 6 User Accounts
+                db.execSQL("INSERT INTO accounts (id, name, bankName, accountType, last4, creditLimitOrBalance, colorHex) VALUES (1, 'PNB Credit Card 8598', 'PNB', 'CREDIT_CARD', '8598', 59396.93, '#F43F5E')")
+                db.execSQL("INSERT INTO accounts (id, name, bankName, accountType, last4, creditLimitOrBalance, colorHex) VALUES (2, 'Axis Bank XX2003', 'Axis Bank', 'SAVINGS', '2003', 0.0, '#8B5CF6')")
+                db.execSQL("INSERT INTO accounts (id, name, bankName, accountType, last4, creditLimitOrBalance, colorHex) VALUES (3, 'Federal (Jupiter) 2548', 'Federal Bank', 'SAVINGS', '2548', 0.0, '#F59E0B')")
+                db.execSQL("INSERT INTO accounts (id, name, bankName, accountType, last4, creditLimitOrBalance, colorHex) VALUES (4, 'PNB Savings Account 5557', 'PNB', 'SAVINGS', '5557', 0.0, '#06B6D4')")
+                db.execSQL("INSERT INTO accounts (id, name, bankName, accountType, last4, creditLimitOrBalance, colorHex) VALUES (5, 'Axis Bank Savings Account 5476', 'Axis Bank', 'SAVINGS', '5476', 0.0, '#3B82F6')")
+                db.execSQL("INSERT INTO accounts (id, name, bankName, accountType, last4, creditLimitOrBalance, colorHex) VALUES (6, 'Axis Bank Credit Card', 'Axis Bank', 'CREDIT_CARD', 'Axis CC', 0.0, '#EC4899')")
             }
         }
     }

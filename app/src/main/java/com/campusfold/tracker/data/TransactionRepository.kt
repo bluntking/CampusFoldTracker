@@ -24,6 +24,28 @@ class TransactionRepository(
     private val personDao: PersonDao = db.personDao()
     private val splitDao: SplitItemDao = db.splitItemDao()
     private val suggestionDao: PendingSettlementSuggestionDao = db.pendingSettlementSuggestionDao()
+    private val accountDao: AccountDao = db.accountDao()
+
+    // ─── Accounts ─────────────────────────────────────────────────────────────
+    val allAccounts: Flow<List<AccountEntity>> = accountDao.getAllAccounts()
+
+    suspend fun addAccount(account: AccountEntity): Long = withContext(Dispatchers.IO) {
+        accountDao.insertAccount(account)
+    }
+
+    suspend fun updateAccount(account: AccountEntity) = withContext(Dispatchers.IO) {
+        accountDao.updateAccount(account)
+    }
+
+    suspend fun deleteAccount(account: AccountEntity) = withContext(Dispatchers.IO) {
+        accountDao.deleteAccount(account)
+    }
+
+    suspend fun clearAllTransactionsAndReset() = withContext(Dispatchers.IO) {
+        transactionDao.clearAll()
+        splitDao.clearAll()
+        suggestionDao.clearAll()
+    }
 
     // ─── Transactions Flow & Queries ──────────────────────────────────────────
     val allTransactions: Flow<List<TransactionEntity>> = transactionDao.getAllTransactions()
@@ -464,6 +486,19 @@ class TransactionRepository(
                 VendorMappingEntity(6, "DD STORE", "Utility store", 5)
             )
             vendorDao.insertVendorMappings(defaultMappings)
+        }
+
+        val existingAccounts = accountDao.getAllAccountsSync()
+        if (existingAccounts.isEmpty()) {
+            val defaultAccounts = listOf(
+                com.campusfold.tracker.data.entity.AccountEntity(1, "PNB Credit Card 8598", "PNB", "CREDIT_CARD", "8598", 59396.93, "#F43F5E"),
+                com.campusfold.tracker.data.entity.AccountEntity(2, "Axis Bank XX2003", "Axis Bank", "SAVINGS", "2003", 0.0, "#8B5CF6"),
+                com.campusfold.tracker.data.entity.AccountEntity(3, "Federal (Jupiter) 2548", "Federal Bank", "SAVINGS", "2548", 0.0, "#F59E0B"),
+                com.campusfold.tracker.data.entity.AccountEntity(4, "PNB Savings Account 5557", "PNB", "SAVINGS", "5557", 0.0, "#06B6D4"),
+                com.campusfold.tracker.data.entity.AccountEntity(5, "Axis Bank Savings Account 5476", "Axis Bank", "SAVINGS", "5476", 0.0, "#3B82F6"),
+                com.campusfold.tracker.data.entity.AccountEntity(6, "Axis Bank Credit Card", "Axis Bank", "CREDIT_CARD", "Axis CC", 0.0, "#EC4899")
+            )
+            accountDao.insertAccounts(defaultAccounts)
         }
     }
 }

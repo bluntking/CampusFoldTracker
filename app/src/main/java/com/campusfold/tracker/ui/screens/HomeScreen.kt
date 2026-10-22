@@ -42,6 +42,7 @@ fun HomeScreen(
 ) {
     val transactions by viewModel.filteredTransactions.collectAsState()
     val totalMyExpense by viewModel.totalMyExpense.collectAsState()
+    val currentMonthTotalTrueSpend by viewModel.currentMonthTotalTrueSpend.collectAsState()
     val totalIncome by viewModel.totalIncome.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val vendorMappings by viewModel.vendorMappings.collectAsState()
@@ -57,6 +58,7 @@ fun HomeScreen(
     // Bottom sheet state
     var selectedTransactionForSheet by remember { mutableStateOf<TransactionEntity?>(null) }
     var showSyncMenu by remember { mutableStateOf(false) }
+    var showClearAllConfirmDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -143,6 +145,20 @@ fun HomeScreen(
                             onClick = {
                                 showSyncMenu = false
                                 viewModel.scanInbox(daysBack = 90)
+                            }
+                        )
+                        Divider(color = BorderCharcoal, thickness = 1.dp)
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = NeonCrimson, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Start Afresh (Clear All)", color = NeonCrimson)
+                                }
+                            },
+                            onClick = {
+                                showSyncMenu = false
+                                showClearAllConfirmDialog = true
                             }
                         )
                     }
@@ -264,6 +280,10 @@ fun HomeScreen(
             }
 
             // Top Summary Card (Fold Money Style)
+            val currentMonthName = remember {
+                SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date())
+            }
+
             FoldCard {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(
@@ -272,7 +292,7 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "MY TRUE MONTHLY SPEND",
+                            text = "MY TRUE SPEND • ${currentMonthName.uppercase()}",
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
@@ -294,16 +314,25 @@ fun HomeScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Prominent Monospace Currency Display
+                    // Prominent Monospace Currency Display for current month true spend
                     MonospaceCurrencyText(
-                        amount = totalMyExpense,
+                        amount = currentMonthTotalTrueSpend,
                         fontSize = 32.sp,
                         color = TextPrimary
                     )
 
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Divider(color = BorderCharcoal, thickness = 1.dp)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "All-Time Spend: ₹${totalMyExpense.toInt()}",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = TextMuted
+                    )
+
                     Spacer(modifier = Modifier.height(12.dp))
+                    Divider(color = BorderCharcoal, thickness = 1.dp)
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     // Secondary Metrics (Owed to Me & Received)
                     Row(
@@ -418,6 +447,38 @@ fun HomeScreen(
                         selectedBorderColor = NeonCyan
                     )
                 )
+
+                // Active Category or Vendor Filter from Analytics
+                if (selectedFilter.startsWith("CATEGORY:") || selectedFilter.startsWith("VENDOR:")) {
+                    val filterLabel = if (selectedFilter.startsWith("CATEGORY:")) {
+                        val parts = selectedFilter.removePrefix("CATEGORY:").split(":")
+                        "Cat: ${parts.getOrNull(1) ?: "Filter"}"
+                    } else {
+                        "Vendor: ${selectedFilter.removePrefix("VENDOR:")}"
+                    }
+
+                    FilterChip(
+                        selected = true,
+                        onClick = { viewModel.setFilter("ALL") },
+                        label = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(filterLabel, fontSize = 11.sp)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(12.dp))
+                            }
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = NeonPurple.copy(alpha = 0.2f),
+                            selectedLabelColor = NeonPurple
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = true,
+                            borderColor = NeonPurple,
+                            selectedBorderColor = NeonPurple
+                        )
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -511,6 +572,47 @@ fun HomeScreen(
             onDelete = {
                 viewModel.deleteTransaction(tx)
                 selectedTransactionForSheet = null
+            }
+        )
+    }
+
+    // Start Afresh (Clear All) Confirmation Dialog
+    if (showClearAllConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAllConfirmDialog = false },
+            containerColor = MatteCharcoal,
+            title = {
+                Text(
+                    text = "Start Afresh (Clear All)?",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = NeonCrimson
+                )
+            },
+            text = {
+                Text(
+                    text = "This will erase all transactions, unsettled splits, and suggestions so you start with ₹0.00 spend.\n\nYour categories, vendor mappings, and accounts will be preserved.",
+                    fontSize = 13.sp,
+                    color = TextPrimary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearAllTransactionsAndReset()
+                        showClearAllConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonCrimson, contentColor = TextPrimary),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Clear All & Start Afresh", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllConfirmDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
             }
         )
     }

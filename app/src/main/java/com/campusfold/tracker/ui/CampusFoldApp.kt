@@ -18,7 +18,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
 import com.campusfold.tracker.data.entity.*
+import com.campusfold.tracker.ui.screens.AccountsScreen
 import com.campusfold.tracker.ui.screens.AnalyticsScreen
 import com.campusfold.tracker.ui.screens.HomeScreen
 import com.campusfold.tracker.ui.screens.SplitsScreen
@@ -27,6 +29,7 @@ import com.campusfold.tracker.ui.theme.*
 
 enum class AppNavScreen {
     HOME,
+    ACCOUNTS,
     ANALYTICS,
     SPLITS,
     VENDORS_AND_CATEGORIES
@@ -76,8 +79,38 @@ fun CampusFoldApp(
                     label = {
                         Text(
                             text = "Dashboard",
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
                             fontWeight = if (currentScreen == AppNavScreen.HOME) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = NeonEmerald,
+                        selectedTextColor = NeonEmerald,
+                        unselectedIconColor = TextSecondary,
+                        unselectedTextColor = TextSecondary,
+                        indicatorColor = NeonEmerald.copy(alpha = 0.15f)
+                    )
+                )
+
+                NavigationBarItem(
+                    selected = currentScreen == AppNavScreen.ACCOUNTS,
+                    onClick = { currentScreen = AppNavScreen.ACCOUNTS },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.CreditCard,
+                            contentDescription = "Accounts",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = "Accounts",
+                            fontSize = 10.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            fontWeight = if (currentScreen == AppNavScreen.ACCOUNTS) FontWeight.Bold else FontWeight.Normal
                         )
                     },
                     colors = NavigationBarItemDefaults.colors(
@@ -102,7 +135,9 @@ fun CampusFoldApp(
                     label = {
                         Text(
                             text = "Analytics",
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
                             fontWeight = if (currentScreen == AppNavScreen.ANALYTICS) FontWeight.Bold else FontWeight.Normal
                         )
                     },
@@ -128,7 +163,9 @@ fun CampusFoldApp(
                     label = {
                         Text(
                             text = "Splits",
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
                             fontWeight = if (currentScreen == AppNavScreen.SPLITS) FontWeight.Bold else FontWeight.Normal
                         )
                     },
@@ -154,7 +191,11 @@ fun CampusFoldApp(
                     label = {
                         Text(
                             text = "Rules & Budgets",
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.fillMaxWidth(),
                             fontWeight = if (currentScreen == AppNavScreen.VENDORS_AND_CATEGORIES) FontWeight.Bold else FontWeight.Normal
                         )
                     },
@@ -195,8 +236,26 @@ fun CampusFoldApp(
                         onOpenAddTransaction = { showAddDialog = true }
                     )
                 }
+                AppNavScreen.ACCOUNTS -> {
+                    AccountsScreen(viewModel = viewModel)
+                }
                 AppNavScreen.ANALYTICS -> {
-                    AnalyticsScreen(viewModel = viewModel)
+                    AnalyticsScreen(
+                        viewModel = viewModel,
+                        onNavigateToTransactions = { filterType, filterValue ->
+                            if (filterType == "CATEGORY") {
+                                val parts = filterValue.split(":")
+                                val catId = parts.getOrNull(0)?.toLongOrNull()
+                                val catName = parts.getOrNull(1) ?: ""
+                                if (catId != null) {
+                                    viewModel.filterByCategory(catId, catName)
+                                }
+                            } else {
+                                viewModel.filterByVendor(filterValue)
+                            }
+                            currentScreen = AppNavScreen.HOME
+                        }
+                    )
                 }
                 AppNavScreen.SPLITS -> {
                     SplitsScreen(viewModel = viewModel)
@@ -210,8 +269,10 @@ fun CampusFoldApp(
 
     // Manual Add Transaction Dialog
     if (showAddDialog) {
+        val accountsList by viewModel.accounts.collectAsState()
         AddManualTransactionDialog(
             categories = categories,
+            accounts = accountsList,
             onDismiss = { showAddDialog = false },
             onAdd = { amount, vendor, categoryId, type, paymentMode ->
                 viewModel.addManualTransaction(amount, vendor, categoryId, type, paymentMode)
@@ -224,6 +285,7 @@ fun CampusFoldApp(
 @Composable
 fun AddManualTransactionDialog(
     categories: List<CategoryEntity>,
+    accounts: List<AccountEntity> = emptyList(),
     onDismiss: () -> Unit,
     onAdd: (amount: Double, vendor: String, categoryId: Long?, type: TransactionType, paymentMode: String) -> Unit
 ) {
@@ -231,7 +293,7 @@ fun AddManualTransactionDialog(
     var vendorName by remember { mutableStateOf("") }
     var selectedCategoryId by remember { mutableStateOf(categories.firstOrNull()?.id) }
     var selectedType by remember { mutableStateOf(TransactionType.EXPENSE) }
-    var paymentMode by remember { mutableStateOf("PNB CC 8598") }
+    var paymentMode by remember { mutableStateOf(accounts.firstOrNull()?.name ?: "PNB CC 8598") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -336,11 +398,28 @@ fun AddManualTransactionDialog(
                     )
                 )
 
+                // Account selector chips
+                if (accounts.isNotEmpty()) {
+                    Text("Select Account:", fontSize = 11.sp, color = TextMuted)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        accounts.take(3).forEach { acc ->
+                            FilterChip(
+                                selected = paymentMode == acc.name,
+                                onClick = { paymentMode = acc.name },
+                                label = { Text(acc.name.take(14), fontSize = 10.sp) }
+                            )
+                        }
+                    }
+                }
+
                 // Payment Mode
                 OutlinedTextField(
                     value = paymentMode,
                     onValueChange = { paymentMode = it },
-                    label = { Text("Payment Mode ('PNB CC 8598', 'Axis Bank XX2003')", color = TextSecondary) },
+                    label = { Text("Payment Mode", color = TextSecondary) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
                     colors = OutlinedTextFieldDefaults.colors(
