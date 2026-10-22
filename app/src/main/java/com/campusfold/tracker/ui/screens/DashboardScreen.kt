@@ -195,7 +195,7 @@ fun DashboardScreen(
 
                     // Sync SMS Button
                     IconButton(
-                        onClick = { viewModel.syncFromInboxSms(context) },
+                        onClick = { viewModel.scanInbox(90) },
                         enabled = !isScanning,
                         modifier = Modifier
                             .size(34.dp)
