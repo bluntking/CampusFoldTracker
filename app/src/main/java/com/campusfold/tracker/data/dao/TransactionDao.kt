@@ -81,7 +81,7 @@ interface TransactionDao {
             COALESCE(SUM(myActualShare), 0.0) AS totalSpent
         FROM transactions
         WHERE type = 'EXPENSE' AND timestamp >= :start AND timestamp <= :end
-        GROUP BY vendorName
+        GROUP BY COALESCE(NULLIF(friendlyVendorName, ''), NULLIF(rawMerchant, ''), 'Other')
         ORDER BY totalSpent DESC
     """)
     fun getVendorSpendingBetween(start: Long, end: Long): Flow<List<VendorSpendingItem>>
@@ -93,7 +93,7 @@ interface TransactionDao {
             COALESCE(SUM(myActualShare), 0.0) AS totalSpent
         FROM transactions
         WHERE type = 'EXPENSE' AND timestamp >= :start AND timestamp <= :end
-        GROUP BY vendorName
+        GROUP BY COALESCE(NULLIF(friendlyVendorName, ''), NULLIF(rawMerchant, ''), 'Other')
         ORDER BY totalSpent DESC
     """)
     suspend fun getVendorSpendingBetweenSync(start: Long, end: Long): List<VendorSpendingItem>
@@ -105,7 +105,7 @@ interface TransactionDao {
             COALESCE(SUM(myActualShare), 0.0) AS totalSpent
         FROM transactions
         WHERE type = 'EXPENSE' AND timestamp >= :sinceTimestamp
-        GROUP BY vendorName
+        GROUP BY COALESCE(NULLIF(friendlyVendorName, ''), NULLIF(rawMerchant, ''), 'Other')
         HAVING COUNT(id) > 5
         ORDER BY transactionCount DESC
     """)
@@ -118,7 +118,7 @@ interface TransactionDao {
             COALESCE(SUM(myActualShare), 0.0) AS totalSpent
         FROM transactions
         WHERE type = 'EXPENSE' AND timestamp >= :sinceTimestamp
-        GROUP BY vendorName
+        GROUP BY COALESCE(NULLIF(friendlyVendorName, ''), NULLIF(rawMerchant, ''), 'Other')
         HAVING COUNT(id) > 5
         ORDER BY transactionCount DESC
     """)
