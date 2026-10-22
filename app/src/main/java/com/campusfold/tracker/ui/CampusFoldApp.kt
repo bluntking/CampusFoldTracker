@@ -19,6 +19,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.campusfold.tracker.data.entity.*
+import com.campusfold.tracker.ui.screens.AnalyticsScreen
 import com.campusfold.tracker.ui.screens.HomeScreen
 import com.campusfold.tracker.ui.screens.SplitsScreen
 import com.campusfold.tracker.ui.screens.VendorsCategoriesScreen
@@ -26,6 +27,7 @@ import com.campusfold.tracker.ui.theme.*
 
 enum class AppNavScreen {
     HOME,
+    ANALYTICS,
     SPLITS,
     VENDORS_AND_CATEGORIES
 }
@@ -84,6 +86,32 @@ fun CampusFoldApp(
                         unselectedIconColor = TextSecondary,
                         unselectedTextColor = TextSecondary,
                         indicatorColor = NeonEmerald.copy(alpha = 0.15f)
+                    )
+                )
+
+                NavigationBarItem(
+                    selected = currentScreen == AppNavScreen.ANALYTICS,
+                    onClick = { currentScreen = AppNavScreen.ANALYTICS },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.PieChart,
+                            contentDescription = "Analytics & Budgets",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = "Analytics",
+                            fontSize = 11.sp,
+                            fontWeight = if (currentScreen == AppNavScreen.ANALYTICS) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = NeonPurple,
+                        selectedTextColor = NeonPurple,
+                        unselectedIconColor = TextSecondary,
+                        unselectedTextColor = TextSecondary,
+                        indicatorColor = NeonPurple.copy(alpha = 0.15f)
                     )
                 )
 
@@ -166,6 +194,9 @@ fun CampusFoldApp(
                         onRequestPermissions = onRequestPermissions,
                         onOpenAddTransaction = { showAddDialog = true }
                     )
+                }
+                AppNavScreen.ANALYTICS -> {
+                    AnalyticsScreen(viewModel = viewModel)
                 }
                 AppNavScreen.SPLITS -> {
                     SplitsScreen(viewModel = viewModel)

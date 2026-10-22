@@ -4,6 +4,7 @@ import androidx.room.*
 import com.campusfold.tracker.data.entity.TransactionEntity
 import com.campusfold.tracker.data.entity.TransactionType
 import com.campusfold.tracker.data.model.TransactionWithSplits
+import com.campusfold.tracker.data.model.VendorSpendingItem
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -62,4 +63,64 @@ interface TransactionDao {
 
     @Query("SELECT SUM(amount) FROM transactions WHERE paymentMode = :mode AND type = 'EXPENSE'")
     fun getTotalSpentOnPaymentMode(mode: String): Flow<Double?>
+
+    // True Personal Spend Analytics (type = 'EXPENSE' only, strictly excluding splits and CC bills)
+    @Query("SELECT SUM(myActualShare) FROM transactions WHERE categoryId = :categoryId AND type = 'EXPENSE' AND timestamp >= :start AND timestamp <= :end")
+    suspend fun getMonthSpendForCategory(categoryId: Long, start: Long, end: Long): Double?
+
+    @Query("SELECT SUM(myActualShare) FROM transactions WHERE type = 'EXPENSE' AND timestamp >= :start AND timestamp <= :end")
+    suspend fun getMonthTotalMyExpense(start: Long, end: Long): Double?
+
+    @Query("SELECT SUM(myActualShare) FROM transactions WHERE type = 'EXPENSE' AND timestamp >= :start AND timestamp <= :end")
+    fun getMonthTotalMyExpenseFlow(start: Long, end: Long): Flow<Double?>
+
+    @Query("""
+        SELECT 
+            COALESCE(NULLIF(friendlyVendorName, ''), NULLIF(rawMerchant, ''), 'Other') AS vendorName,
+            COUNT(id) AS transactionCount,
+            COALESCE(SUM(myActualShare), 0.0) AS totalSpent
+        FROM transactions
+        WHERE type = 'EXPENSE' AND timestamp >= :start AND timestamp <= :end
+        GROUP BY vendorName
+        ORDER BY totalSpent DESC
+    """)
+    fun getVendorSpendingBetween(start: Long, end: Long): Flow<List<VendorSpendingItem>>
+
+    @Query("""
+        SELECT 
+            COALESCE(NULLIF(friendlyVendorName, ''), NULLIF(rawMerchant, ''), 'Other') AS vendorName,
+            COUNT(id) AS transactionCount,
+            COALESCE(SUM(myActualShare), 0.0) AS totalSpent
+        FROM transactions
+        WHERE type = 'EXPENSE' AND timestamp >= :start AND timestamp <= :end
+        GROUP BY vendorName
+        ORDER BY totalSpent DESC
+    """)
+    suspend fun getVendorSpendingBetweenSync(start: Long, end: Long): List<VendorSpendingItem>
+
+    @Query("""
+        SELECT 
+            COALESCE(NULLIF(friendlyVendorName, ''), NULLIF(rawMerchant, ''), 'Other') AS vendorName,
+            COUNT(id) AS transactionCount,
+            COALESCE(SUM(myActualShare), 0.0) AS totalSpent
+        FROM transactions
+        WHERE type = 'EXPENSE' AND timestamp >= :sinceTimestamp
+        GROUP BY vendorName
+        HAVING COUNT(id) > 5
+        ORDER BY transactionCount DESC
+    """)
+    fun getHighFrequencyLeaksFlow(sinceTimestamp: Long): Flow<List<VendorSpendingItem>>
+
+    @Query("""
+        SELECT 
+            COALESCE(NULLIF(friendlyVendorName, ''), NULLIF(rawMerchant, ''), 'Other') AS vendorName,
+            COUNT(id) AS transactionCount,
+            COALESCE(SUM(myActualShare), 0.0) AS totalSpent
+        FROM transactions
+        WHERE type = 'EXPENSE' AND timestamp >= :sinceTimestamp
+        GROUP BY vendorName
+        HAVING COUNT(id) > 5
+        ORDER BY transactionCount DESC
+    """)
+    suspend fun getHighFrequencyLeaksSync(sinceTimestamp: Long): List<VendorSpendingItem>
 }

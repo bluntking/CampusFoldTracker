@@ -3,17 +3,19 @@ package com.campusfold.tracker.data
 import android.content.Context
 import com.campusfold.tracker.data.dao.*
 import com.campusfold.tracker.data.entity.*
-import com.campusfold.tracker.data.model.CategorySpending
-import com.campusfold.tracker.data.model.PersonWithBalance
-import com.campusfold.tracker.data.model.TransactionWithSplits
+import com.campusfold.tracker.data.model.*
 import com.campusfold.tracker.data.pref.AppPreferences
+import com.campusfold.tracker.util.BudgetAlertEvaluator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.util.Calendar
 
 class TransactionRepository(
     private val db: AppDatabase,
-    private val appPreferences: AppPreferences
+    private val appPreferences: AppPreferences,
+    private val context: Context? = null
 ) {
 
     private val transactionDao: TransactionDao = db.transactionDao()
@@ -135,6 +137,12 @@ class TransactionRepository(
             val splitsWithTxId = splits.map { it.copy(transactionId = txId) }
             splitDao.insertSplitItems(splitsWithTxId)
         }
+
+        // Evaluate Budget Thresholds (50, 70, 90, 100) if expense
+        if (finalizedTx.type == TransactionType.EXPENSE && context != null) {
+            BudgetAlertEvaluator.evaluateBudgetAlerts(context, db, appPreferences, finalizedTx.categoryId)
+        }
+
         txId
     }
 
@@ -160,6 +168,11 @@ class TransactionRepository(
         if (newSplits.isNotEmpty()) {
             val splitsWithId = newSplits.map { it.copy(transactionId = updatedTx.id) }
             splitDao.insertSplitItems(splitsWithId)
+        }
+
+        // Re-evaluate Budget Thresholds on split adjustment
+        if (finalizedTx.type == TransactionType.EXPENSE && context != null) {
+            BudgetAlertEvaluator.evaluateBudgetAlerts(context, db, appPreferences, finalizedTx.categoryId)
         }
     }
 
@@ -309,12 +322,119 @@ class TransactionRepository(
         suggestionDao.updateStatus(suggestionId, SettlementSuggestionStatus.DISMISSED)
     }
 
-    // ─── Preferences ─────────────────────────────────────────────────────────
+    // ─── Preferences & Budgets ───────────────────────────────────────────────
     val latestPnbCreditLimit: Flow<Double> = appPreferences.latestPnbCreditLimit
     val lastSmsSyncTimestamp: Flow<Long> = appPreferences.lastSmsSyncTimestamp
+    val overallMonthlyBudget: Flow<Double> = appPreferences.overallMonthlyBudget
 
     suspend fun setPnbCreditLimit(limit: Double) = appPreferences.setPnbCreditLimit(limit)
     suspend fun setLastSmsSyncTimestamp(timestamp: Long) = appPreferences.setLastSmsSyncTimestamp(timestamp)
+    suspend fun setOverallMonthlyBudget(budget: Double) = appPreferences.setOverallMonthlyBudget(budget)
+
+    suspend fun updateCategoryBudget(categoryId: Long, budget: Double) = withContext(Dispatchers.IO) {
+        val cat = categoryDao.getCategoryById(categoryId) ?: return@withContext
+        categoryDao.updateCategory(cat.copy(monthlyBudget = budget))
+        context?.let { ctx ->
+            BudgetAlertEvaluator.evaluateBudgetAlerts(ctx, db, appPreferences, categoryId)
+        }
+    }
+
+    // ─── True Personal Spend Analytics (type = 'EXPENSE' only) ────────────────
+
+    fun getCurrentMonthCategorySpending(): Flow<List<CategorySpending>> {
+        val (start, end) = BudgetAlertEvaluator.getMonthTimeBounds()
+        return categoryDao.getCategorySpendingForMonth(start, end)
+    }
+
+    fun getCurrentMonthVendorSpending(): Flow<List<VendorSpendingItem>> {
+        val (start, end) = BudgetAlertEvaluator.getMonthTimeBounds()
+        return transactionDao.getVendorSpendingBetween(start, end)
+    }
+
+    fun getCurrentMonthTotalTrueSpend(): Flow<Double> {
+        val (start, end) = BudgetAlertEvaluator.getMonthTimeBounds()
+        return transactionDao.getMonthTotalMyExpenseFlow(start, end).map { it ?: 0.0 }
+    }
+
+    // ─── 'Where to Control' Actionable Insights ──────────────────────────────
+
+    /**
+     * a) Burn Rate Warning: Any category where % of budget spent is significantly ahead of % of days elapsed.
+     */
+    fun getBurnRateWarnings(): Flow<List<BurnRateInsight>> {
+        val (start, end) = BudgetAlertEvaluator.getMonthTimeBounds()
+        return categoryDao.getCategorySpendingForMonth(start, end).map { list ->
+            val calendar = Calendar.getInstance()
+            val dayOfMonth = calendar.get(Calendar.DAY_OF_MONTH)
+            val totalDays = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+            val daysElapsedPercent = (dayOfMonth.toDouble() / totalDays.toDouble()) * 100.0
+
+            list.filter { it.monthlyBudget > 0.0 }
+                .mapNotNull { cat ->
+                    val spentPercent = (cat.totalSpent / cat.monthlyBudget) * 100.0
+                    val pacingAhead = spentPercent - daysElapsedPercent
+                    if (pacingAhead > 5.0) {
+                        BurnRateInsight(
+                            categoryName = cat.categoryName,
+                            colorHex = cat.colorHex,
+                            spent = cat.totalSpent,
+                            budget = cat.monthlyBudget,
+                            spentPercent = spentPercent,
+                            daysElapsedPercent = daysElapsedPercent,
+                            pacingAheadPercent = pacingAhead
+                        )
+                    } else null
+                }.sortedByDescending { it.pacingAheadPercent }
+        }
+    }
+
+    /**
+     * b) High-Frequency Leaks: Vendors with >5 transactions in the current week.
+     */
+    val highFrequencyLeaks: Flow<List<HighFrequencyLeak>>
+        get() {
+            val sevenDaysAgo = System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000L
+            return transactionDao.getHighFrequencyLeaksFlow(sevenDaysAgo).map { list ->
+                list.map {
+                    HighFrequencyLeak(
+                        vendorName = it.vendorName,
+                        transactionCount = it.transactionCount,
+                        totalSpent = it.totalSpent
+                    )
+                }
+            }
+        }
+
+    /**
+     * c) Week-over-Week Spike: Category with the highest ₹ increase compared to the previous 7 days.
+     */
+    suspend fun calculateWeekOverWeekSpike(): WeekOverWeekSpike? = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val weekMs = 7 * 24 * 60 * 60 * 1000L
+        val currentWeekStart = now - weekMs
+        val previousWeekStart = now - 2 * weekMs
+
+        val currentWeekSpending = categoryDao.getCategorySpendBetweenSync(currentWeekStart, now)
+        val previousWeekSpending = categoryDao.getCategorySpendBetweenSync(previousWeekStart, currentWeekStart)
+
+        val previousMap = previousWeekSpending.associateBy { it.categoryId }
+
+        val spikes = currentWeekSpending.map { curr ->
+            val prevAmount = previousMap[curr.categoryId]?.totalSpent ?: 0.0
+            val diff = curr.totalSpent - prevAmount
+            val pct = if (prevAmount > 0.0) (diff / prevAmount) * 100.0 else if (curr.totalSpent > 0.0) 100.0 else 0.0
+            WeekOverWeekSpike(
+                categoryName = curr.categoryName,
+                colorHex = curr.colorHex,
+                currentWeekSpend = curr.totalSpent,
+                previousWeekSpend = prevAmount,
+                increaseAmount = diff,
+                percentIncrease = pct
+            )
+        }.filter { it.increaseAmount > 0.0 }
+
+        spikes.maxByOrNull { it.increaseAmount }
+    }
 
     /**
      * Fallback safe-guard to ensure pre-seeded categories & mappings exist even if DB already existed.

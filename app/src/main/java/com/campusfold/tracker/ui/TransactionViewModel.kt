@@ -6,9 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.campusfold.tracker.data.AppDatabase
 import com.campusfold.tracker.data.TransactionRepository
 import com.campusfold.tracker.data.entity.*
-import com.campusfold.tracker.data.model.CategorySpending
-import com.campusfold.tracker.data.model.PersonWithBalance
-import com.campusfold.tracker.data.model.TransactionWithSplits
+import com.campusfold.tracker.data.model.*
 import com.campusfold.tracker.data.pref.AppPreferences
 import com.campusfold.tracker.util.SmsReader
 import kotlinx.coroutines.flow.*
@@ -25,9 +23,20 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     val totalGrossExpense: StateFlow<Double>
     val totalIncome: StateFlow<Double>
 
-    // Categories
+    // Categories & Budgets
     val categories: StateFlow<List<CategoryEntity>>
     val categorySpending: StateFlow<List<CategorySpending>>
+    val monthCategorySpending: StateFlow<List<CategorySpending>>
+    val monthVendorSpending: StateFlow<List<VendorSpendingItem>>
+    val currentMonthTotalTrueSpend: StateFlow<Double>
+    val overallMonthlyBudget: StateFlow<Double>
+
+    // 'Where to Control' Actionable Insights
+    val burnRateWarnings: StateFlow<List<BurnRateInsight>>
+    val highFrequencyLeaks: StateFlow<List<HighFrequencyLeak>>
+
+    private val _weekOverWeekSpike = MutableStateFlow<WeekOverWeekSpike?>(null)
+    val weekOverWeekSpike = _weekOverWeekSpike.asStateFlow()
 
     // Vendor Mappings
     val vendorMappings: StateFlow<List<VendorMappingEntity>>
@@ -61,7 +70,7 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     init {
         val db = AppDatabase.getDatabase(application)
         val prefs = AppPreferences(application)
-        repository = TransactionRepository(db, prefs)
+        repository = TransactionRepository(db, prefs, application)
 
         // Ensure default pre-seeded categories & mappings exist
         viewModelScope.launch {
@@ -109,6 +118,48 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             SharingStarted.WhileSubscribed(5000),
             emptyList()
         )
+
+        monthCategorySpending = repository.getCurrentMonthCategorySpending().stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        monthVendorSpending = repository.getCurrentMonthVendorSpending().stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        currentMonthTotalTrueSpend = repository.getCurrentMonthTotalTrueSpend().stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            0.0
+        )
+
+        overallMonthlyBudget = repository.overallMonthlyBudget.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            20000.0
+        )
+
+        burnRateWarnings = repository.getBurnRateWarnings().stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        highFrequencyLeaks = repository.highFrequencyLeaks.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        viewModelScope.launch {
+            allTransactions.collect {
+                _weekOverWeekSpike.value = repository.calculateWeekOverWeekSpike()
+            }
+        }
 
         vendorMappings = repository.allVendorMappings.stateIn(
             viewModelScope,
@@ -418,12 +469,32 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    // ─── Preferences ─────────────────────────────────────────────────────────
+    // ─── Preferences & Budgets ───────────────────────────────────────────────
 
     fun updatePnbCreditLimit(limit: Double) {
         viewModelScope.launch {
             repository.setPnbCreditLimit(limit)
             _statusMessage.value = "PNB credit limit updated to ₹$limit."
+        }
+    }
+
+    fun setOverallMonthlyBudget(budget: Double) {
+        viewModelScope.launch {
+            repository.setOverallMonthlyBudget(budget)
+            _statusMessage.value = "Overall monthly budget updated to ₹${budget.toInt()}."
+        }
+    }
+
+    fun updateCategoryBudget(categoryId: Long, budget: Double) {
+        viewModelScope.launch {
+            repository.updateCategoryBudget(categoryId, budget)
+            _statusMessage.value = "Category budget updated to ₹${budget.toInt()}."
+        }
+    }
+
+    fun refreshInsights() {
+        viewModelScope.launch {
+            _weekOverWeekSpike.value = repository.calculateWeekOverWeekSpike()
         }
     }
 

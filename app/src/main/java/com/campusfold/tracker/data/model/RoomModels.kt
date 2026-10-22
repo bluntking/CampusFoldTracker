@@ -81,3 +81,56 @@ data class CategorySpending(
     val monthlyBudget: Double,
     val totalSpent: Double
 )
+
+/**
+ * Campus vendor spending breakdown for true personal expenses.
+ */
+data class VendorSpendingItem(
+    val vendorName: String,
+    val transactionCount: Int,
+    val totalSpent: Double
+)
+
+/**
+ * Category spending within a specific date range.
+ */
+data class CategoryPeriodSpend(
+    val categoryId: Long,
+    val categoryName: String,
+    val colorHex: String,
+    val totalSpent: Double
+)
+
+/**
+ * Burn Rate Warning: % of budget spent is significantly ahead of % of days elapsed in the month.
+ */
+data class BurnRateInsight(
+    val categoryName: String,
+    val colorHex: String,
+    val spent: Double,
+    val budget: Double,
+    val spentPercent: Double,
+    val daysElapsedPercent: Double,
+    val pacingAheadPercent: Double
+)
+
+/**
+ * High-Frequency Leak: Vendors with >5 transactions in the current week.
+ */
+data class HighFrequencyLeak(
+    val vendorName: String,
+    val transactionCount: Int,
+    val totalSpent: Double
+)
+
+/**
+ * Week-over-Week Spike: Category with the highest ₹ increase compared to the previous 7 days.
+ */
+data class WeekOverWeekSpike(
+    val categoryName: String,
+    val colorHex: String,
+    val currentWeekSpend: Double,
+    val previousWeekSpend: Double,
+    val increaseAmount: Double,
+    val percentIncrease: Double
+)

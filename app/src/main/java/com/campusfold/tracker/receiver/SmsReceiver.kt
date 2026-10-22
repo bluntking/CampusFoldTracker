@@ -57,7 +57,7 @@ class SmsReceiver : BroadcastReceiver() {
             try {
                 val db = AppDatabase.getDatabase(context)
                 val prefs = AppPreferences(context)
-                val repository = TransactionRepository(db, prefs)
+                val repository = TransactionRepository(db, prefs, context.applicationContext)
 
                 // Update credit limit if mentioned in PNB SMS
                 if (parsedResult.extractedCreditLimit != null) {
