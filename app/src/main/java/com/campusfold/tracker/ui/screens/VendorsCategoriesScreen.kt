@@ -237,11 +237,10 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
             containerColor = if (selectedTab == 0) NeonEmerald else NeonCyan,
             contentColor = OledBlack,
             modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(24.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add New")
-            }
+                .align(Alignment.BottomEnd)
+                .padding(24.dp)
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "Add New")
         }
     }
 
