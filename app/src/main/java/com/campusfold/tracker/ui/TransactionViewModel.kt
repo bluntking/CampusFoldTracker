@@ -778,14 +778,13 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
      */
     fun checkAndAutoSyncGmail() {
         if (_isGmailSyncing.value) return
-        val prefs = AppPreferences(getApplication())
-        val email = prefs.getGmailEmail()
-        val password = prefs.getGmailAppPassword()
+        val email = gmailSyncEmail.value
+        val password = gmailSyncAppPassword.value
         if (email.isNullOrBlank() || password.isNullOrBlank()) return
 
-        val lastSync = prefs.getGmailLastSyncTimestamp()
+        val lastSync = gmailLastSyncTimestamp.value
         // Throttle: don't sync if last sync was within 2 minutes
-        if (System.currentTimeMillis() - lastSync < 120_000L) return
+        if (lastSync > 0L && (System.currentTimeMillis() - lastSync) < 120_000L) return
 
         val startTime = if (lastSync > 0L) {
             lastSync - 3600_000L // 1 hour buffer

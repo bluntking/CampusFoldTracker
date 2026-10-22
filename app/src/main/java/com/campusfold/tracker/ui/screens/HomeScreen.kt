@@ -52,6 +52,7 @@ fun HomeScreen(
     initialSelectedTransaction: TransactionEntity? = null
 ) {
     val transactions by viewModel.filteredTransactions.collectAsState()
+    val allTransactions by viewModel.allTransactions.collectAsState()
     val totalMyExpense by viewModel.totalMyExpense.collectAsState()
     val currentMonthTotalTrueSpend by viewModel.currentMonthTotalTrueSpend.collectAsState()
     val totalIncome by viewModel.totalIncome.collectAsState()

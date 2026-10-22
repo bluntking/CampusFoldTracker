@@ -748,7 +748,7 @@ class TransactionRepository(
                     val paying = minOf(remaining, unpaid)
                     val newPaid = split.amountPaidSoFar + paying
                     val isSettled = newPaid >= split.amountOwed - 0.01
-                    splitDao.update(
+                    splitDao.updateSplitItem(
                         split.copy(
                             amountPaidSoFar = newPaid,
                             isSettled = isSettled
