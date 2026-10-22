@@ -16,6 +16,7 @@ import com.campusfold.tracker.util.CampusSmsParser
 import com.campusfold.tracker.util.NotificationHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
@@ -51,57 +52,54 @@ class SmsReceiver : BroadcastReceiver() {
 
         Log.d(TAG, "Incoming SMS from $sender: $fullBody")
 
-        val parsedResult = CampusSmsParser.parse(fullBody, sender, timestamp)
-        if (parsedResult == null) {
-            // Optional AI Unstructured Message Fallback
-            val pendingAi = goAsync()
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val aiTx = com.campusfold.tracker.ai.LocalAiManager.parseUnstructuredMessage(fullBody)
-                    if (aiTx != null) {
-                        val db = AppDatabase.getDatabase(context)
-                        val prefs = AppPreferences(context)
-                        val repository = TransactionRepository(db, prefs, context.applicationContext)
-                        val txType = try {
-                            TransactionType.valueOf(aiTx.type)
-                        } catch (e: Exception) {
-                            TransactionType.EXPENSE
-                        }
-                        val (friendly, catId) = repository.resolveVendor(aiTx.merchant)
-                        val tx = TransactionEntity(
-                            amount = aiTx.amount,
-                            myActualShare = aiTx.amount,
-                            type = txType,
-                            paymentMode = "SMS / Auto-Detected",
-                            rawMerchant = aiTx.merchant,
-                            friendlyVendorName = friendly,
-                            categoryId = catId,
-                            timestamp = timestamp,
-                            upiRef = null,
-                            rawSms = fullBody
-                        )
-                        repository.addTransaction(tx)
-                        NotificationHelper.showCustomNotification(
-                            context,
-                            "AI Parsed Transaction",
-                            "Logged ₹${aiTx.amount.toInt()} at $friendly via Local AI"
-                        )
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "AI SMS fallback failed", e)
-                } finally {
-                    pendingAi.finish()
-                }
-            }
-            return
-        }
-
         val pendingResult = goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
+        val appContext = context.applicationContext
+
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                val db = AppDatabase.getDatabase(context)
-                val prefs = AppPreferences(context)
-                val repository = TransactionRepository(db, prefs, context.applicationContext)
+                val db = AppDatabase.getDatabase(appContext)
+                val prefs = AppPreferences(appContext)
+                val repository = TransactionRepository(db, prefs, appContext)
+
+                val accounts = db.accountDao().getAllAccountsSync()
+                val parsedResult = CampusSmsParser.parse(fullBody, sender, timestamp, accounts)
+
+                if (parsedResult == null) {
+                    // Optional AI Unstructured Message Fallback
+                    try {
+                        val aiTx = com.campusfold.tracker.ai.LocalAiManager.parseUnstructuredMessage(fullBody)
+                        if (aiTx != null) {
+                            val txType = try {
+                                TransactionType.valueOf(aiTx.type)
+                            } catch (e: Exception) {
+                                TransactionType.EXPENSE
+                            }
+                            val (friendly, catId) = repository.resolveVendor(aiTx.merchant)
+                            val resolvedMode = CampusSmsParser.resolvePaymentMode(fullBody, sender, accounts)
+                            val tx = TransactionEntity(
+                                amount = aiTx.amount,
+                                myActualShare = aiTx.amount,
+                                type = txType,
+                                paymentMode = resolvedMode,
+                                rawMerchant = aiTx.merchant,
+                                friendlyVendorName = friendly,
+                                categoryId = catId,
+                                timestamp = timestamp,
+                                upiRef = null,
+                                rawSms = fullBody
+                            )
+                            repository.addTransaction(tx)
+                            NotificationHelper.showCustomNotification(
+                                appContext,
+                                "AI Parsed Transaction",
+                                "Logged ₹${aiTx.amount.toInt()} at $friendly via Local AI"
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "AI SMS fallback failed", e)
+                    }
+                    return@launch
+                }
 
                 // Update credit limit if mentioned in PNB SMS
                 if (parsedResult.extractedCreditLimit != null) {
@@ -156,7 +154,7 @@ class SmsReceiver : BroadcastReceiver() {
                             )
 
                             val notifMsg = "Auto-settled ₹${result.settledAmount.toInt()} from ${person.name}. Remaining owed: ₹${result.remainingOwed.toInt()}"
-                            NotificationHelper.showCustomNotification(context, "Friend Split Auto-Settled", notifMsg)
+                            NotificationHelper.showCustomNotification(appContext, "Friend Split Auto-Settled", notifMsg)
                             handledExact = true
                             break
                         }
@@ -189,7 +187,7 @@ class SmsReceiver : BroadcastReceiver() {
                                     )
                                 )
                                 val notifMsg = "Received ₹${resolvedTx.amount} from $senderNameOrVpa. Apply to ${person.name}'s ₹${pendingBalance.toInt()} balance?"
-                                NotificationHelper.showCustomNotification(context, "Settlement Suggestion", notifMsg)
+                                NotificationHelper.showCustomNotification(appContext, "Settlement Suggestion", notifMsg)
                                 break
                             }
                         }
@@ -197,7 +195,7 @@ class SmsReceiver : BroadcastReceiver() {
                 }
 
                 if (resolvedTx.type != TransactionType.INCOME) {
-                    NotificationHelper.showTransactionNotification(context, resolvedTx)
+                    NotificationHelper.showTransactionNotification(appContext, resolvedTx)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling incoming SMS", e)
@@ -205,5 +203,6 @@ class SmsReceiver : BroadcastReceiver() {
                 pendingResult.finish()
             }
         }
+    }
     }
 }

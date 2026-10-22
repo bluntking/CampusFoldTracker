@@ -107,45 +107,84 @@ fun AnalyticsScreen(
         val total = currentMonthTotalTrueSpend
         if (total <= 0.0) emptyList()
         else {
-            var currentAngle = -90f
             when (breakdownMode) {
                 ChartBreakdownMode.CATEGORY -> {
-                    monthCategorySpending.filter { it.totalSpent > 0.0 }.mapIndexed { index, cat ->
-                        val pct = ((cat.totalSpent / total) * 100.0).toFloat()
-                        val sweep = (cat.totalSpent / total * 360.0).toFloat()
-                        val sliceColor = try {
-                            Color(android.graphics.Color.parseColor(cat.colorHex))
-                        } catch (e: Exception) {
-                            foldColors[index % foldColors.size]
-                        }
-                        val slice = ChartSlice(
-                            id = cat.categoryId.toString(),
-                            name = cat.categoryName,
-                            amount = cat.totalSpent,
-                            percentage = pct,
-                            color = sliceColor,
-                            startAngle = currentAngle,
-                            sweepAngle = sweep
+                    val rawSlices = monthCategorySpending
+                        .filter { it.totalSpent > 0.0 }
+                        .mapIndexed { index, cat ->
+                            val sliceColor = try {
+                                Color(android.graphics.Color.parseColor(cat.colorHex))
+                            } catch (e: Exception) {
+                                foldColors[index % foldColors.size]
+                            }
+                            Triple(cat.categoryId.toString(), cat.categoryName, cat.totalSpent) to sliceColor
+                        }.toMutableList()
+
+                    val categorySum = rawSlices.sumOf { it.first.third }
+                    val uncategorized = (total - categorySum).coerceAtLeast(0.0)
+                    if (uncategorized > 0.5) {
+                        rawSlices.add(
+                            Triple("uncategorized", "Uncategorized", uncategorized) to Color(0xFF64748B)
                         )
-                        currentAngle += sweep
-                        slice
+                    }
+
+                    val effectiveTotal = rawSlices.sumOf { it.first.third }
+                    if (effectiveTotal <= 0.0) emptyList()
+                    else {
+                        var currentAngle = -90f
+                        rawSlices.map { (info, color) ->
+                            val (id, name, amount) = info
+                            val pct = ((amount / effectiveTotal) * 100.0).toFloat()
+                            val sweep = ((amount / effectiveTotal) * 360.0).toFloat()
+                            val slice = ChartSlice(
+                                id = id,
+                                name = name,
+                                amount = amount,
+                                percentage = pct,
+                                color = color,
+                                startAngle = currentAngle,
+                                sweepAngle = sweep
+                            )
+                            currentAngle += sweep
+                            slice
+                        }
                     }
                 }
                 ChartBreakdownMode.CAMPUS_VENDOR -> {
-                    monthVendorSpending.filter { it.totalSpent > 0.0 }.mapIndexed { index, v ->
-                        val pct = ((v.totalSpent / total) * 100.0).toFloat()
-                        val sweep = (v.totalSpent / total * 360.0).toFloat()
-                        val slice = ChartSlice(
-                            id = v.vendorName,
-                            name = v.vendorName,
-                            amount = v.totalSpent,
-                            percentage = pct,
-                            color = foldColors[index % foldColors.size],
-                            startAngle = currentAngle,
-                            sweepAngle = sweep
+                    val rawSlices = monthVendorSpending
+                        .filter { it.totalSpent > 0.0 }
+                        .mapIndexed { index, v ->
+                            Triple(v.vendorName, v.vendorName, v.totalSpent) to foldColors[index % foldColors.size]
+                        }.toMutableList()
+
+                    val vendorSum = rawSlices.sumOf { it.first.third }
+                    val other = (total - vendorSum).coerceAtLeast(0.0)
+                    if (other > 0.5) {
+                        rawSlices.add(
+                            Triple("other_vendors", "Other / Direct", other) to Color(0xFF64748B)
                         )
-                        currentAngle += sweep
-                        slice
+                    }
+
+                    val effectiveTotal = rawSlices.sumOf { it.first.third }
+                    if (effectiveTotal <= 0.0) emptyList()
+                    else {
+                        var currentAngle = -90f
+                        rawSlices.map { (info, color) ->
+                            val (id, name, amount) = info
+                            val pct = ((amount / effectiveTotal) * 100.0).toFloat()
+                            val sweep = ((amount / effectiveTotal) * 360.0).toFloat()
+                            val slice = ChartSlice(
+                                id = id,
+                                name = name,
+                                amount = amount,
+                                percentage = pct,
+                                color = color,
+                                startAngle = currentAngle,
+                                sweepAngle = sweep
+                            )
+                            currentAngle += sweep
+                            slice
+                        }
                     }
                 }
             }
@@ -305,6 +344,21 @@ fun AnalyticsScreen(
                                                 val center = Offset(size.width / 2f, size.height / 2f)
                                                 val dx = offset.x - center.x
                                                 val dy = offset.y - center.y
+                                                val dist = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                                                val outerRadius = size.width / 2f
+                                                val strokeWidthBase = 32.dp.toPx()
+                                                val innerRadius = outerRadius - strokeWidthBase - 16.dp.toPx()
+
+                                                // Tapping inside the donut hole deselects current slice
+                                                if (dist < innerRadius) {
+                                                    selectedSliceId = null
+                                                    return@detectTapGestures
+                                                }
+                                                // Tapping outside the outer ring is ignored
+                                                if (dist > outerRadius) {
+                                                    return@detectTapGestures
+                                                }
+
                                                 var angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
                                                 if (angle < 0) angle += 360f
 
@@ -330,19 +384,21 @@ fun AnalyticsScreen(
                                     val strokeWidthBase = 32.dp.toPx()
                                     val arcSize = Size(size.width - strokeWidthBase - 8.dp.toPx(), size.height - strokeWidthBase - 8.dp.toPx())
                                     val topLeft = Offset((size.width - arcSize.width) / 2f, (size.height - arcSize.height) / 2f)
+                                    val singleSlice = chartSlices.size == 1
 
                                     chartSlices.forEach { slice ->
                                         val isSelected = slice.id == selectedSliceId
                                         val stroke = if (isSelected) strokeWidthBase + 10.dp.toPx() else strokeWidthBase
+                                        val sweep = if (singleSlice) 360f else (slice.sweepAngle - 2f).coerceAtLeast(0.5f)
 
                                         drawArc(
                                             color = if (selectedSliceId == null || isSelected) slice.color else slice.color.copy(alpha = 0.35f),
                                             startAngle = slice.startAngle,
-                                            sweepAngle = (slice.sweepAngle - 1.5f).coerceAtLeast(0.5f),
+                                            sweepAngle = sweep,
                                             useCenter = false,
                                             topLeft = topLeft,
                                             size = arcSize,
-                                            style = Stroke(width = stroke, cap = StrokeCap.Round)
+                                            style = Stroke(width = stroke, cap = StrokeCap.Butt)
                                         )
                                     }
                                 }

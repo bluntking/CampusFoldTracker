@@ -11,11 +11,17 @@ interface PendingSettlementSuggestionDao {
     @Query("SELECT * FROM pending_settlement_suggestions WHERE status = 'PENDING' ORDER BY id DESC")
     fun getPendingSuggestions(): Flow<List<PendingSettlementSuggestionEntity>>
 
+    @Query("SELECT * FROM pending_settlement_suggestions")
+    suspend fun getAllSuggestionsSync(): List<PendingSettlementSuggestionEntity>
+
     @Query("SELECT * FROM pending_settlement_suggestions WHERE id = :id LIMIT 1")
     suspend fun getSuggestionById(id: Long): PendingSettlementSuggestionEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSuggestion(suggestion: PendingSettlementSuggestionEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSuggestions(suggestions: List<PendingSettlementSuggestionEntity>): List<Long>
 
     @Query("UPDATE pending_settlement_suggestions SET status = :status WHERE id = :id")
     suspend fun updateStatus(id: Long, status: SettlementSuggestionStatus)

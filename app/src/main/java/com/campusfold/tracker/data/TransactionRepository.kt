@@ -29,6 +29,10 @@ class TransactionRepository(
     // ─── Accounts ─────────────────────────────────────────────────────────────
     val allAccounts: Flow<List<AccountEntity>> = accountDao.getAllAccounts()
 
+    suspend fun getAllAccountsList(): List<AccountEntity> = withContext(Dispatchers.IO) {
+        accountDao.getAllAccountsSync()
+    }
+
     suspend fun addAccount(account: AccountEntity): Long = withContext(Dispatchers.IO) {
         accountDao.insertAccount(account)
     }

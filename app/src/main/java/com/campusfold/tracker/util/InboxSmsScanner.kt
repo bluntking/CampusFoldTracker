@@ -54,6 +54,8 @@ object InboxSmsScanner {
         )
         val sortOrder = "${Telephony.Sms.DATE} ASC" // Process chronologically
 
+        val accounts = repository.getAllAccountsList()
+
         try {
             val cursor = context.contentResolver.query(
                 Telephony.Sms.CONTENT_URI,
@@ -76,7 +78,7 @@ object InboxSmsScanner {
 
                     if (body.isBlank()) continue
 
-                    val parsedResult = CampusSmsParser.parse(body, address, date) ?: continue
+                    val parsedResult = CampusSmsParser.parse(body, address, date, accounts) ?: continue
 
                     // Update credit limit if extracted from PNB SMS
                     if (parsedResult.extractedCreditLimit != null) {

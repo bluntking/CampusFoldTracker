@@ -16,6 +16,46 @@ class AppPreferences(private val context: Context) {
         private val PNB_CREDIT_LIMIT = doublePreferencesKey("pnb_credit_limit")
         private val LAST_SMS_SYNC = longPreferencesKey("last_sms_sync_timestamp")
         private val OVERALL_MONTHLY_BUDGET = doublePreferencesKey("overall_monthly_budget")
+        private val SAVED_AI_MODEL_PATH = stringPreferencesKey("saved_ai_model_path")
+        private val PROCESSED_NOTIF_HASHES = stringSetPreferencesKey("processed_notif_hashes")
+    }
+
+    val savedAiModelPath: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[SAVED_AI_MODEL_PATH]
+    }
+
+    suspend fun setSavedAiModelPath(path: String?) {
+        context.dataStore.edit { preferences ->
+            if (path != null) {
+                preferences[SAVED_AI_MODEL_PATH] = path
+            } else {
+                preferences.remove(SAVED_AI_MODEL_PATH)
+            }
+        }
+    }
+
+    suspend fun getSavedAiModelPathSync(): String? {
+        val prefs = context.dataStore.data.first()
+        return prefs[SAVED_AI_MODEL_PATH]
+    }
+
+    suspend fun isNotificationHashProcessed(hash: String): Boolean {
+        val prefs = context.dataStore.data.first()
+        val set = prefs[PROCESSED_NOTIF_HASHES] ?: emptySet()
+        return set.contains(hash)
+    }
+
+    suspend fun markNotificationHashProcessed(hash: String) {
+        context.dataStore.edit { preferences ->
+            val existing = preferences[PROCESSED_NOTIF_HASHES] ?: emptySet()
+            // Keep last 500 hashes to prevent unbounded growth
+            val updated = if (existing.size > 500) {
+                existing.drop(100).toSet() + hash
+            } else {
+                existing + hash
+            }
+            preferences[PROCESSED_NOTIF_HASHES] = updated
+        }
     }
 
     val latestPnbCreditLimit: Flow<Double> = context.dataStore.data.map { preferences ->

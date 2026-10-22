@@ -22,7 +22,8 @@ data class BackupStats(
     val vendorCount: Int,
     val personCount: Int,
     val transactionCount: Int,
-    val splitCount: Int
+    val splitCount: Int,
+    val suggestionCount: Int = 0
 )
 
 object BackupManager {
@@ -40,12 +41,13 @@ object BackupManager {
             val persons = db.personDao().getAllPersonsList()
             val transactions = db.transactionDao().getAllTransactionsSync()
             val splits = db.splitItemDao().getAllSplitsSync()
+            val suggestions = db.pendingSettlementSuggestionDao().getAllSuggestionsSync()
             val pnbLimit = prefs.getLatestPnbCreditLimitSync()
             val overallBudget = prefs.getOverallMonthlyBudgetSync()
 
             val rootJson = JSONObject().apply {
                 put("app", "CampusFoldTracker")
-                put("version", 1)
+                put("version", 2)
                 put("exportTimestamp", System.currentTimeMillis())
                 put("exportDate", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH).format(Date()))
 
@@ -138,6 +140,20 @@ object BackupManager {
                     })
                 }
                 put("splits", splitsArray)
+
+                // Pending Settlement Suggestions
+                val suggestionsArray = JSONArray()
+                suggestions.forEach { s ->
+                    suggestionsArray.put(JSONObject().apply {
+                        put("id", s.id)
+                        put("transactionId", s.transactionId ?: JSONObject.NULL)
+                        put("suggestedPersonId", s.suggestedPersonId)
+                        put("detectedSenderName", s.detectedSenderName)
+                        put("amount", s.amount)
+                        put("status", s.status.name)
+                    })
+                }
+                put("pendingSettlementSuggestions", suggestionsArray)
             }
 
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
@@ -154,7 +170,8 @@ object BackupManager {
                     vendorCount = vendors.size,
                     personCount = persons.size,
                     transactionCount = transactions.size,
-                    splitCount = splits.size
+                    splitCount = splits.size,
+                    suggestionCount = suggestions.size
                 )
             )
         } catch (e: Exception) {
@@ -186,6 +203,7 @@ object BackupManager {
             var restoredPersons = 0
             var restoredTransactions = 0
             var restoredSplits = 0
+            var restoredSuggestions = 0
 
             db.runInTransaction {
                 // 1. Restore Categories
@@ -349,7 +367,39 @@ object BackupManager {
                     }
                 }
 
-                // 7. Restore Preferences
+                // 7. Restore Pending Settlement Suggestions
+                if (rootJson.has("pendingSettlementSuggestions")) {
+                    val arr = rootJson.getJSONArray("pendingSettlementSuggestions")
+                    val list = mutableListOf<PendingSettlementSuggestionEntity>()
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val txId = if (obj.isNull("transactionId")) null else obj.optLong("transactionId")
+                        val statusStr = obj.optString("status", "PENDING")
+                        val status = try {
+                            SettlementSuggestionStatus.valueOf(statusStr)
+                        } catch (e: Exception) {
+                            SettlementSuggestionStatus.PENDING
+                        }
+                        list.add(
+                            PendingSettlementSuggestionEntity(
+                                id = obj.optLong("id", 0),
+                                transactionId = txId,
+                                suggestedPersonId = obj.getLong("suggestedPersonId"),
+                                detectedSenderName = obj.optString("detectedSenderName", ""),
+                                amount = obj.getDouble("amount"),
+                                status = status
+                            )
+                        )
+                    }
+                    if (list.isNotEmpty()) {
+                        kotlinx.coroutines.runBlocking {
+                            db.pendingSettlementSuggestionDao().insertSuggestions(list)
+                        }
+                        restoredSuggestions = list.size
+                    }
+                }
+
+                // 8. Restore Preferences
                 if (rootJson.has("preferences")) {
                     val prefObj = rootJson.getJSONObject("preferences")
                     kotlinx.coroutines.runBlocking {
@@ -370,7 +420,8 @@ object BackupManager {
                     vendorCount = restoredVendors,
                     personCount = restoredPersons,
                     transactionCount = restoredTransactions,
-                    splitCount = restoredSplits
+                    splitCount = restoredSplits,
+                    suggestionCount = restoredSuggestions
                 )
             )
         } catch (e: Exception) {

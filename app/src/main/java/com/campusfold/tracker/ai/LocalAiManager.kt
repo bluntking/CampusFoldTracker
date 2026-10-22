@@ -3,15 +3,21 @@ package com.campusfold.tracker.ai
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import com.campusfold.tracker.data.pref.AppPreferences
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -51,7 +57,11 @@ object LocalAiManager {
     private const val KEY_MODEL_NAME = "saved_model_name"
     private const val KEY_UNSTRUCTURED_FALLBACK = "unstructured_ai_fallback_enabled"
 
+    const val QWEN_MODEL_URL = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task"
+    const val QWEN_MODEL_FILENAME = "Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task"
+
     private var llmInference: LlmInference? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _modelStatus = MutableStateFlow<AiModelStatus>(AiModelStatus.NotLoaded)
     val modelStatus: StateFlow<AiModelStatus> = _modelStatus.asStateFlow()
@@ -60,7 +70,7 @@ object LocalAiManager {
         listOf(
             ChatMessage(
                 sender = "AI",
-                content = "👋 Hey Sahil! I'm your on-device CampusFold AI Coach. Ask me anything about your monthly spend, campus leaks at Akka shop or Bistro, or friend balances. Tap 'Select LLM Model' to load local Gemma/Qwen weights."
+                content = "👋 Hey Sahil! I'm your on-device CampusFold AI Coach. Ask me anything about your monthly spend, campus leaks at Akka shop or Bistro, or friend balances. Tap 'Select LLM Model' or 1-Tap 'Download Qwen 2.5' to load local weights."
             )
         )
     )
@@ -73,14 +83,22 @@ object LocalAiManager {
     val isAiFallbackEnabled: StateFlow<Boolean> = _isAiFallbackEnabled.asStateFlow()
 
     fun init(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val appContext = context.applicationContext
+        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _isAiFallbackEnabled.value = prefs.getBoolean(KEY_UNSTRUCTURED_FALLBACK, true)
 
-        val savedPath = prefs.getString(KEY_MODEL_PATH, null)
-        val savedName = prefs.getString(KEY_MODEL_NAME, null)
+        scope.launch {
+            // First check DataStore for saved model path, then fallback to SharedPreferences
+            val dataStore = AppPreferences(appContext)
+            var savedPath = dataStore.getSavedAiModelPathSync()
+            if (savedPath.isNullOrBlank()) {
+                savedPath = prefs.getString(KEY_MODEL_PATH, null)
+            }
+            val savedName = prefs.getString(KEY_MODEL_NAME, null)
 
-        if (!savedPath.isNullOrBlank() && File(savedPath).exists()) {
-            loadModelFromPath(context, savedPath, savedName ?: File(savedPath).name)
+            if (!savedPath.isNullOrBlank() && File(savedPath).exists()) {
+                loadModelFromPath(appContext, savedPath, savedName ?: File(savedPath).name)
+            }
         }
     }
 
@@ -94,25 +112,39 @@ object LocalAiManager {
 
     /**
      * Copies selected model file from Storage Access Framework (SAF) URI into internal storage
-     * and initializes MediaPipe LlmInference.
+     * and initializes MediaPipe LlmInference on Dispatchers.IO.
      */
     suspend fun loadModelFromUri(context: Context, uri: Uri, displayName: String) = withContext(Dispatchers.IO) {
         try {
-            _modelStatus.value = AiModelStatus.Loading("Preparing model file: $displayName...", 10)
+            _modelStatus.value = AiModelStatus.Loading("Copying model to app storage...", 0)
 
-            val modelsDir = File(context.filesDir, "llm_models").apply { mkdirs() }
+            val appContext = context.applicationContext
+            val modelsDir = File(appContext.filesDir, "llm_models").apply { mkdirs() }
             val cleanName = displayName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
             val destinationFile = File(modelsDir, cleanName)
 
+            // Determine content size if possible
+            val totalBytes = try {
+                appContext.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
+            } catch (e: Exception) {
+                -1L
+            }
+
             // If file already exists and is non-empty, use directly
-            if (!destinationFile.exists() || destinationFile.length() == 0L) {
-                _modelStatus.value = AiModelStatus.Loading("Copying model weights to sandbox...", 30)
-                context.contentResolver.openInputStream(uri)?.use { input ->
+            if (!destinationFile.exists() || destinationFile.length() == 0L || (totalBytes > 0 && destinationFile.length() != totalBytes)) {
+                _modelStatus.value = AiModelStatus.Loading("Copying model to app storage...", 1)
+                appContext.contentResolver.openInputStream(uri)?.use { input ->
                     FileOutputStream(destinationFile).use { output ->
                         val buffer = ByteArray(64 * 1024)
                         var read: Int
+                        var copiedBytes = 0L
                         while (input.read(buffer).also { read = it } != -1) {
                             output.write(buffer, 0, read)
+                            copiedBytes += read
+                            if (totalBytes > 0) {
+                                val progress = ((copiedBytes.toDouble() / totalBytes.toDouble()) * 100).toInt().coerceIn(1, 99)
+                                _modelStatus.value = AiModelStatus.Loading("Copying model to app storage...", progress)
+                            }
                         }
                         output.flush()
                     }
@@ -122,7 +154,15 @@ object LocalAiManager {
                 }
             }
 
-            loadModelFromPath(context, destinationFile.absolutePath, displayName)
+            // Save path in DataStore & SharedPreferences
+            AppPreferences(appContext).setSavedAiModelPath(destinationFile.absolutePath)
+            appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_MODEL_PATH, destinationFile.absolutePath)
+                .putString(KEY_MODEL_NAME, displayName)
+                .apply()
+
+            loadModelFromPath(appContext, destinationFile.absolutePath, displayName)
 
         } catch (e: Exception) {
             Log.e(TAG, "Error importing model from URI", e)
@@ -130,13 +170,120 @@ object LocalAiManager {
         }
     }
 
-    fun loadModelFromPath(context: Context, path: String, modelName: String) {
-        _modelStatus.value = AiModelStatus.Loading("Initializing MediaPipe inference engine...", 80)
+    /**
+     * 1-Tap Download Qwen 2.5 (0.5B - 547MB) directly from HuggingFace to context.filesDir.
+     * Follows HTTP 302 redirects properly and tracks download progress.
+     */
+    suspend fun downloadQwenModel(context: Context) = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext
+        val modelsDir = File(appContext.filesDir, "llm_models").apply { mkdirs() }
+        val targetFile = File(modelsDir, QWEN_MODEL_FILENAME)
+        val tempFile = File(modelsDir, "$QWEN_MODEL_FILENAME.tmp")
+
+        // If file already exists and has valid size (> 500MB), initialize directly
+        if (targetFile.exists() && targetFile.length() > 500L * 1024 * 1024) {
+            Log.i(TAG, "Qwen model already downloaded (${targetFile.length()} bytes). Initializing...")
+            AppPreferences(appContext).setSavedAiModelPath(targetFile.absolutePath)
+            loadModelFromPath(appContext, targetFile.absolutePath, "Qwen 2.5 (0.5B)")
+            return@withContext
+        }
+
+        try {
+            _modelStatus.value = AiModelStatus.Loading("Connecting to Hugging Face...", 0)
+
+            var currentUrl = QWEN_MODEL_URL
+            var connection: HttpURLConnection
+            var redirectCount = 0
+
+            // Follow redirects manually (HF returns 302 to CDN)
+            while (true) {
+                val urlObj = URL(currentUrl)
+                connection = urlObj.openConnection() as HttpURLConnection
+                connection.instanceFollowRedirects = true
+                connection.connectTimeout = 30000
+                connection.readTimeout = 60000
+                connection.setRequestProperty("User-Agent", "CampusFoldTracker-Android")
+                connection.connect()
+
+                val code = connection.responseCode
+                if (code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_MOVED_TEMP || code == 307 || code == 308) {
+                    val newLocation = connection.getHeaderField("Location")
+                    connection.disconnect()
+                    if (newLocation.isNullOrBlank() || redirectCount++ > 5) {
+                        throw Exception("Too many redirects or missing Location header")
+                    }
+                    currentUrl = newLocation
+                } else if (code == HttpURLConnection.HTTP_OK) {
+                    break
+                } else {
+                    throw Exception("Server returned HTTP $code")
+                }
+            }
+
+            val totalBytes = connection.contentLengthLong
+            Log.i(TAG, "Downloading Qwen 2.5 (0.5B) total size: $totalBytes bytes")
+
+            var downloadedBytes = 0L
+            connection.inputStream.use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var bytesRead: Int
+                    var lastReportTime = System.currentTimeMillis()
+
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        downloadedBytes += bytesRead
+
+                        val now = System.currentTimeMillis()
+                        if (now - lastReportTime > 250) {
+                            lastReportTime = now
+                            val progress = if (totalBytes > 0) {
+                                ((downloadedBytes.toDouble() / totalBytes.toDouble()) * 100).toInt().coerceIn(0, 99)
+                            } else 0
+                            val mbDownloaded = downloadedBytes / (1024 * 1024)
+                            val totalMb = if (totalBytes > 0) "${totalBytes / (1024 * 1024)}MB" else "~547MB"
+                            _modelStatus.value = AiModelStatus.Loading("Downloading Qwen 2.5 ($mbDownloaded MB / $totalMb)...", progress)
+                        }
+                    }
+                    output.flush()
+                }
+            }
+            connection.disconnect()
+
+            if (tempFile.exists() && tempFile.length() > 0) {
+                if (targetFile.exists()) targetFile.delete()
+                tempFile.renameTo(targetFile)
+            } else {
+                throw Exception("Downloaded file is empty")
+            }
+
+            // Save in DataStore & SharedPreferences
+            AppPreferences(appContext).setSavedAiModelPath(targetFile.absolutePath)
+            appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_MODEL_PATH, targetFile.absolutePath)
+                .putString(KEY_MODEL_NAME, "Qwen 2.5 (0.5B)")
+                .apply()
+
+            loadModelFromPath(appContext, targetFile.absolutePath, "Qwen 2.5 (0.5B)")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error downloading Qwen model", e)
+            if (tempFile.exists()) tempFile.delete()
+            _modelStatus.value = AiModelStatus.Error("Download failed: ${e.localizedMessage}")
+        }
+    }
+
+    /**
+     * Initializes MediaPipe LlmInference strictly on Dispatchers.IO (never on Main UI thread).
+     */
+    suspend fun loadModelFromPath(context: Context, path: String, modelName: String) = withContext(Dispatchers.IO) {
+        _modelStatus.value = AiModelStatus.Loading("Initializing MediaPipe inference engine...", 90)
         try {
             val file = File(path)
             if (!file.exists()) {
                 _modelStatus.value = AiModelStatus.Error("Model file does not exist at $path")
-                return
+                return@withContext
             }
 
             // Close existing instance if any
@@ -151,21 +298,22 @@ object LocalAiManager {
                 .setTopK(40)
                 .build()
 
-            llmInference = LlmInference.createFromOptions(context, options)
+            llmInference = LlmInference.createFromOptions(context.applicationContext, options)
 
             _modelStatus.value = AiModelStatus.Ready(modelName, path)
 
-            // Save in prefs
+            // Save in DataStore & SharedPreferences
+            AppPreferences(context.applicationContext).setSavedAiModelPath(path)
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putString(KEY_MODEL_PATH, path)
                 .putString(KEY_MODEL_NAME, modelName)
                 .apply()
 
-            Log.i(TAG, "MediaPipe LLM loaded successfully from $path ($modelName)")
+            Log.i(TAG, "MediaPipe LLM loaded successfully on Dispatchers.IO from $path ($modelName)")
 
         } catch (e: Throwable) {
-            Log.e(TAG, "Error creating LlmInference instance", e)
+            Log.e(TAG, "Error creating LlmInference instance on Dispatchers.IO", e)
             _modelStatus.value = AiModelStatus.Error("Failed to initialize MediaPipe engine: ${e.message}")
         }
     }

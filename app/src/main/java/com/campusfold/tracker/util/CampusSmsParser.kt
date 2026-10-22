@@ -1,5 +1,6 @@
 package com.campusfold.tracker.util
 
+import com.campusfold.tracker.data.entity.AccountEntity
 import com.campusfold.tracker.data.entity.TransactionEntity
 import com.campusfold.tracker.data.entity.TransactionType
 import java.text.SimpleDateFormat
@@ -62,11 +63,13 @@ object CampusSmsParser {
 
     /**
      * Parses an incoming SMS text into a normalized transaction and optional extracted credit limit.
+     * Dynamically matches accounts against user-configured accounts from database.
      */
     fun parse(
         body: String?,
         sender: String?,
-        timestampFallback: Long = System.currentTimeMillis()
+        timestampFallback: Long = System.currentTimeMillis(),
+        knownAccounts: List<AccountEntity> = emptyList()
     ): ParsedCampusSms? {
         if (body.isNullOrBlank()) return null
         val cleanBody = body.trim()
@@ -77,13 +80,13 @@ object CampusSmsParser {
         }
 
         // Try Format 1: PNB Credit Card 8598
-        parseFormat1Pnb(cleanBody, timestampFallback)?.let { return it }
+        parseFormat1Pnb(cleanBody, timestampFallback, knownAccounts)?.let { return it }
 
         // Try Format 2: Axis Bank XX2003
-        parseFormat2Axis(cleanBody, timestampFallback)?.let { return it }
+        parseFormat2Axis(cleanBody, timestampFallback, knownAccounts)?.let { return it }
 
         // Fallback: Generic Indian Banking / UPI SMS
-        return parseGenericFallback(cleanBody, sender, timestampFallback)
+        return parseGenericFallback(cleanBody, sender, timestampFallback, knownAccounts)
     }
 
     /**
@@ -91,11 +94,17 @@ object CampusSmsParser {
      * Debit Example:
      * "PNB Credit Card 8598 debited with Rs.100 [CODE:WY9024] at Sekar store on 22-10-2026 14:18 through UPI: 629525888174 Avl limit Rs. 59396.93. -PNB"
      */
-    private fun parseFormat1Pnb(body: String, timestampFallback: Long): ParsedCampusSms? {
+    private fun parseFormat1Pnb(
+        body: String,
+        timestampFallback: Long,
+        knownAccounts: List<AccountEntity> = emptyList()
+    ): ParsedCampusSms? {
         val isPnb8598 = pnbCardPattern.containsMatchIn(body) ||
                 (body.contains("8598") && (body.contains("PNB", ignoreCase = true) || body.contains("Credit Card", ignoreCase = true)))
 
         if (!isPnb8598) return null
+
+        val paymentMode = knownAccounts.find { it.last4 == "8598" }?.name ?: "PNB CC 8598"
 
         // Extract Avl limit if present (e.g. 59396.93)
         val creditLimit = pnbLimitPattern.find(body)?.groupValues?.getOrNull(1)?.replace(",", "")?.toDoubleOrNull()
@@ -110,7 +119,7 @@ object CampusSmsParser {
                 amount = amount,
                 myActualShare = amount,
                 type = TransactionType.CC_BILL_TRANSFER,
-                paymentMode = "PNB CC 8598",
+                paymentMode = paymentMode,
                 rawMerchant = "PNB Credit Card Bill Confirmation",
                 friendlyVendorName = "PNB CC Bill Payment",
                 categoryId = null,
@@ -150,7 +159,7 @@ object CampusSmsParser {
             amount = amount,
             myActualShare = amount,
             type = TransactionType.EXPENSE,
-            paymentMode = "PNB CC 8598",
+            paymentMode = paymentMode,
             rawMerchant = rawMerchant,
             friendlyVendorName = rawMerchant,
             categoryId = null,
@@ -167,11 +176,17 @@ object CampusSmsParser {
      * Debit Example:
      * "INR 60.00 debited\nA/c no. XX2003\n21-10-26, 17:54:38\nUPI/P2M/666090797851/DD STORE"
      */
-    private fun parseFormat2Axis(body: String, timestampFallback: Long): ParsedCampusSms? {
+    private fun parseFormat2Axis(
+        body: String,
+        timestampFallback: Long,
+        knownAccounts: List<AccountEntity> = emptyList()
+    ): ParsedCampusSms? {
         val isAxis2003 = axisAccountPattern.containsMatchIn(body) ||
                 (body.contains("XX2003", ignoreCase = true) && body.contains("debited", ignoreCase = true))
 
         if (!isAxis2003) return null
+
+        val paymentMode = knownAccounts.find { it.last4 == "2003" }?.name ?: "Axis Bank XX2003"
 
         // Format 2 is strictly for Axis debits & outbound CC bill transfers.
         // Incoming credits / deposits / reversals fall through to generic income / settlement handling.
@@ -230,7 +245,7 @@ object CampusSmsParser {
             amount = amount,
             myActualShare = amount,
             type = txType,
-            paymentMode = "Axis Bank XX2003",
+            paymentMode = paymentMode,
             rawMerchant = finalMerchant,
             friendlyVendorName = friendlyName,
             categoryId = null,
@@ -245,7 +260,12 @@ object CampusSmsParser {
     /**
      * Generic fallback for other bank and UPI messages.
      */
-    private fun parseGenericFallback(body: String, sender: String?, timestampFallback: Long): ParsedCampusSms? {
+    private fun parseGenericFallback(
+        body: String,
+        sender: String?,
+        timestampFallback: Long,
+        knownAccounts: List<AccountEntity> = emptyList()
+    ): ParsedCampusSms? {
         val isFinancial = Regex(
             """\b(debited|credited|paid|spent|transferred|withdrawn|received|refund|cashback|purchase)\b""",
             RegexOption.IGNORE_CASE
@@ -283,22 +303,7 @@ object CampusSmsParser {
         }
         val finalMerchant = merchant ?: if (type == TransactionType.INCOME) "Deposit / Refund" else "Merchant Store"
 
-        val lowerBody = body.lowercase()
-        val paymentMode = when {
-            lowerBody.contains("8598") -> "PNB CC 8598"
-            lowerBody.contains("2003") -> "Axis Bank XX2003"
-            lowerBody.contains("2548") || lowerBody.contains("jupiter") -> "Federal (Jupiter) 2548"
-            lowerBody.contains("5557") -> "PNB Savings Account 5557"
-            lowerBody.contains("5476") -> "Axis Bank Savings Account 5476"
-            lowerBody.contains("axis") && (lowerBody.contains("card") || lowerBody.contains("credit")) -> "Axis Bank Credit Card"
-            lowerBody.contains("pnb") -> "PNB Savings Account 5557"
-            lowerBody.contains("axis") -> "Axis Bank XX2003"
-            lowerBody.contains("federal") -> "Federal (Jupiter) 2548"
-            lowerBody.contains("sbi") -> "SBI A/c"
-            lowerBody.contains("hdfc") -> "HDFC Bank"
-            lowerBody.contains("icici") -> "ICICI Bank"
-            else -> "Cash/Manual"
-        }
+        val paymentMode = resolvePaymentMode(body, sender, knownAccounts)
 
         val dedupeKey = upiRef ?: generateDedupeHash(timestampFallback, amount, finalMerchant)
 
@@ -316,6 +321,91 @@ object CampusSmsParser {
         )
 
         return ParsedCampusSms(transaction = tx, extractedCreditLimit = null)
+    }
+
+    /**
+     * Dynamically resolves payment mode from database accounts, known formats, or unknown account tails.
+     */
+    fun resolvePaymentMode(
+        body: String,
+        sender: String?,
+        knownAccounts: List<AccountEntity> = emptyList()
+    ): String {
+        val lowerBody = body.lowercase()
+        val lowerSender = (sender ?: "").lowercase()
+
+        // 1. Dynamic Match against user's added accounts in database
+        if (knownAccounts.isNotEmpty()) {
+            // First check accounts with both bank and last4 match
+            for (acc in knownAccounts) {
+                val last4 = acc.last4.trim().lowercase()
+                val bank = acc.bankName.trim().lowercase()
+                if (last4.length >= 4 && (lowerBody.contains(last4) || lowerBody.contains("xx$last4"))) {
+                    if (bank.isNotEmpty() && (lowerBody.contains(bank) || lowerSender.contains(bank))) {
+                        return acc.name
+                    }
+                }
+            }
+            // Check accounts with last4 match (4+ digits)
+            for (acc in knownAccounts) {
+                val last4 = acc.last4.trim().lowercase()
+                if (last4.length >= 4 && (lowerBody.contains(last4) || lowerBody.contains("xx$last4"))) {
+                    return acc.name
+                }
+            }
+            // Check accounts with full name match
+            for (acc in knownAccounts) {
+                val name = acc.name.trim().lowercase()
+                if (name.length >= 5 && lowerBody.contains(name)) {
+                    return acc.name
+                }
+            }
+        }
+
+        // 2. Built-in Known Account Patterns
+        when {
+            lowerBody.contains("8598") -> return "PNB CC 8598"
+            lowerBody.contains("2003") -> return "Axis Bank XX2003"
+            lowerBody.contains("2548") || lowerBody.contains("jupiter") -> return "Federal (Jupiter) 2548"
+            lowerBody.contains("5557") -> return "PNB Savings Account 5557"
+            lowerBody.contains("5476") -> return "Axis Bank Savings Account 5476"
+            lowerBody.contains("axis") && (lowerBody.contains("card") || lowerBody.contains("credit")) -> return "Axis Bank Credit Card"
+        }
+
+        // 3. Dynamic Unknown Account Tail Extraction (e.g. "A/c no. XX9999", "ending in 4433", "Card ending 1234")
+        val tailRegex = Regex("""\b(?:A/c|Account|Card|Acct)\s*(?:no\.?)?\s*(?:XX|[*]+)?([0-9]{3,6})\b|\bending\s*(?:in|with)?\s*(?:XX|[*]+)?([0-9]{4})\b""", RegexOption.IGNORE_CASE)
+        val tailMatch = tailRegex.find(body)
+        val extractedTail = tailMatch?.groupValues?.getOrNull(1)?.ifEmpty { null }
+            ?: tailMatch?.groupValues?.getOrNull(2)?.ifEmpty { null }
+
+        // Detect Bank Name from body or sender
+        val detectedBank = when {
+            lowerBody.contains("pnb") || lowerSender.contains("pnb") -> "PNB"
+            lowerBody.contains("axis") || lowerSender.contains("axis") -> "Axis Bank"
+            lowerBody.contains("hdfc") || lowerSender.contains("hdfc") -> "HDFC Bank"
+            lowerBody.contains("icici") || lowerSender.contains("icici") -> "ICICI Bank"
+            lowerBody.contains("sbi") || lowerSender.contains("sbi") -> "SBI"
+            lowerBody.contains("federal") || lowerSender.contains("fed") -> "Federal Bank"
+            lowerBody.contains("kotak") || lowerSender.contains("kotak") -> "Kotak Bank"
+            lowerBody.contains("idfc") || lowerSender.contains("idfc") -> "IDFC FIRST"
+            lowerBody.contains("indusind") || lowerSender.contains("indus") -> "IndusInd Bank"
+            lowerBody.contains("canara") || lowerSender.contains("can") -> "Canara Bank"
+            lowerBody.contains("bob") || lowerBody.contains("bank of baroda") || lowerSender.contains("bob") -> "Bank of Baroda"
+            lowerBody.contains("union") || lowerSender.contains("union") -> "Union Bank"
+            lowerBody.contains("yes bank") || lowerSender.contains("yes") -> "Yes Bank"
+            else -> null
+        }
+
+        if (extractedTail != null) {
+            val tailStr = "XX$extractedTail"
+            return if (detectedBank != null) "$detectedBank $tailStr" else "A/c $tailStr"
+        }
+
+        if (detectedBank != null) {
+            return "$detectedBank A/c"
+        }
+
+        return "Cash/Manual"
     }
 
     private fun extractAmount(text: String): Double? {

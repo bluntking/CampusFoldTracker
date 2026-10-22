@@ -182,18 +182,33 @@ fun AiCoachSheet(
                                     )
                                 }
                                 is AiModelStatus.Loading -> {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(12.dp),
-                                            strokeWidth = 2.dp,
-                                            color = NeonAmber
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = status.message,
-                                            fontSize = 11.sp,
-                                            color = NeonAmber
-                                        )
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(12.dp),
+                                                strokeWidth = 2.dp,
+                                                color = NeonAmber
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = status.message,
+                                                fontSize = 11.sp,
+                                                color = NeonAmber,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        if (status.progressPercent > 0) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            LinearProgressIndicator(
+                                                progress = { status.progressPercent / 100f },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(4.dp)
+                                                    .clip(RoundedCornerShape(2.dp)),
+                                                color = NeonAmber,
+                                                trackColor = BorderCharcoal
+                                            )
+                                        }
                                     }
                                 }
                                 is AiModelStatus.Error -> {
@@ -223,23 +238,52 @@ fun AiCoachSheet(
                             }
                         }
 
-                        Button(
-                            onClick = {
-                                modelPickerLauncher.launch(arrayOf("*/*", "application/octet-stream"))
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (modelStatus is AiModelStatus.Ready) BorderCharcoal else NeonPurple,
-                                contentColor = if (modelStatus is AiModelStatus.Ready) TextPrimary else OledBlack
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.height(28.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp)
-                        ) {
-                            Text(
-                                text = if (modelStatus is AiModelStatus.Ready) "Change Model" else "Select LLM (.task/.bin)",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (modelStatus !is AiModelStatus.Ready) {
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            LocalAiManager.downloadQwenModel(context)
+                                        }
+                                    },
+                                    enabled = modelStatus !is AiModelStatus.Loading,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = NeonEmerald,
+                                        contentColor = OledBlack
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(28.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Download Qwen 2.5 (0.5B - 547MB)",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    modelPickerLauncher.launch(arrayOf("*/*", "application/octet-stream"))
+                                },
+                                enabled = modelStatus !is AiModelStatus.Loading,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (modelStatus is AiModelStatus.Ready) BorderCharcoal else NeonPurple,
+                                    contentColor = if (modelStatus is AiModelStatus.Ready) TextPrimary else OledBlack
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(28.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text(
+                                    text = if (modelStatus is AiModelStatus.Ready) "Change Model" else "Select File",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
 
