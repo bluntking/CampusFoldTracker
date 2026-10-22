@@ -34,14 +34,34 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Debug APK with Gradle
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          ./gradlew assembleDebug --stacktrace > build.log 2>&1 || true
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          tail -n 250 build.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          if grep -q "BUILD SUCCESSFUL" build.log; then
+            echo "Gradle build passed!"
+          else
+            echo "Gradle build failed!"
+            cat build.log | grep -E "e: |Error: |FAILURE: |Exception" || true
+            exit 1
+          fi
 
       - name: Upload Debug APK Artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 14
+
+      - name: Upload Build Log on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
 
       - name: Run Unit Tests
         run: ./gradlew testDebugUnitTest --stacktrace
