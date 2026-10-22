@@ -177,16 +177,6 @@ fun HomeScreen(
                             ) {
                                 Text("Grant Permissions", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
-                            OutlinedButton(
-                                onClick = { showSyncDateDialog = true },
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.height(34.dp),
-                                border = ButtonDefaults.outlinedButtonBorder.copy(
-                                    brush = androidx.compose.ui.graphics.SolidColor(BorderCharcoal)
-                                )
-                            ) {
-                                Text("Sync from Date", fontSize = 11.sp, color = TextPrimary)
-                            }
                         }
                     }
                 }

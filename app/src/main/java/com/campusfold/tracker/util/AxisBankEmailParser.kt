@@ -122,7 +122,7 @@ object AxisBankEmailParser {
             it.last4.isNotBlank() && accountTail.endsWith(it.last4)
         }
         val paymentMode = matchedAccount?.name ?: "Axis Bank XX$accountTail"
-        val categoryId = matchedAccount?.defaultCategoryId
+        val categoryId: Long? = null
 
         // 3. Extract UPI Info (Ref & Merchant / Sender)
         var upiRef: String? = null

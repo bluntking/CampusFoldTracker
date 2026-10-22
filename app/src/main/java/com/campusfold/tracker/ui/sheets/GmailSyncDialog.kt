@@ -363,6 +363,8 @@ fun GmailSyncDialog(
                             labelColor = TextMuted
                         ),
                         border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = selectedPreset == "FROM_20_OCT",
                             borderColor = BorderCharcoal,
                             selectedBorderColor = NeonCyan.copy(alpha = 0.6f)
                         ),
@@ -391,6 +393,8 @@ fun GmailSyncDialog(
                             labelColor = TextMuted
                         ),
                         border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = selectedPreset == "LAST_30_DAYS",
                             borderColor = BorderCharcoal,
                             selectedBorderColor = NeonCyan.copy(alpha = 0.6f)
                         ),
@@ -412,6 +416,8 @@ fun GmailSyncDialog(
                             labelColor = TextMuted
                         ),
                         border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = selectedPreset == "ALL_TIME",
                             borderColor = BorderCharcoal,
                             selectedBorderColor = NeonCyan.copy(alpha = 0.6f)
                         ),
@@ -442,6 +448,8 @@ fun GmailSyncDialog(
                             labelColor = TextMuted
                         ),
                         border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = selectedPreset == "CUSTOM",
                             borderColor = BorderCharcoal,
                             selectedBorderColor = NeonCyan.copy(alpha = 0.6f)
                         ),

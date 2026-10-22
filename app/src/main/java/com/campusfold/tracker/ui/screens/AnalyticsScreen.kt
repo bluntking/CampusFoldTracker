@@ -52,6 +52,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.atan2
+import kotlin.math.roundToInt
 
 enum class ChartBreakdownMode {
     CATEGORY,
@@ -1446,7 +1447,7 @@ fun ExpenseComparisonAreaChartCard(transactions: List<TransactionEntity>) {
 
                     if (!inspectedPoint.isFuture) {
                         val diffSign = if (diffVal > 0) "+" else ""
-                        val diffColor = if (diffVal > 0) NeonAmber else NeonGreen
+                        val diffColor = if (diffVal > 0) NeonAmber else NeonEmerald
                         StatusPill(
                             text = "$diffSign₹${diffVal.toInt()}",
                             bgColor = diffColor.copy(alpha = 0.18f),
@@ -1505,7 +1506,7 @@ fun ExpenseComparisonAreaChartCard(transactions: List<TransactionEntity>) {
                     }
 
                     // Pct Badge
-                    val badgeColor = if (diffTotal > 0) NeonAmber else if (diffTotal < 0) NeonGreen else TextMuted
+                    val badgeColor = if (diffTotal > 0) NeonAmber else if (diffTotal < 0) NeonEmerald else TextMuted
                     val badgeSign = if (diffTotal > 0) "+" else ""
                     StatusPill(
                         text = "$badgeSign$pctChange%",
