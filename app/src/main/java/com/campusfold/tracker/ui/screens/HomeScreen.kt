@@ -3,6 +3,7 @@ package com.campusfold.tracker.ui.screens
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,13 +39,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: TransactionViewModel,
     hasSmsPermission: Boolean,
     onRequestPermissions: () -> Unit,
-    onOpenAddTransaction: () -> Unit
+    onOpenAddTransaction: () -> Unit,
+    initialSelectedTransaction: TransactionEntity? = null
 ) {
     val transactions by viewModel.filteredTransactions.collectAsState()
     val totalMyExpense by viewModel.totalMyExpense.collectAsState()
@@ -63,11 +65,18 @@ fun HomeScreen(
     val context = LocalContext.current
 
     // Bottom sheet state
-    var selectedTransactionForSheet by remember { mutableStateOf<TransactionEntity?>(null) }
+    var selectedTransactionForSheet by remember { mutableStateOf<TransactionEntity?>(initialSelectedTransaction) }
+    var showCategoryFilterDialog by remember { mutableStateOf(false) }
     var showSyncMenu by remember { mutableStateOf(false) }
     var showClearAllConfirmDialog by remember { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf<Uri?>(null) }
     var showAiCoachSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(initialSelectedTransaction) {
+        if (initialSelectedTransaction != null) {
+            selectedTransactionForSheet = initialSelectedTransaction
+        }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -105,17 +114,17 @@ fun HomeScreen(
             ) {
                 Column {
                     Text(
-                        text = "CAMPUSFOLD",
+                        text = "ALL TRANSACTIONS",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         letterSpacing = 1.sp,
                         color = TextMuted
                     )
                     Text(
-                        text = "Financial Matrix",
+                        text = "Transactions",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
+                        fontSize = 24.sp,
                         color = TextPrimary
                     )
                 }
@@ -579,6 +588,29 @@ fun HomeScreen(
                         )
                     )
                 }
+                item {
+                    val isCustomFilter = selectedFilter.startsWith("CATEGORY:") || selectedFilter.startsWith("VENDOR:")
+                    FilterChip(
+                        selected = isCustomFilter,
+                        onClick = { showCategoryFilterDialog = true },
+                        leadingIcon = {
+                            Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(13.dp), tint = if (isCustomFilter) NeonPurple else TextMuted)
+                        },
+                        label = { Text("Filter...", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = NeonPurple.copy(alpha = 0.2f),
+                            selectedLabelColor = NeonPurple,
+                            containerColor = InputBg,
+                            labelColor = TextSecondary
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = isCustomFilter,
+                            borderColor = BorderCharcoal,
+                            selectedBorderColor = NeonPurple
+                        )
+                    )
+                }
             }
 
             // Dedicated Active Category / Vendor Filter Banner (never squished)
@@ -677,7 +709,8 @@ fun HomeScreen(
                             transaction = txn,
                             categoryName = category?.name ?: "General",
                             isUnmapped = !isMapped && txn.rawMerchant.isNotBlank(),
-                            onClick = { selectedTransactionForSheet = txn }
+                            onClick = { selectedTransactionForSheet = txn },
+                            modifier = Modifier.animateItemPlacement()
                         )
                     }
                 }
@@ -818,6 +851,28 @@ fun HomeScreen(
             onDismiss = { showAiCoachSheet = false }
         )
     }
+
+    // Category & Advanced Filter Bottom Sheet
+    if (showCategoryFilterDialog) {
+        ModalBottomSheet(
+            onDismissRequest = { showCategoryFilterDialog = false },
+            containerColor = CardElevated,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = BorderCharcoal) }
+        ) {
+            CategoryFilterSheetContent(
+                categories = categories,
+                selectedFilter = selectedFilter,
+                onSelectFilter = { filterStr ->
+                    viewModel.setFilter(filterStr)
+                    showCategoryFilterDialog = false
+                },
+                onSelectCategory = { catId, name ->
+                    viewModel.filterByCategory(catId, name)
+                    showCategoryFilterDialog = false
+                }
+            )
+        }
+    }
 }
 
 @Composable
@@ -825,7 +880,8 @@ fun FoldTransactionFeedCard(
     transaction: TransactionEntity,
     categoryName: String,
     isUnmapped: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val dateFormat = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
     val formattedDate = dateFormat.format(Date(transaction.timestamp))
@@ -833,6 +889,7 @@ fun FoldTransactionFeedCard(
     val isCcBill = transaction.type == TransactionType.CC_BILL_TRANSFER
 
     FoldCard(
+        modifier = modifier,
         onClick = onClick
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -970,5 +1027,142 @@ fun FoldTransactionFeedCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun CategoryFilterSheetContent(
+    categories: List<com.campusfold.tracker.data.entity.CategoryEntity>,
+    selectedFilter: String,
+    onSelectFilter: (String) -> Unit,
+    onSelectCategory: (Long?, String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(20.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Text(
+            text = "Filter Transactions",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextPrimary
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Text("TRANSACTION TYPE", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = TextMuted, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = selectedFilter == "ALL",
+                onClick = { onSelectFilter("ALL") },
+                label = { Text("All", fontSize = 11.sp) },
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                selected = selectedFilter == "EXPENSE",
+                onClick = { onSelectFilter("EXPENSE") },
+                label = { Text("Expenses", fontSize = 11.sp) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = selectedFilter == "INCOME",
+                onClick = { onSelectFilter("INCOME") },
+                label = { Text("Income", fontSize = 11.sp) },
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                selected = selectedFilter == "CC_BILL",
+                onClick = { onSelectFilter("CC_BILL") },
+                label = { Text("CC Bills", fontSize = 11.sp) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+
+        Text("BY CATEGORY", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = TextMuted, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Uncategorized option
+        val isUncategorizedSelected = selectedFilter.startsWith("CATEGORY:uncategorized")
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (isUncategorizedSelected) MatteCharcoal else InputBg)
+                .border(1.dp, if (isUncategorizedSelected) NeonPurple else BorderCharcoal, RoundedCornerShape(10.dp))
+                .clickable { onSelectCategory(null, "Uncategorized") }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF64748B))
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Uncategorized", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+            }
+            if (isUncategorizedSelected) {
+                Icon(Icons.Default.Check, contentDescription = null, tint = NeonPurple, modifier = Modifier.size(16.dp))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // All database categories
+        categories.forEach { cat ->
+            val isCatSelected = selectedFilter == "CATEGORY:${cat.id}:${cat.name}"
+            val catColor = try {
+                Color(android.graphics.Color.parseColor(cat.colorHex))
+            } catch (e: Exception) {
+                NeonEmerald
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isCatSelected) MatteCharcoal else InputBg)
+                    .border(1.dp, if (isCatSelected) catColor else BorderCharcoal, RoundedCornerShape(10.dp))
+                    .clickable { onSelectCategory(cat.id, cat.name) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .clip(CircleShape)
+                            .background(catColor)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(cat.name, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                }
+                if (isCatSelected) {
+                    Icon(Icons.Default.Check, contentDescription = null, tint = catColor, modifier = Modifier.size(16.dp))
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }

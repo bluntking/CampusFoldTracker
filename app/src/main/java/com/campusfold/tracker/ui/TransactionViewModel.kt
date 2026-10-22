@@ -222,8 +222,13 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
                 filter == "INCOME" -> list.filter { it.type == TransactionType.INCOME }
                 filter == "CC_BILL" -> list.filter { it.type == TransactionType.CC_BILL_TRANSFER }
                 filter.startsWith("CATEGORY:") -> {
-                    val catId = filter.removePrefix("CATEGORY:").substringBefore(":").toLongOrNull()
-                    if (catId != null) list.filter { it.categoryId == catId } else list
+                    val rawCat = filter.removePrefix("CATEGORY:").substringBefore(":")
+                    if (rawCat.equals("uncategorized", ignoreCase = true)) {
+                        list.filter { it.categoryId == null }
+                    } else {
+                        val catId = rawCat.toLongOrNull()
+                        if (catId != null) list.filter { it.categoryId == catId } else list
+                    }
                 }
                 filter.startsWith("VENDOR:") -> {
                     val vendorName = filter.removePrefix("VENDOR:").trim()
@@ -245,8 +250,12 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         _selectedFilter.value = filter
     }
 
-    fun filterByCategory(categoryId: Long, categoryName: String) {
-        _selectedFilter.value = "CATEGORY:${categoryId}:${categoryName}"
+    fun filterByCategory(categoryId: Long?, categoryName: String) {
+        if (categoryId == null || categoryName.equals("Uncategorized", ignoreCase = true)) {
+            _selectedFilter.value = "CATEGORY:uncategorized:Uncategorized"
+        } else {
+            _selectedFilter.value = "CATEGORY:${categoryId}:${categoryName}"
+        }
     }
 
     fun filterByVendor(vendorName: String) {

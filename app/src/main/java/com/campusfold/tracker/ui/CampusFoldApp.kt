@@ -1,5 +1,7 @@
 package com.campusfold.tracker.ui
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -24,17 +26,18 @@ import androidx.compose.ui.text.style.TextAlign
 import com.campusfold.tracker.data.entity.*
 import com.campusfold.tracker.ui.screens.AccountsScreen
 import com.campusfold.tracker.ui.screens.AnalyticsScreen
+import com.campusfold.tracker.ui.screens.DashboardScreen
 import com.campusfold.tracker.ui.screens.HomeScreen
 import com.campusfold.tracker.ui.screens.SplitsScreen
 import com.campusfold.tracker.ui.screens.VendorsCategoriesScreen
 import com.campusfold.tracker.ui.theme.*
 
 enum class AppNavScreen {
-    HOME,
-    ACCOUNTS,
+    DASHBOARD,
+    TRANSACTIONS,
     ANALYTICS,
     SPLITS,
-    VENDORS_AND_CATEGORIES
+    RULES
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,7 +47,10 @@ fun CampusFoldApp(
     hasSmsPermission: Boolean,
     onRequestPermissions: () -> Unit
 ) {
-    var currentScreen by remember { mutableStateOf(AppNavScreen.HOME) }
+    var currentScreen by remember { mutableStateOf(AppNavScreen.DASHBOARD) }
+    var highlightTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
+    var showManageAccountsSheet by remember { mutableStateOf(false) }
+
     val categories by viewModel.categories.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
 
@@ -68,13 +74,14 @@ fun CampusFoldApp(
                     .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                     .height(68.dp)
             ) {
+                // 1. Dashboard Tab
                 NavigationBarItem(
-                    selected = currentScreen == AppNavScreen.HOME,
-                    onClick = { currentScreen = AppNavScreen.HOME },
+                    selected = currentScreen == AppNavScreen.DASHBOARD,
+                    onClick = { currentScreen = AppNavScreen.DASHBOARD },
                     icon = {
                         Icon(
-                            imageVector = Icons.Default.AccountBalanceWallet,
-                            contentDescription = "Home Dashboard",
+                            imageVector = Icons.Default.GridView,
+                            contentDescription = "Dashboard",
                             modifier = Modifier.size(20.dp)
                         )
                     },
@@ -85,7 +92,7 @@ fun CampusFoldApp(
                             textAlign = TextAlign.Center,
                             maxLines = 1,
                             softWrap = false,
-                            fontWeight = if (currentScreen == AppNavScreen.HOME) FontWeight.Bold else FontWeight.Normal
+                            fontWeight = if (currentScreen == AppNavScreen.DASHBOARD) FontWeight.Bold else FontWeight.Normal
                         )
                     },
                     colors = NavigationBarItemDefaults.colors(
@@ -97,35 +104,40 @@ fun CampusFoldApp(
                     )
                 )
 
+                // 2. Transactions Tab
                 NavigationBarItem(
-                    selected = currentScreen == AppNavScreen.ACCOUNTS,
-                    onClick = { currentScreen = AppNavScreen.ACCOUNTS },
+                    selected = currentScreen == AppNavScreen.TRANSACTIONS,
+                    onClick = {
+                        highlightTransaction = null
+                        currentScreen = AppNavScreen.TRANSACTIONS
+                    },
                     icon = {
                         Icon(
-                            imageVector = Icons.Default.CreditCard,
-                            contentDescription = "Accounts",
+                            imageVector = Icons.Default.ReceiptLong,
+                            contentDescription = "Transactions",
                             modifier = Modifier.size(20.dp)
                         )
                     },
                     label = {
                         Text(
-                            text = "Accounts",
+                            text = "Transactions",
                             fontSize = 11.sp,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
                             softWrap = false,
-                            fontWeight = if (currentScreen == AppNavScreen.ACCOUNTS) FontWeight.Bold else FontWeight.Normal
+                            fontWeight = if (currentScreen == AppNavScreen.TRANSACTIONS) FontWeight.Bold else FontWeight.Normal
                         )
                     },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = NeonEmerald,
-                        selectedTextColor = NeonEmerald,
+                        selectedIconColor = NeonCyan,
+                        selectedTextColor = NeonCyan,
                         unselectedIconColor = TextSecondary,
                         unselectedTextColor = TextSecondary,
-                        indicatorColor = NeonEmerald.copy(alpha = 0.15f)
+                        indicatorColor = NeonCyan.copy(alpha = 0.15f)
                     )
                 )
 
+                // 3. Analytics Tab
                 NavigationBarItem(
                     selected = currentScreen == AppNavScreen.ANALYTICS,
                     onClick = { currentScreen = AppNavScreen.ANALYTICS },
@@ -155,6 +167,7 @@ fun CampusFoldApp(
                     )
                 )
 
+                // 4. Splits Tab
                 NavigationBarItem(
                     selected = currentScreen == AppNavScreen.SPLITS,
                     onClick = { currentScreen = AppNavScreen.SPLITS },
@@ -184,13 +197,14 @@ fun CampusFoldApp(
                     )
                 )
 
+                // 5. Rules Tab
                 NavigationBarItem(
-                    selected = currentScreen == AppNavScreen.VENDORS_AND_CATEGORIES,
-                    onClick = { currentScreen = AppNavScreen.VENDORS_AND_CATEGORIES },
+                    selected = currentScreen == AppNavScreen.RULES,
+                    onClick = { currentScreen = AppNavScreen.RULES },
                     icon = {
                         Icon(
                             imageVector = Icons.Default.Store,
-                            contentDescription = "Vendors & Categories",
+                            contentDescription = "Rules & Budgets",
                             modifier = Modifier.size(20.dp)
                         )
                     },
@@ -201,15 +215,15 @@ fun CampusFoldApp(
                             textAlign = TextAlign.Center,
                             maxLines = 1,
                             softWrap = false,
-                            fontWeight = if (currentScreen == AppNavScreen.VENDORS_AND_CATEGORIES) FontWeight.Bold else FontWeight.Normal
+                            fontWeight = if (currentScreen == AppNavScreen.RULES) FontWeight.Bold else FontWeight.Normal
                         )
                     },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = NeonCyan,
-                        selectedTextColor = NeonCyan,
+                        selectedIconColor = Color(0xFF8AB4F8),
+                        selectedTextColor = Color(0xFF8AB4F8),
                         unselectedIconColor = TextSecondary,
                         unselectedTextColor = TextSecondary,
-                        indicatorColor = NeonCyan.copy(alpha = 0.15f)
+                        indicatorColor = Color(0xFF8AB4F8).copy(alpha = 0.15f)
                     )
                 )
             }
@@ -232,43 +246,80 @@ fun CampusFoldApp(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            when (currentScreen) {
-                AppNavScreen.HOME -> {
-                    HomeScreen(
-                        viewModel = viewModel,
-                        hasSmsPermission = hasSmsPermission,
-                        onRequestPermissions = onRequestPermissions,
-                        onOpenAddTransaction = { showAddDialog = true }
-                    )
-                }
-                AppNavScreen.ACCOUNTS -> {
-                    AccountsScreen(viewModel = viewModel)
-                }
-                AppNavScreen.ANALYTICS -> {
-                    AnalyticsScreen(
-                        viewModel = viewModel,
-                        onNavigateToTransactions = { filterType, filterValue ->
-                            if (filterType == "CATEGORY") {
-                                val parts = filterValue.split(":")
-                                val catId = parts.getOrNull(0)?.toLongOrNull()
-                                val catName = parts.getOrNull(1) ?: ""
-                                if (catId != null) {
-                                    viewModel.filterByCategory(catId, catName)
+            AnimatedContent(
+                targetState = currentScreen,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(200)) +
+                    scaleIn(initialScale = 0.98f, animationSpec = tween(200)) togetherWith
+                    fadeOut(animationSpec = tween(160))
+                },
+                label = "ScreenSwitch"
+            ) { targetScreen ->
+                when (targetScreen) {
+                    AppNavScreen.DASHBOARD -> {
+                        DashboardScreen(
+                            viewModel = viewModel,
+                            onNavigateToTransactions = {
+                                highlightTransaction = null
+                                currentScreen = AppNavScreen.TRANSACTIONS
+                            },
+                            onOpenTransaction = { tx ->
+                                highlightTransaction = tx
+                                currentScreen = AppNavScreen.TRANSACTIONS
+                            },
+                            onManageAccounts = { showManageAccountsSheet = true },
+                            onOpenAddTransaction = { showAddDialog = true }
+                        )
+                    }
+                    AppNavScreen.TRANSACTIONS -> {
+                        HomeScreen(
+                            viewModel = viewModel,
+                            hasSmsPermission = hasSmsPermission,
+                            onRequestPermissions = onRequestPermissions,
+                            onOpenAddTransaction = { showAddDialog = true },
+                            initialSelectedTransaction = highlightTransaction
+                        )
+                    }
+                    AppNavScreen.ANALYTICS -> {
+                        AnalyticsScreen(
+                            viewModel = viewModel,
+                            onNavigateToTransactions = { filterType, filterValue ->
+                                if (filterType == "CATEGORY") {
+                                    val parts = filterValue.split(":")
+                                    val rawCatId = parts.getOrNull(0)
+                                    val catName = parts.getOrNull(1) ?: "Uncategorized"
+                                    if (rawCatId.equals("uncategorized", ignoreCase = true) || rawCatId == null) {
+                                        viewModel.filterByCategory(null, "Uncategorized")
+                                    } else {
+                                        viewModel.filterByCategory(rawCatId.toLongOrNull(), catName)
+                                    }
+                                } else {
+                                    viewModel.filterByVendor(filterValue)
                                 }
-                            } else {
-                                viewModel.filterByVendor(filterValue)
+                                highlightTransaction = null
+                                currentScreen = AppNavScreen.TRANSACTIONS
                             }
-                            currentScreen = AppNavScreen.HOME
-                        }
-                    )
-                }
-                AppNavScreen.SPLITS -> {
-                    SplitsScreen(viewModel = viewModel)
-                }
-                AppNavScreen.VENDORS_AND_CATEGORIES -> {
-                    VendorsCategoriesScreen(viewModel = viewModel)
+                        )
+                    }
+                    AppNavScreen.SPLITS -> {
+                        SplitsScreen(viewModel = viewModel)
+                    }
+                    AppNavScreen.RULES -> {
+                        VendorsCategoriesScreen(viewModel = viewModel)
+                    }
                 }
             }
+        }
+    }
+
+    // Manage Accounts Bottom Sheet (opened from Dashboard "Manage >")
+    if (showManageAccountsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showManageAccountsSheet = false },
+            containerColor = CardElevated,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = BorderCharcoal) }
+        ) {
+            AccountsScreen(viewModel = viewModel)
         }
     }
 
