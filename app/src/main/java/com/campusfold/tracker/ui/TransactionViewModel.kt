@@ -54,6 +54,16 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     // Preferences
     val pnbCreditLimit: StateFlow<Double>
     val lastSmsSyncTimestamp: StateFlow<Long>
+    val gmailSyncEmail: StateFlow<String?>
+    val gmailSyncAppPassword: StateFlow<String?>
+    val gmailLastSyncTimestamp: StateFlow<Long>
+
+    // Gmail IMAP Sync State
+    private val _isGmailSyncing = MutableStateFlow(false)
+    val isGmailSyncing = _isGmailSyncing.asStateFlow()
+
+    private val _gmailSyncProgress = MutableStateFlow<String?>(null)
+    val gmailSyncProgress = _gmailSyncProgress.asStateFlow()
 
     // Accounts
     val accounts: StateFlow<List<com.campusfold.tracker.data.entity.AccountEntity>>
@@ -205,6 +215,24 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         )
 
         lastSmsSyncTimestamp = repository.lastSmsSyncTimestamp.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            0L
+        )
+
+        gmailSyncEmail = prefs.gmailSyncEmail.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            null
+        )
+
+        gmailSyncAppPassword = prefs.gmailSyncAppPassword.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            null
+        )
+
+        gmailLastSyncTimestamp = prefs.gmailLastSyncTimestamp.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
             0L
@@ -680,6 +708,65 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     fun scanInbox(daysBack: Int = 90) {
         val startTime = System.currentTimeMillis() - (daysBack.toLong() * 24L * 60L * 60L * 1000L)
         scanInboxFromDate(startTime)
+    }
+
+    // ─── Direct Axis Bank Gmail IMAP Sync ─────────────────────────────────────
+
+    fun syncAxisFromGmail(
+        emailAddress: String,
+        appPassword: String,
+        startDateMillis: Long?,
+        saveCredentials: Boolean = true,
+        onComplete: ((GmailSyncStats?, String?) -> Unit)? = null
+    ) {
+        if (_isGmailSyncing.value) return
+        _isGmailSyncing.value = true
+        _gmailSyncProgress.value = "Connecting to Gmail IMAP securely..."
+
+        viewModelScope.launch {
+            try {
+                if (saveCredentials) {
+                    val prefs = AppPreferences(getApplication())
+                    prefs.saveGmailCredentials(emailAddress, appPassword)
+                }
+                val stats = repository.syncAxisFromGmail(
+                    emailAddress = emailAddress,
+                    appPassword = appPassword,
+                    startDateMillis = startDateMillis,
+                    onProgress = { current, total ->
+                        _gmailSyncProgress.value = "Fetching Axis email $current of $total..."
+                    }
+                )
+                val totalImported = stats.importedDebits + stats.importedCredits
+                val summary = "✓ Synced $totalImported Axis txns (${stats.importedDebits} debits, ${stats.importedCredits} credits, ${stats.autoSettledCredits} settled, ${stats.skippedDuplicates} dupes skipped)"
+                _statusMessage.value = summary
+                _gmailSyncProgress.value = summary
+                onComplete?.invoke(stats, null)
+            } catch (e: Exception) {
+                val errorMsg = e.localizedMessage ?: "Failed connecting to Gmail"
+                _statusMessage.value = "Gmail Sync Error: $errorMsg"
+                _gmailSyncProgress.value = errorMsg
+                onComplete?.invoke(null, errorMsg)
+            } finally {
+                _isGmailSyncing.value = false
+            }
+        }
+    }
+
+    fun saveGmailCredentials(email: String, appPassword: String) {
+        viewModelScope.launch {
+            val prefs = AppPreferences(getApplication())
+            prefs.saveGmailCredentials(email, appPassword)
+            _statusMessage.value = "Saved Gmail credentials."
+        }
+    }
+
+    fun clearGmailCredentials() {
+        viewModelScope.launch {
+            val prefs = AppPreferences(getApplication())
+            prefs.clearGmailCredentials()
+            _statusMessage.value = "Cleared saved Gmail credentials."
+        }
     }
 
     fun clearStatusMessage() {

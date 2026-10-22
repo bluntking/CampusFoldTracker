@@ -72,6 +72,7 @@ fun HomeScreen(
     var showCategoryFilterDialog by remember { mutableStateOf(false) }
     var showSyncMenu by remember { mutableStateOf(false) }
     var showSyncDateDialog by remember { mutableStateOf(false) }
+    var showGmailSyncDialog by remember { mutableStateOf(false) }
     var showClearAllConfirmDialog by remember { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf<Uri?>(null) }
     var showAiCoachSheet by remember { mutableStateOf(false) }
@@ -194,9 +195,29 @@ fun HomeScreen(
                             DropdownMenuItem(
                                 text = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Email, contentDescription = null, tint = NeonPurple, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text("Sync Axis from Gmail", color = TextPrimary, fontWeight = FontWeight.Bold)
+                                            Text("Direct IMAP for Debits & Credits", fontSize = 10.sp, color = TextMuted)
+                                        }
+                                    }
+                                },
+                                onClick = {
+                                    showSyncMenu = false
+                                    showGmailSyncDialog = true
+                                }
+                            )
+                            Divider(color = BorderCharcoal, thickness = 1.dp)
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Sync from Date...", color = TextPrimary)
+                                        Column {
+                                            Text("Sync SMS from Date...", color = TextPrimary, fontWeight = FontWeight.Bold)
+                                            Text("Import SMS inbox transactions", fontSize = 10.sp, color = TextMuted)
+                                        }
                                     }
                                 },
                                 onClick = {
@@ -344,19 +365,33 @@ fun HomeScreen(
                             color = TextSecondary
                         )
                         Spacer(modifier = Modifier.height(10.dp))
-                        Button(
-                            onClick = {
-                                val intent = android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                                context.startActivity(intent)
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = NeonPurple,
-                                contentColor = OledBlack
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Text("Enable Gmail Access", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    val intent = android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                    context.startActivity(intent)
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = NeonPurple,
+                                    contentColor = OledBlack
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Text("Enable Access", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            OutlinedButton(
+                                onClick = { showGmailSyncDialog = true },
+                                shape = RoundedCornerShape(8.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, NeonPurple.copy(alpha = 0.5f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonPurple),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Sync Axis Direct", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -854,6 +889,14 @@ fun HomeScreen(
         com.campusfold.tracker.ui.sheets.AiCoachSheet(
             viewModel = viewModel,
             onDismiss = { showAiCoachSheet = false }
+        )
+    }
+
+    // Direct Axis Bank Gmail IMAP Sync Dialog
+    if (showGmailSyncDialog) {
+        com.campusfold.tracker.ui.sheets.GmailSyncDialog(
+            viewModel = viewModel,
+            onDismiss = { showGmailSyncDialog = false }
         )
     }
 

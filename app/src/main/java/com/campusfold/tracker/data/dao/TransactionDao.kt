@@ -33,6 +33,9 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE upiRef = :upiRef LIMIT 1")
     suspend fun findByUpiRef(upiRef: String): TransactionEntity?
 
+    @Query("SELECT * FROM transactions WHERE amount = :amount AND paymentMode = :paymentMode AND timestamp >= :minTime AND timestamp <= :maxTime LIMIT 1")
+    suspend fun findPotentialDuplicate(amount: Double, paymentMode: String, minTime: Long, maxTime: Long): TransactionEntity?
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTransaction(transaction: TransactionEntity): Long
 

@@ -134,3 +134,16 @@ data class WeekOverWeekSpike(
     val increaseAmount: Double,
     val percentIncrease: Double
 )
+
+/**
+ * Summary stats from a Gmail IMAP sync operation for Axis Bank.
+ */
+data class GmailSyncStats(
+    val totalFound: Int,
+    val importedDebits: Int,
+    val importedCredits: Int,
+    val autoSettledCredits: Int,
+    val pendingSuggestionsCreated: Int,
+    val skippedDuplicates: Int,
+    val errorMessage: String? = null
+)

@@ -5,7 +5,9 @@ import com.campusfold.tracker.data.dao.*
 import com.campusfold.tracker.data.entity.*
 import com.campusfold.tracker.data.model.*
 import com.campusfold.tracker.data.pref.AppPreferences
+import com.campusfold.tracker.util.AxisBankEmailParser
 import com.campusfold.tracker.util.BudgetAlertEvaluator
+import com.campusfold.tracker.util.GmailImapClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -479,6 +481,152 @@ class TransactionRepository(
     /**
      * Fallback safe-guard to ensure pre-seeded categories & mappings exist even if DB already existed.
      */
+    // ─── Direct Gmail IMAP Sync for Axis Bank ────────────────────────────────
+
+    suspend fun syncAxisFromGmail(
+        emailAddress: String,
+        appPassword: String,
+        startDateMillis: Long? = null,
+        onProgress: ((current: Int, total: Int) -> Unit)? = null
+    ): GmailSyncStats = withContext(Dispatchers.IO) {
+        val rawEmails = GmailImapClient.fetchAxisBankEmails(
+            emailAddress = emailAddress,
+            appPassword = appPassword,
+            startDateMillis = startDateMillis,
+            onProgress = onProgress
+        )
+
+        val knownAccounts = accountDao.getAllAccountsSync()
+        val allPersons = personDao.getAllPersonsList()
+
+        var importedDebits = 0
+        var importedCredits = 0
+        var autoSettledCredits = 0
+        var pendingSuggestionsCreated = 0
+        var skippedDuplicates = 0
+        var maxEmailTimestamp = 0L
+
+        for (email in rawEmails) {
+            val parsed = AxisBankEmailParser.parse(
+                subject = email.subject,
+                body = email.body,
+                emailTimestamp = email.dateMillis,
+                accounts = knownAccounts
+            ) ?: continue
+
+            val tx = parsed.transaction
+            if (tx.timestamp > maxEmailTimestamp) {
+                maxEmailTimestamp = tx.timestamp
+            }
+
+            // Deduplication check: via upiRef or recent amount + paymentMode match
+            val upiRef = tx.upiRef
+            if (upiRef != null) {
+                if (transactionDao.findByUpiRef(upiRef) != null) {
+                    skippedDuplicates++
+                    continue
+                }
+            } else {
+                val existing = transactionDao.findPotentialDuplicate(
+                    amount = tx.amount,
+                    paymentMode = tx.paymentMode,
+                    minTime = tx.timestamp - 60_000,
+                    maxTime = tx.timestamp + 60_000
+                )
+                if (existing != null) {
+                    skippedDuplicates++
+                    continue
+                }
+            }
+
+            if (parsed.isCredit) {
+                // CREDIT (Income / Settlement)
+                val senderClean = parsed.senderOrMerchant.trim()
+                var settled = false
+                var suggestionCreated = false
+
+                if (senderClean.isNotBlank()) {
+                    // Check Case A: Exact alias match with person who has pending balance
+                    for (person in allPersons) {
+                        val pending = splitDao.getNetPendingBalanceForPersonSync(person.id)
+                        if (pending <= 0.0) continue
+
+                        val aliases = person.exactSmsAliases.split(",")
+                            .map { it.trim().lowercase() }
+                            .filter { it.isNotEmpty() }
+
+                        if (aliases.any { it.equals(senderClean, ignoreCase = true) }) {
+                            val creditTx = tx.copy(
+                                type = TransactionType.SPLIT_SETTLEMENT,
+                                friendlyVendorName = "Settlement from ${person.name} (Axis Gmail)"
+                            )
+                            addTransaction(creditTx)
+                            settleAmountForPerson(person.id, tx.amount)
+                            autoSettledCredits++
+                            settled = true
+                            break
+                        }
+                    }
+
+                    // Check Case B: Substring / partial name match
+                    if (!settled) {
+                        for (person in allPersons) {
+                            val pending = splitDao.getNetPendingBalanceForPersonSync(person.id)
+                            if (pending <= 0.0) continue
+
+                            val nameClean = person.name.trim().lowercase()
+                            val senderLower = senderClean.lowercase()
+                            val isPartialMatch = senderLower.contains(nameClean) || nameClean.contains(senderLower)
+
+                            if (isPartialMatch) {
+                                val txId = addTransaction(tx)
+                                suggestionDao.insertSuggestion(
+                                    PendingSettlementSuggestionEntity(
+                                        transactionId = txId,
+                                        amount = tx.amount,
+                                        suggestedPersonId = person.id,
+                                        detectedSenderName = senderClean,
+                                        status = SettlementSuggestionStatus.PENDING
+                                    )
+                                )
+                                pendingSuggestionsCreated++
+                                suggestionCreated = true
+                                break
+                            }
+                        }
+                    }
+                }
+
+                if (!settled && !suggestionCreated) {
+                    addTransaction(tx)
+                }
+                importedCredits++
+            } else {
+                // DEBIT (Expense)
+                val (resolvedFriendlyName, resolvedCategoryId) = resolveVendor(parsed.senderOrMerchant)
+                val expenseTx = tx.copy(
+                    friendlyVendorName = resolvedFriendlyName,
+                    categoryId = resolvedCategoryId ?: tx.categoryId
+                )
+                addTransaction(expenseTx)
+                importedDebits++
+            }
+        }
+
+        if (maxEmailTimestamp > 0L) {
+            appPreferences.setGmailLastSyncTimestamp(maxEmailTimestamp)
+        }
+
+        GmailSyncStats(
+            totalFound = rawEmails.size,
+            importedDebits = importedDebits,
+            importedCredits = importedCredits,
+            autoSettledCredits = autoSettledCredits,
+            pendingSuggestionsCreated = pendingSuggestionsCreated,
+            skippedDuplicates = skippedDuplicates
+        )
+    }
+
     suspend fun ensurePreseededData() = withContext(Dispatchers.IO) {
         val existingCategories = categoryDao.getAllCategoriesList()
         if (existingCategories.isEmpty()) {

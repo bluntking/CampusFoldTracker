@@ -18,6 +18,46 @@ class AppPreferences(private val context: Context) {
         private val OVERALL_MONTHLY_BUDGET = doublePreferencesKey("overall_monthly_budget")
         private val SAVED_AI_MODEL_PATH = stringPreferencesKey("saved_ai_model_path")
         private val PROCESSED_NOTIF_HASHES = stringSetPreferencesKey("processed_notif_hashes")
+        private val GMAIL_SYNC_EMAIL = stringPreferencesKey("gmail_sync_email")
+        private val GMAIL_SYNC_APP_PASSWORD = stringPreferencesKey("gmail_sync_app_password")
+        private val GMAIL_LAST_SYNC_TIMESTAMP = longPreferencesKey("gmail_last_sync_timestamp")
+    }
+
+    val gmailSyncEmail: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[GMAIL_SYNC_EMAIL]
+    }
+
+    val gmailSyncAppPassword: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[GMAIL_SYNC_APP_PASSWORD]
+    }
+
+    val gmailLastSyncTimestamp: Flow<Long> = context.dataStore.data.map { preferences ->
+        preferences[GMAIL_LAST_SYNC_TIMESTAMP] ?: 0L
+    }
+
+    suspend fun getGmailCredentialsSync(): Pair<String?, String?> {
+        val prefs = context.dataStore.data.first()
+        return Pair(prefs[GMAIL_SYNC_EMAIL], prefs[GMAIL_SYNC_APP_PASSWORD])
+    }
+
+    suspend fun saveGmailCredentials(email: String, appPassword: String) {
+        context.dataStore.edit { preferences ->
+            preferences[GMAIL_SYNC_EMAIL] = email.trim()
+            preferences[GMAIL_SYNC_APP_PASSWORD] = appPassword.replace(" ", "").trim()
+        }
+    }
+
+    suspend fun clearGmailCredentials() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(GMAIL_SYNC_EMAIL)
+            preferences.remove(GMAIL_SYNC_APP_PASSWORD)
+        }
+    }
+
+    suspend fun setGmailLastSyncTimestamp(timestamp: Long) {
+        context.dataStore.edit { preferences ->
+            preferences[GMAIL_LAST_SYNC_TIMESTAMP] = timestamp
+        }
     }
 
     val savedAiModelPath: Flow<String?> = context.dataStore.data.map { preferences ->
