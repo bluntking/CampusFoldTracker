@@ -510,6 +510,98 @@ object LocalAiManager {
         }
     }
 
+    /**
+     * Intelligent on-device AI categorization.
+     * Uses loaded MediaPipe LLM if available, or fast local knowledge heuristics.
+     * E.g. "Air India" -> "Travel"
+     */
+    suspend fun predictCategoryForMerchant(
+        merchantName: String,
+        existingCategories: List<String> = emptyList()
+    ): String = withContext(Dispatchers.IO) {
+        val lower = merchantName.lowercase().trim()
+        if (lower.isBlank()) return@withContext "Other"
+
+        // 1. Fast local knowledge heuristics (0ms instant classification)
+        val heuristicCategory = classifyMerchantHeuristically(lower)
+        if (heuristicCategory != null) {
+            return@withContext heuristicCategory
+        }
+
+        // 2. If MediaPipe LLM is loaded and ready, query the on-device LLM
+        if (llmInference != null && _modelStatus.value is AiModelStatus.Ready) {
+            try {
+                val catListStr = if (existingCategories.isNotEmpty()) {
+                    existingCategories.joinToString(", ")
+                } else {
+                    "Food & Dining, Travel, Groceries, Shopping, Entertainment, Utilities, Healthcare, Education, Chai & Smoke, Clothing, Personal Care"
+                }
+                val prompt = """
+                    Categorize the payee or merchant '$merchantName' into one expense category (e.g. Travel, Food & Dining, Groceries, Shopping, Entertainment, Utilities, Healthcare, Education, Clothing, Personal Care).
+                    Available options: $catListStr.
+                    If it is an airline, flight, cab, train, hotel booking, metro, or fuel, reply 'Travel'.
+                    Reply ONLY with the single category name, no extra words or punctuation:
+                """.trimIndent()
+                val response = llmInference!!.generateResponse(prompt).trim()
+                val clean = response.lines().firstOrNull()?.trim()?.replace("[^a-zA-Z &]".toRegex(), "") ?: ""
+                if (clean.isNotBlank() && clean.length < 30) {
+                    return@withContext clean
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "LLM auto-categorization error: ${e.message}")
+            }
+        }
+
+        return@withContext "Other"
+    }
+
+    private fun classifyMerchantHeuristically(lower: String): String? {
+        return when {
+            // Travel / Flights / Cabs / Trains / Fuel
+            listOf("air india", "indigo", "spicejet", "akasa", "vistara", "airasia", "emirates", "qatar", "lufthansa", "boeing",
+                "uber", "ola", "rapido", "irctc", "makemytrip", "easemytrip", "goibibo", "yatra", "cleartrip",
+                "flight", "airline", "airways", "railway", "metro", "cab", "taxi", "petrol", "diesel", "fuel", "hpcl", "bpcl",
+                "iocl", "indian oil", "shell", "redbus", "abhibus", "fastag", "toll", "parking", "auto", "travel", "rickshaw").any { lower.contains(it) } -> "Travel"
+
+            // Food & Dining / Cafes / Restaurants
+            listOf("zomato", "swiggy", "bistro", "hungerbox", "mcdonald", "kfc", "burger", "pizza", "domino", "starbucks",
+                "cafe", "coffee", "restaurant", "hotel", "dhaba", "canteen", "mess", "bakery", "subway", "chaaterbox",
+                "haldiram", "biryani", "barbeque", "dosa", "food", "kitchen", "eats", "dining", "bar", "pub").any { lower.contains(it) } -> "Food & Dining"
+
+            // Groceries / Supermarkets
+            listOf("zepto", "blinkit", "instamart", "bigbasket", "supermarket", "dmart", "reliance fresh", "kirana",
+                "provision", "mart", "dd store", "akka shop", "nature's basket", "grocer", "vegetable", "fruit", "dairy", "milk").any { lower.contains(it) } -> "Groceries"
+
+            // Chai & Smoke (Campus staple)
+            listOf("chai", "tea", "smoke", "pan shop", "paan", "tapri", "sutta", "beedi", "cigarette", "tobacco").any { lower.contains(it) } -> "Chai & Smoke"
+
+            // Beverages
+            listOf("beverage", "juice", "shake", "smoothie", "boba", "lassi", "soda", "lemonade", "chennai beverage").any { lower.contains(it) } -> "Beverages"
+
+            // Entertainment / Subscriptions
+            listOf("netflix", "prime video", "hotstar", "spotify", "bookmyshow", "pvr", "inox", "cinepolis", "cinema",
+                "theatre", "youtube", "gaming", "steam", "playstation", "sony liv", "zee5", "apple music").any { lower.contains(it) } -> "Entertainment"
+
+            // Clothing / Fashion / Apparel
+            listOf("zara", "h&m", "uniqlo", "myntra", "ajio", "nykaa", "meesho", "clothing", "apparel", "trends",
+                "westside", "max fashion", "pantaloons", "snitch", "souled store", "lifestyle", "shoppers stop", "fashion", "garment").any { lower.contains(it) } -> "Clothing"
+
+            // Utilities & Bills
+            listOf("electricity", "bescom", "airtel", "jio", "vi ", "vodafone", "broadband", "wifi", "gas",
+                "water bill", "recharge", "billdesk", "tneb", "cesc", "tatasky", "dth", "cylinder").any { lower.contains(it) } -> "Utilities"
+
+            // Healthcare / Pharmacy
+            listOf("apollo", "pharmacy", "medplus", "1mg", "practo", "hospital", "clinic", "medical", "doctor",
+                "dentist", "diagnostic", "chemist", "pathology", "lab").any { lower.contains(it) } -> "Healthcare"
+
+            // Education / Courses / Books
+            listOf("udemy", "coursera", "book", "xerox", "print", "stationery", "tuition", "college", "fees",
+                "school", "academy", "exam", "pen", "paper").any { lower.contains(it) } -> "Education"
+
+            else -> null
+        }
+    }
+
     fun clearChat() {
         _chatMessages.value = listOf(
             ChatMessage(

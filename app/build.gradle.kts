@@ -12,8 +12,10 @@ android {
         applicationId = "com.campusfold.tracker"
         minSdk = 26
         targetSdk = 34
+        val runNum = System.getenv("GITHUB_RUN_NUMBER") ?: "local"
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()?.plus(100) ?: 1
-        versionName = "1.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "local"}"
+        versionName = "1.0.$runNum"
+        manifestPlaceholders["appName"] = "CampusFold 1.0.$runNum"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

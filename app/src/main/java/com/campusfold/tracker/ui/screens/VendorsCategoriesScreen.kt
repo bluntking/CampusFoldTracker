@@ -33,6 +33,8 @@ import com.campusfold.tracker.ui.TransactionViewModel
 import com.campusfold.tracker.ui.components.FoldCard
 import com.campusfold.tracker.ui.components.MonospaceCurrencyText
 import com.campusfold.tracker.ui.components.StatusPill
+import com.campusfold.tracker.ui.sheets.GmailSyncDialog
+import com.campusfold.tracker.ui.sheets.SyncFromDateDialog
 import com.campusfold.tracker.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -53,7 +55,7 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
 
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var categoryToEdit by remember { mutableStateOf<CategoryEntity?>(null) }
-    var showBackupSheet by remember { mutableStateOf(false) }
+    var showDataSyncSheet by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -67,7 +69,7 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Screen Header with Title on Left and ⚙ Backup Button on Right
+            // Screen Header with Title on Left and ⚙ Sync & Data Button on Right
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -89,9 +91,9 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                     )
                 }
 
-                // ⚙ Backup Button in Header
+                // ⚙ Sync & Data Button in Header
                 Button(
-                    onClick = { showBackupSheet = true },
+                    onClick = { showDataSyncSheet = true },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = InputBg,
                         contentColor = TextPrimary
@@ -102,14 +104,14 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                     modifier = Modifier.height(34.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Backup & Restore",
-                        tint = NeonPurple,
-                        modifier = Modifier.size(14.dp)
+                        imageVector = Icons.Default.SyncAlt,
+                        contentDescription = "Sync & Data Management",
+                        tint = NeonCyan,
+                        modifier = Modifier.size(15.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Backup",
+                        text = "Sync & Data",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = TextPrimary
@@ -277,14 +279,14 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
         )
     }
 
-    // Backup & Settings Bottom Sheet
-    if (showBackupSheet) {
+    // Data & Sync Bottom Sheet
+    if (showDataSyncSheet) {
         ModalBottomSheet(
-            onDismissRequest = { showBackupSheet = false },
+            onDismissRequest = { showDataSyncSheet = false },
             containerColor = CardElevated,
             dragHandle = { BottomSheetDefaults.DragHandle(color = BorderCharcoal) }
         ) {
-            SettingsBackupContent(viewModel = viewModel)
+            DataSyncSheetContent(viewModel = viewModel)
         }
     }
 }
@@ -663,9 +665,14 @@ fun AddEditCategoryDialog(
 }
 
 @Composable
-fun SettingsBackupContent(viewModel: TransactionViewModel) {
+fun DataSyncSheetContent(viewModel: TransactionViewModel) {
     val context = LocalContext.current
+    val isScanning by viewModel.isScanning.collectAsState()
+
     var showImportConfirmDialog by remember { mutableStateOf<Uri?>(null) }
+    var showClearAllConfirmDialog by remember { mutableStateOf(false) }
+    var showGmailSyncDialog by remember { mutableStateOf(false) }
+    var showSyncDateDialog by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -683,6 +690,7 @@ fun SettingsBackupContent(viewModel: TransactionViewModel) {
         }
     }
 
+    // Confirm Data Restore Dialog
     if (showImportConfirmDialog != null) {
         val uri = showImportConfirmDialog!!
         AlertDialog(
@@ -721,19 +729,251 @@ fun SettingsBackupContent(viewModel: TransactionViewModel) {
         )
     }
 
+    // Confirm Start Afresh (Clear All) Dialog
+    if (showClearAllConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAllConfirmDialog = false },
+            containerColor = MatteCharcoal,
+            title = {
+                Text(
+                    text = "Start Afresh (Clear All)?",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = NeonCrimson
+                )
+            },
+            text = {
+                Text(
+                    text = "This will erase all transactions, unsettled splits, and suggestions so you start with ₹0.00 spend.\n\nYour categories, vendor mappings, and accounts will be preserved.",
+                    fontSize = 13.sp,
+                    color = TextPrimary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearAllTransactionsAndReset()
+                        showClearAllConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonCrimson, contentColor = TextPrimary),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Clear All & Start Afresh", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllConfirmDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
+    }
+
+    // Direct Axis Bank Gmail IMAP Sync Dialog
+    if (showGmailSyncDialog) {
+        GmailSyncDialog(
+            viewModel = viewModel,
+            onDismiss = { showGmailSyncDialog = false }
+        )
+    }
+
+    // Sync from Custom Date Dialog
+    if (showSyncDateDialog) {
+        SyncFromDateDialog(
+            isScanning = isScanning,
+            onDismiss = { showSyncDateDialog = false },
+            onConfirmSync = { startDateMillis ->
+                viewModel.scanInboxFromDate(startDateMillis)
+            }
+        )
+    }
+
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 90.dp)
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
     ) {
-        // 1. Data Backup & Restore Card
+        // Header
+        item {
+            Column {
+                Text(
+                    text = "DATA & SYNC HUB",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMuted
+                )
+                Text(
+                    text = "Sync & Data Management",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "Fetch bank transactions, export offline backups, and manage app storage.",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+            }
+        }
+
+        // 1. Bank & SMS Sync Card
         item {
             FoldCard {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(NeonPurple.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = null,
+                                tint = NeonPurple,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Live Bank & SMS Sync",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "Fetch historical & real-time transactions",
+                                fontSize = 11.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Option A: Sync Axis Bank from Gmail
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(InputBg)
+                            .border(1.dp, BorderCharcoal, RoundedCornerShape(10.dp))
+                            .clickable { showGmailSyncDialog = true }
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(NeonPurple.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Email, contentDescription = null, tint = NeonPurple, modifier = Modifier.size(16.dp))
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Sync Axis Bank from Gmail",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Direct IMAP fetch for Debits & Credits",
+                                    fontSize = 11.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { showGmailSyncDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = NeonPurple, contentColor = OledBlack),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Sync Axis", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Option B: Sync SMS from Date
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(InputBg)
+                            .border(1.dp, BorderCharcoal, RoundedCornerShape(10.dp))
+                            .clickable { showSyncDateDialog = true }
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(NeonCyan.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(16.dp))
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Sync SMS from Date",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Import bank SMS from any chosen date",
+                                    fontSize = 11.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { showSyncDateDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = OledBlack),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Sync SMS", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Offline JSON Backup & Restore Card
+        item {
+            FoldCard {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(NeonEmerald.copy(alpha = 0.15f)),
                             contentAlignment = Alignment.Center
@@ -748,26 +988,26 @@ fun SettingsBackupContent(viewModel: TransactionViewModel) {
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "1-Tap Local Backup & Restore",
+                                text = "Portable JSON Backup & Restore",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 color = TextPrimary
                             )
                             Text(
-                                text = "Portable JSON format (Storage Access Framework)",
+                                text = "Storage Access Framework (SAF)",
                                 fontSize = 11.sp,
                                 color = TextMuted
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "Safeguard your financial records offline. Exports all transactions, split shares, custom categories, campus vendor mappings, and account details into an open JSON file.",
+                        text = "Exports all transactions, split shares, custom categories, campus vendor mappings, and accounts into an offline JSON file.",
                         fontSize = 12.sp,
                         color = TextSecondary,
-                        lineHeight = 17.sp
+                        lineHeight = 16.sp
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -815,7 +1055,73 @@ fun SettingsBackupContent(viewModel: TransactionViewModel) {
             }
         }
 
-        // 2. App In-Place Updates & Data Safety Engine Card
+        // 3. Danger Zone: Start Afresh (Clear All)
+        item {
+            FoldCard(
+                containerColor = Color(0xFF261014),
+                borderColor = NeonCrimson.copy(alpha = 0.4f)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(NeonCrimson.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteSweep,
+                                contentDescription = null,
+                                tint = NeonCrimson,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Start Afresh (Reset Transactions)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = NeonCrimson
+                            )
+                            Text(
+                                text = "Wipe transactions & splits for a fresh start",
+                                fontSize = 11.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Erases all logged transactions and unsettled splits so you start at ₹0.00 spend. Custom rules, accounts, and categories remain completely intact.",
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = { showClearAllConfirmDialog = true },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeonCrimson,
+                            contentColor = TextPrimary
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Clear All Transactions & Start Afresh", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        // 4. Data Safety Engine Card
         item {
             FoldCard {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -837,7 +1143,7 @@ fun SettingsBackupContent(viewModel: TransactionViewModel) {
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "Data Safety & In-Place Updates",
+                                text = "Data Safety & Architecture",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 color = TextPrimary

@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,7 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -31,6 +35,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.campusfold.tracker.data.entity.TransactionEntity
+import com.campusfold.tracker.data.entity.TransactionType
 import com.campusfold.tracker.data.model.BurnRateInsight
 import com.campusfold.tracker.data.model.CategorySpending
 import com.campusfold.tracker.data.model.HighFrequencyLeak
@@ -76,6 +82,7 @@ fun AnalyticsScreen(
     val burnRateWarnings by viewModel.burnRateWarnings.collectAsState()
     val highFrequencyLeaks by viewModel.highFrequencyLeaks.collectAsState()
     val weekOverWeekSpike by viewModel.weekOverWeekSpike.collectAsState()
+    val allTransactions by viewModel.allTransactions.collectAsState()
 
     var breakdownMode by remember { mutableStateOf(ChartBreakdownMode.CATEGORY) }
     var selectedSliceId by remember { mutableStateOf<String?>(null) }
@@ -559,6 +566,11 @@ fun AnalyticsScreen(
                         }
                     }
                 }
+            }
+
+            // Expense Trajectory: Week-over-Week & Month-over-Month Comparative Area Chart
+            item {
+                ExpenseComparisonAreaChartCard(transactions = allTransactions)
             }
 
             // 'Where to Control' Actionable Insights Header
@@ -1191,4 +1203,819 @@ fun CategoryBudgetProgressRow(
             )
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Week-over-Week & Month-over-Month Comparative Expense Area Chart
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum class ComparisonPeriod {
+    WEEK_OVER_WEEK,
+    MONTH_OVER_MONTH
+}
+
+enum class MetricViewMode {
+    CUMULATIVE,
+    DAILY
+}
+
+data class ComparisonPoint(
+    val index: Int,
+    val label: String,
+    val fullLabel: String,
+    val currentSpend: Double,
+    val previousSpend: Double,
+    val currentCumulative: Double,
+    val previousCumulative: Double,
+    val isFuture: Boolean
+)
+
+@Composable
+fun ExpenseComparisonAreaChartCard(transactions: List<TransactionEntity>) {
+    var period by remember { mutableStateOf(ComparisonPeriod.WEEK_OVER_WEEK) }
+    var viewMode by remember { mutableStateOf(MetricViewMode.CUMULATIVE) }
+    var scrubbedIndex by remember { mutableStateOf<Int?>(null) }
+
+    val comparisonPoints = remember(transactions, period) {
+        if (period == ComparisonPeriod.WEEK_OVER_WEEK) {
+            computeWeekOverWeekData(transactions)
+        } else {
+            computeMonthOverMonthData(transactions)
+        }
+    }
+
+    // Reset scrubbed index on period change
+    LaunchedEffect(period) {
+        scrubbedIndex = null
+    }
+
+    val activePoints = remember(comparisonPoints) {
+        comparisonPoints.filter { !it.isFuture }
+    }
+
+    val currentTotal = remember(activePoints) {
+        activePoints.lastOrNull()?.currentCumulative ?: 0.0
+    }
+
+    val previousTotal = remember(comparisonPoints) {
+        comparisonPoints.lastOrNull()?.previousCumulative ?: 0.0
+    }
+
+    FoldCard(
+        containerColor = MatteCharcoal,
+        borderColor = BorderCharcoal
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Header Row: Title & Period Switcher
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.AutoGraph,
+                        contentDescription = null,
+                        tint = NeonCyan,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Column {
+                        Text(
+                            text = "EXPENSE TRAJECTORY",
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            letterSpacing = 1.sp,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = if (period == ComparisonPeriod.WEEK_OVER_WEEK) "Week-over-Week Area" else "Month-over-Month Area",
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                // Period Switcher (Week / Month)
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(InputBg)
+                        .border(1.dp, BorderCharcoal, RoundedCornerShape(8.dp))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    ComparisonTabPill(
+                        text = "Week",
+                        isSelected = period == ComparisonPeriod.WEEK_OVER_WEEK,
+                        onClick = {
+                            period = ComparisonPeriod.WEEK_OVER_WEEK
+                            scrubbedIndex = null
+                        }
+                    )
+                    ComparisonTabPill(
+                        text = "Month",
+                        isSelected = period == ComparisonPeriod.MONTH_OVER_MONTH,
+                        onClick = {
+                            period = ComparisonPeriod.MONTH_OVER_MONTH
+                            scrubbedIndex = null
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Sub-control Row: Mode Switcher (Cumulative vs Daily) + Reset hint
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(InputBg)
+                        .border(1.dp, BorderCharcoal, RoundedCornerShape(8.dp))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    ComparisonTabPill(
+                        text = "Cumulative",
+                        isSelected = viewMode == MetricViewMode.CUMULATIVE,
+                        onClick = { viewMode = MetricViewMode.CUMULATIVE }
+                    )
+                    ComparisonTabPill(
+                        text = "Daily",
+                        isSelected = viewMode == MetricViewMode.DAILY,
+                        onClick = { viewMode = MetricViewMode.DAILY }
+                    )
+                }
+
+                if (scrubbedIndex != null) {
+                    Text(
+                        text = "✕ Reset Inspection",
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = NeonAmber,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { scrubbedIndex = null }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                } else {
+                    Text(
+                        text = "Drag/Tap to Inspect",
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = TextMuted
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Metrics Summary Banner / Inspection Callout
+            val inspectedPoint = scrubbedIndex?.let { comparisonPoints.getOrNull(it) }
+            if (inspectedPoint != null) {
+                // Inspection Display
+                val currVal = if (viewMode == MetricViewMode.CUMULATIVE) inspectedPoint.currentCumulative else inspectedPoint.currentSpend
+                val prevVal = if (viewMode == MetricViewMode.CUMULATIVE) inspectedPoint.previousCumulative else inspectedPoint.previousSpend
+                val diffVal = currVal - prevVal
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(InputBg)
+                        .border(1.dp, NeonCyan.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = inspectedPoint.fullLabel.uppercase(),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = NeonCyan
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Curr: ",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = TextMuted
+                            )
+                            if (inspectedPoint.isFuture) {
+                                Text(
+                                    text = "-- (Future)",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = TextMuted
+                                )
+                            } else {
+                                MonospaceCurrencyText(
+                                    amount = currVal,
+                                    fontSize = 13.sp,
+                                    color = NeonCyan
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Prev: ",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = TextMuted
+                            )
+                            MonospaceCurrencyText(
+                                amount = prevVal,
+                                fontSize = 13.sp,
+                                color = Color(0xFF9CA3AF)
+                            )
+                        }
+                    }
+
+                    if (!inspectedPoint.isFuture) {
+                        val diffSign = if (diffVal > 0) "+" else ""
+                        val diffColor = if (diffVal > 0) NeonAmber else NeonGreen
+                        StatusPill(
+                            text = "$diffSign₹${diffVal.toInt()}",
+                            bgColor = diffColor.copy(alpha = 0.18f),
+                            textColor = diffColor,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            } else {
+                // Default Total Overview
+                val diffTotal = currentTotal - previousTotal
+                val pctChange = if (previousTotal > 0) {
+                    ((currentTotal - previousTotal) / previousTotal * 100).toInt()
+                } else 0
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(InputBg)
+                        .border(1.dp, BorderCharcoal, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Current Total
+                    Column {
+                        Text(
+                            text = if (period == ComparisonPeriod.WEEK_OVER_WEEK) "THIS WEEK" else "THIS MONTH",
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = NeonCyan
+                        )
+                        MonospaceCurrencyText(
+                            amount = currentTotal,
+                            fontSize = 16.sp,
+                            color = NeonCyan
+                        )
+                    }
+
+                    // Previous Total
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = if (period == ComparisonPeriod.WEEK_OVER_WEEK) "PREV WEEK" else "PREV MONTH",
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted
+                        )
+                        MonospaceCurrencyText(
+                            amount = previousTotal,
+                            fontSize = 14.sp,
+                            color = Color(0xFF9CA3AF)
+                        )
+                    }
+
+                    // Pct Badge
+                    val badgeColor = if (diffTotal > 0) NeonAmber else if (diffTotal < 0) NeonGreen else TextMuted
+                    val badgeSign = if (diffTotal > 0) "+" else ""
+                    StatusPill(
+                        text = "$badgeSign$pctChange%",
+                        bgColor = badgeColor.copy(alpha = 0.18f),
+                        textColor = badgeColor,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Area Chart Canvas
+            val nPoints = comparisonPoints.size
+            val maxVal = remember(comparisonPoints, viewMode) {
+                val topCurr = comparisonPoints.filter { !it.isFuture }.maxOfOrNull {
+                    if (viewMode == MetricViewMode.CUMULATIVE) it.currentCumulative else it.currentSpend
+                } ?: 0.0
+                val topPrev = comparisonPoints.maxOfOrNull {
+                    if (viewMode == MetricViewMode.CUMULATIVE) it.previousCumulative else it.previousSpend
+                } ?: 0.0
+                maxOf(topCurr, topPrev).coerceAtLeast(100.0)
+            }
+            val effectiveMax = maxVal * 1.15
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .pointerInput(comparisonPoints, viewMode) {
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                val paddingLeft = 16.dp.toPx()
+                                val paddingRight = 16.dp.toPx()
+                                val chartWidth = size.width - paddingLeft - paddingRight
+                                val xStep = if (nPoints > 1) chartWidth / (nPoints - 1) else 0f
+                                val x = offset.x.coerceIn(paddingLeft, size.width - paddingRight)
+                                val idx = if (nPoints > 1) ((x - paddingLeft) / xStep).roundToInt().coerceIn(0, nPoints - 1) else 0
+                                scrubbedIndex = idx
+                            },
+                            onDrag = { change, _ ->
+                                val paddingLeft = 16.dp.toPx()
+                                val paddingRight = 16.dp.toPx()
+                                val chartWidth = size.width - paddingLeft - paddingRight
+                                val xStep = if (nPoints > 1) chartWidth / (nPoints - 1) else 0f
+                                val x = change.position.x.coerceIn(paddingLeft, size.width - paddingRight)
+                                val idx = if (nPoints > 1) ((x - paddingLeft) / xStep).roundToInt().coerceIn(0, nPoints - 1) else 0
+                                scrubbedIndex = idx
+                            },
+                            onDragEnd = {},
+                            onDragCancel = { scrubbedIndex = null }
+                        )
+                    }
+                    .pointerInput(comparisonPoints, viewMode) {
+                        detectTapGestures { offset ->
+                            val paddingLeft = 16.dp.toPx()
+                            val paddingRight = 16.dp.toPx()
+                            val chartWidth = size.width - paddingLeft - paddingRight
+                            val xStep = if (nPoints > 1) chartWidth / (nPoints - 1) else 0f
+                            val x = offset.x.coerceIn(paddingLeft, size.width - paddingRight)
+                            val idx = if (nPoints > 1) ((x - paddingLeft) / xStep).roundToInt().coerceIn(0, nPoints - 1) else 0
+                            scrubbedIndex = if (scrubbedIndex == idx) null else idx
+                        }
+                    }
+            ) {
+                val paddingLeft = 16.dp.toPx()
+                val paddingRight = 16.dp.toPx()
+                val paddingTop = 16.dp.toPx()
+                val paddingBottom = 12.dp.toPx()
+
+                val chartWidth = size.width - paddingLeft - paddingRight
+                val chartHeight = size.height - paddingTop - paddingBottom
+                val baselineY = size.height - paddingBottom
+                val xStep = if (nPoints > 1) chartWidth / (nPoints - 1) else 0f
+
+                // Draw Horizontal Subtle Dashed Gridlines
+                val gridColor = Color(0xFF2B2F38)
+                val gridDash = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+                for (fraction in listOf(0.25f, 0.5f, 0.75f)) {
+                    val gy = baselineY - fraction * chartHeight
+                    drawLine(
+                        color = gridColor,
+                        start = Offset(paddingLeft, gy),
+                        end = Offset(size.width - paddingRight, gy),
+                        strokeWidth = 1f,
+                        pathEffect = gridDash
+                    )
+                }
+
+                // Baseline line
+                drawLine(
+                    color = Color(0xFF383D48),
+                    start = Offset(paddingLeft, baselineY),
+                    end = Offset(size.width - paddingRight, baselineY),
+                    strokeWidth = 1.5f
+                )
+
+                // 1. Previous Period Coordinates
+                val prevPoints = comparisonPoints.mapIndexed { i, pt ->
+                    val v = if (viewMode == MetricViewMode.CUMULATIVE) pt.previousCumulative else pt.previousSpend
+                    val y = baselineY - (v / effectiveMax * chartHeight).toFloat().coerceIn(0f, chartHeight)
+                    Offset(paddingLeft + i * xStep, y)
+                }
+
+                // 2. Current Period Coordinates (Non-future days only)
+                val currPoints = activePoints.map { pt ->
+                    val v = if (viewMode == MetricViewMode.CUMULATIVE) pt.currentCumulative else pt.currentSpend
+                    val y = baselineY - (v / effectiveMax * chartHeight).toFloat().coerceIn(0f, chartHeight)
+                    Offset(paddingLeft + pt.index * xStep, y)
+                }
+
+                // ── Draw Previous Period Area (Background - Grey) ──
+                if (prevPoints.isNotEmpty()) {
+                    val prevFillBrush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF6B7280).copy(alpha = 0.28f),
+                            Color(0xFF374151).copy(alpha = 0.04f)
+                        ),
+                        startY = paddingTop,
+                        endY = baselineY
+                    )
+                    val prevFillPath = buildSmoothPath(prevPoints, baselineY, closeForFill = true)
+                    drawPath(prevFillPath, brush = prevFillBrush)
+
+                    val prevLinePath = buildSmoothPath(prevPoints, baselineY, closeForFill = false)
+                    drawPath(
+                        prevLinePath,
+                        color = Color(0xFF9CA3AF).copy(alpha = 0.85f),
+                        style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                    )
+                }
+
+                // ── Draw Current Period Area (Foreground - Neon Cyan) ──
+                if (currPoints.isNotEmpty()) {
+                    val currFillBrush = Brush.verticalGradient(
+                        colors = listOf(
+                            NeonCyan.copy(alpha = 0.40f),
+                            NeonCyan.copy(alpha = 0.04f)
+                        ),
+                        startY = paddingTop,
+                        endY = baselineY
+                    )
+                    val currFillPath = buildSmoothPath(currPoints, baselineY, closeForFill = true)
+                    drawPath(currFillPath, brush = currFillBrush)
+
+                    val currLinePath = buildSmoothPath(currPoints, baselineY, closeForFill = false)
+                    drawPath(
+                        currLinePath,
+                        color = NeonCyan,
+                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                    )
+
+                    // Glowing Head Dot on the latest active point
+                    val lastPt = currPoints.last()
+                    drawCircle(
+                        color = NeonCyan.copy(alpha = 0.35f),
+                        radius = 8.dp.toPx(),
+                        center = lastPt
+                    )
+                    drawCircle(
+                        color = NeonCyan,
+                        radius = 4.dp.toPx(),
+                        center = lastPt
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = 1.8.dp.toPx(),
+                        center = lastPt
+                    )
+                }
+
+                // ── Draw Scrubbing / Inspection Indicator ──
+                if (scrubbedIndex != null && scrubbedIndex in 0 until nPoints) {
+                    val sIdx = scrubbedIndex!!
+                    val scrubX = paddingLeft + sIdx * xStep
+
+                    // Vertical guideline
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.65f),
+                        start = Offset(scrubX, paddingTop),
+                        end = Offset(scrubX, baselineY),
+                        strokeWidth = 1.5.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f)
+                    )
+
+                    // Dot on previous period
+                    if (sIdx in prevPoints.indices) {
+                        drawCircle(
+                            color = Color(0xFF9CA3AF),
+                            radius = 4.dp.toPx(),
+                            center = prevPoints[sIdx]
+                        )
+                    }
+
+                    // Dot on current period if active
+                    val currPt = currPoints.getOrNull(activePoints.indexOfFirst { it.index == sIdx })
+                    if (currPt != null) {
+                        drawCircle(
+                            color = NeonCyan,
+                            radius = 5.dp.toPx(),
+                            center = currPt
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = 2.dp.toPx(),
+                            center = currPt
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // X-Axis Labels Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                if (period == ComparisonPeriod.WEEK_OVER_WEEK) {
+                    comparisonPoints.forEach { pt ->
+                        val isScrubbed = scrubbedIndex == pt.index
+                        Text(
+                            text = pt.label,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = if (isScrubbed) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isScrubbed) NeonCyan else TextMuted
+                        )
+                    }
+                } else {
+                    // Month ticks: 1, 5, 10, 15, 20, 25, comparisonPoints.size
+                    val monthTicks = listOf(1, 5, 10, 15, 20, 25, comparisonPoints.size).distinct()
+                    monthTicks.forEach { dayNum ->
+                        val isScrubbed = scrubbedIndex == (dayNum - 1)
+                        Text(
+                            text = "$dayNum",
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = if (isScrubbed) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isScrubbed) NeonCyan else TextMuted
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Legend Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Current Period
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(NeonCyan, CircleShape)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (period == ComparisonPeriod.WEEK_OVER_WEEK) "Current Week" else "Current Month",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.width(20.dp))
+
+                // Previous Period
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(Color(0xFF9CA3AF), CircleShape)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (period == ComparisonPeriod.WEEK_OVER_WEEK) "Previous Week (Benchmark)" else "Previous Month (Benchmark)",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    color = TextMuted
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComparisonTabPill(
+    text: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (isSelected) NeonCyan else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = if (isSelected) OledBlack else TextSecondary
+        )
+    }
+}
+
+private fun buildSmoothPath(points: List<Offset>, baselineY: Float, closeForFill: Boolean): Path {
+    val path = Path()
+    if (points.isEmpty()) return path
+
+    if (closeForFill) {
+        path.moveTo(points.first().x, baselineY)
+        path.lineTo(points.first().x, points.first().y)
+    } else {
+        path.moveTo(points.first().x, points.first().y)
+    }
+
+    if (points.size == 1) {
+        if (closeForFill) {
+            path.lineTo(points.first().x + 2f, points.first().y)
+            path.lineTo(points.first().x + 2f, baselineY)
+            path.close()
+        }
+        return path
+    }
+
+    for (i in 0 until points.size - 1) {
+        val p0 = points[i]
+        val p1 = points[i + 1]
+        val cp1X = p0.x + (p1.x - p0.x) / 2f
+        val cp1Y = p0.y
+        val cp2X = p0.x + (p1.x - p0.x) / 2f
+        val cp2Y = p1.y
+        path.cubicTo(cp1X, cp1Y, cp2X, cp2Y, p1.x, p1.y)
+    }
+
+    if (closeForFill) {
+        path.lineTo(points.last().x, baselineY)
+        path.close()
+    }
+    return path
+}
+
+internal fun computeWeekOverWeekData(transactions: List<TransactionEntity>): List<ComparisonPoint> {
+    val expenseTxns = transactions.filter { it.type == TransactionType.EXPENSE }
+    val now = Calendar.getInstance()
+
+    // Current week Monday
+    val currCal = Calendar.getInstance().apply {
+        firstDayOfWeek = Calendar.MONDAY
+        set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    if (currCal.timeInMillis > now.timeInMillis) {
+        currCal.add(Calendar.WEEK_OF_YEAR, -1)
+    }
+
+    val prevCal = (currCal.clone() as Calendar).apply {
+        add(Calendar.WEEK_OF_YEAR, -1)
+    }
+
+    val dayNames = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+    val fullDayNames = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+    val result = ArrayList<ComparisonPoint>(7)
+    var runningCurrent = 0.0
+    var runningPrev = 0.0
+
+    val currDayCal = currCal.clone() as Calendar
+    val prevDayCal = prevCal.clone() as Calendar
+
+    for (i in 0..6) {
+        val currStart = currDayCal.timeInMillis
+        currDayCal.set(Calendar.HOUR_OF_DAY, 23)
+        currDayCal.set(Calendar.MINUTE, 59)
+        currDayCal.set(Calendar.SECOND, 59)
+        currDayCal.set(Calendar.MILLISECOND, 999)
+        val currEnd = currDayCal.timeInMillis
+
+        val prevStart = prevDayCal.timeInMillis
+        prevDayCal.set(Calendar.HOUR_OF_DAY, 23)
+        prevDayCal.set(Calendar.MINUTE, 59)
+        prevDayCal.set(Calendar.SECOND, 59)
+        prevDayCal.set(Calendar.MILLISECOND, 999)
+        val prevEnd = prevDayCal.timeInMillis
+
+        val isFuture = currStart > now.timeInMillis
+
+        val currSpend = if (!isFuture) {
+            expenseTxns.filter { it.timestamp in currStart..currEnd }.sumOf { it.myActualShare }
+        } else 0.0
+
+        val prevSpend = expenseTxns.filter { it.timestamp in prevStart..prevEnd }.sumOf { it.myActualShare }
+
+        if (!isFuture) {
+            runningCurrent += currSpend
+        }
+        runningPrev += prevSpend
+
+        result.add(
+            ComparisonPoint(
+                index = i,
+                label = dayNames[i],
+                fullLabel = fullDayNames[i],
+                currentSpend = currSpend,
+                previousSpend = prevSpend,
+                currentCumulative = runningCurrent,
+                previousCumulative = runningPrev,
+                isFuture = isFuture
+            )
+        )
+
+        currDayCal.add(Calendar.DAY_OF_YEAR, 1)
+        currDayCal.set(Calendar.HOUR_OF_DAY, 0)
+        currDayCal.set(Calendar.MINUTE, 0)
+        currDayCal.set(Calendar.SECOND, 0)
+        currDayCal.set(Calendar.MILLISECOND, 0)
+
+        prevDayCal.add(Calendar.DAY_OF_YEAR, 1)
+        prevDayCal.set(Calendar.HOUR_OF_DAY, 0)
+        prevDayCal.set(Calendar.MINUTE, 0)
+        prevDayCal.set(Calendar.SECOND, 0)
+        prevDayCal.set(Calendar.MILLISECOND, 0)
+    }
+    return result
+}
+
+internal fun computeMonthOverMonthData(transactions: List<TransactionEntity>): List<ComparisonPoint> {
+    val expenseTxns = transactions.filter { it.type == TransactionType.EXPENSE }
+    val now = Calendar.getInstance()
+    val todayDay = now.get(Calendar.DAY_OF_MONTH)
+
+    // Current month 1st
+    val currCal = Calendar.getInstance().apply {
+        set(Calendar.DAY_OF_MONTH, 1)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    val daysInCurrMonth = currCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+
+    // Previous month 1st
+    val prevCal = (currCal.clone() as Calendar).apply {
+        add(Calendar.MONTH, -1)
+    }
+    val daysInPrevMonth = prevCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+
+    val maxDays = maxOf(daysInCurrMonth, daysInPrevMonth)
+    val result = ArrayList<ComparisonPoint>(maxDays)
+    var runningCurrent = 0.0
+    var runningPrev = 0.0
+
+    for (day in 1..maxDays) {
+        val isFuture = day > todayDay || day > daysInCurrMonth
+
+        var currSpend = 0.0
+        if (!isFuture && day <= daysInCurrMonth) {
+            val dCal = currCal.clone() as Calendar
+            dCal.set(Calendar.DAY_OF_MONTH, day)
+            val dStart = dCal.timeInMillis
+            dCal.set(Calendar.HOUR_OF_DAY, 23)
+            dCal.set(Calendar.MINUTE, 59)
+            dCal.set(Calendar.SECOND, 59)
+            dCal.set(Calendar.MILLISECOND, 999)
+            val dEnd = dCal.timeInMillis
+
+            currSpend = expenseTxns.filter { it.timestamp in dStart..dEnd }.sumOf { it.myActualShare }
+            runningCurrent += currSpend
+        }
+
+        var prevSpend = 0.0
+        if (day <= daysInPrevMonth) {
+            val dCal = prevCal.clone() as Calendar
+            dCal.set(Calendar.DAY_OF_MONTH, day)
+            val dStart = dCal.timeInMillis
+            dCal.set(Calendar.HOUR_OF_DAY, 23)
+            dCal.set(Calendar.MINUTE, 59)
+            dCal.set(Calendar.SECOND, 59)
+            dCal.set(Calendar.MILLISECOND, 999)
+            val dEnd = dCal.timeInMillis
+
+            prevSpend = expenseTxns.filter { it.timestamp in dStart..dEnd }.sumOf { it.myActualShare }
+            runningPrev += prevSpend
+        }
+
+        result.add(
+            ComparisonPoint(
+                index = day - 1,
+                label = "$day",
+                fullLabel = "Day $day",
+                currentSpend = currSpend,
+                previousSpend = prevSpend,
+                currentCumulative = runningCurrent,
+                previousCumulative = runningPrev,
+                isFuture = isFuture
+            )
+        )
+    }
+    return result
 }

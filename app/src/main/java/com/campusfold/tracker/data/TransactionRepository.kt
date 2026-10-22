@@ -118,6 +118,70 @@ class TransactionRepository(
         Pair(rawMerchant, null)
     }
 
+    /**
+     * Uses On-Device Local AI & smart heuristics to automatically categorize transactions.
+     * E.g. "Air India" -> Automatically predicts "Travel", checks if "Travel" exists in DB;
+     * if not, automatically creates the "Travel" category entity, links it, and saves a vendor mapping!
+     */
+    suspend fun autoCategorizeOrResolve(rawMerchant: String): Pair<String, Long?> = withContext(Dispatchers.IO) {
+        if (rawMerchant.isBlank()) return@withContext Pair(rawMerchant, null)
+
+        // 1. Check existing vendor mappings first
+        val (mappedName, existingCatId) = resolveVendor(rawMerchant)
+        if (existingCatId != null) {
+            return@withContext Pair(mappedName, existingCatId)
+        }
+
+        // 2. Query Local AI / smart heuristics for predicted category
+        val allCats = categoryDao.getAllCategoriesList()
+        val catNames = allCats.map { it.name }
+        val predictedCategoryName = com.campusfold.tracker.ai.LocalAiManager.predictCategoryForMerchant(rawMerchant, catNames)
+
+        if (predictedCategoryName.equals("Other", ignoreCase = true) || predictedCategoryName.isBlank()) {
+            return@withContext Pair(mappedName, null)
+        }
+
+        // 3. Check if predicted category already exists (case-insensitive)
+        val matchedCategory = categoryDao.getCategoryByName(predictedCategoryName)
+            ?: allCats.find { it.name.equals(predictedCategoryName, ignoreCase = true) }
+
+        val finalCategoryId: Long = if (matchedCategory != null) {
+            matchedCategory.id
+        } else {
+            // Automatically create category in DB (e.g. Travel)
+            val categoryColor = when (predictedCategoryName.lowercase()) {
+                "travel" -> "#06B6D4" // Cyan
+                "food & dining", "food" -> "#10B981" // Emerald
+                "groceries" -> "#F59E0B" // Amber
+                "entertainment" -> "#8B5CF6" // Purple
+                "clothing" -> "#EC4899" // Pink
+                "healthcare" -> "#EF4444" // Red
+                "education" -> "#3B82F6" // Blue
+                "utilities" -> "#6366F1" // Indigo
+                else -> "#14B8A6" // Teal
+            }
+            val newCat = CategoryEntity(
+                name = predictedCategoryName,
+                colorHex = categoryColor,
+                monthlyBudget = 5000.0
+            )
+            categoryDao.insertCategory(newCat)
+        }
+
+        // 4. Save vendor mapping so future transactions from this vendor are immediately mapped
+        try {
+            vendorDao.insertVendorMapping(
+                VendorMappingEntity(
+                    rawSmsKeyword = rawMerchant.trim(),
+                    friendlyName = mappedName,
+                    categoryId = finalCategoryId
+                )
+            )
+        } catch (_: Exception) {}
+
+        Pair(mappedName, finalCategoryId)
+    }
+
     // ─── Persons & Strict Dynamic Balances ────────────────────────────────────
     val personsWithBalances: Flow<List<PersonWithBalance>> = personDao.getPersonsWithBalances()
     val allPersons: Flow<List<PersonEntity>> = personDao.getAllPersons()
@@ -168,7 +232,18 @@ class TransactionRepository(
             transaction.amount
         }
 
-        val finalizedTx = transaction.copy(myActualShare = adjustedShare)
+        var txWithCategory = transaction
+        if (txWithCategory.categoryId == null && txWithCategory.type == TransactionType.EXPENSE && txWithCategory.rawMerchant.isNotBlank()) {
+            val (mappedVendor, autoCatId) = autoCategorizeOrResolve(txWithCategory.rawMerchant)
+            if (autoCatId != null) {
+                txWithCategory = txWithCategory.copy(
+                    categoryId = autoCatId,
+                    friendlyVendorName = if (txWithCategory.friendlyVendorName == txWithCategory.rawMerchant) mappedVendor else txWithCategory.friendlyVendorName
+                )
+            }
+        }
+
+        val finalizedTx = txWithCategory.copy(myActualShare = adjustedShare)
         val txId = transactionDao.insertTransaction(finalizedTx)
 
         if (splits.isNotEmpty()) {

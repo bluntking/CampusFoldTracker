@@ -70,32 +70,11 @@ fun HomeScreen(
     // Bottom sheet state
     var selectedTransactionForSheet by remember { mutableStateOf<TransactionEntity?>(initialSelectedTransaction) }
     var showCategoryFilterDialog by remember { mutableStateOf(false) }
-    var showSyncMenu by remember { mutableStateOf(false) }
-    var showSyncDateDialog by remember { mutableStateOf(false) }
-    var showGmailSyncDialog by remember { mutableStateOf(false) }
-    var showClearAllConfirmDialog by remember { mutableStateOf(false) }
-    var showImportConfirmDialog by remember { mutableStateOf<Uri?>(null) }
     var showAiCoachSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(initialSelectedTransaction) {
         if (initialSelectedTransaction != null) {
             selectedTransactionForSheet = initialSelectedTransaction
-        }
-    }
-
-    val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.exportBackup(context, uri)
-        }
-    }
-
-    val importLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            showImportConfirmDialog = uri
         }
     }
 
@@ -150,124 +129,6 @@ fun HomeScreen(
                         Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("AI Coach", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Sync Menu
-                    Box {
-                        IconButton(
-                            onClick = {
-                                if (hasSmsPermission) {
-                                    showSyncMenu = true
-                                } else {
-                                    onRequestPermissions()
-                                }
-                            },
-                            enabled = !isScanning,
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(MatteCharcoal)
-                                .border(1.dp, BorderCharcoal, CircleShape)
-                                .size(38.dp)
-                        ) {
-                            if (isScanning) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = NeonEmerald
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.Sync,
-                                    contentDescription = "Sync SMS",
-                                    tint = NeonEmerald,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-
-                        DropdownMenu(
-                            expanded = showSyncMenu,
-                            onDismissRequest = { showSyncMenu = false },
-                            modifier = Modifier.background(MatteCharcoal)
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Email, contentDescription = null, tint = NeonPurple, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Text("Sync Axis from Gmail", color = TextPrimary, fontWeight = FontWeight.Bold)
-                                            Text("Direct IMAP for Debits & Credits", fontSize = 10.sp, color = TextMuted)
-                                        }
-                                    }
-                                },
-                                onClick = {
-                                    showSyncMenu = false
-                                    showGmailSyncDialog = true
-                                }
-                            )
-                            Divider(color = BorderCharcoal, thickness = 1.dp)
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Text("Sync SMS from Date...", color = TextPrimary, fontWeight = FontWeight.Bold)
-                                            Text("Import SMS inbox transactions", fontSize = 10.sp, color = TextMuted)
-                                        }
-                                    }
-                                },
-                                onClick = {
-                                    showSyncMenu = false
-                                    showSyncDateDialog = true
-                                }
-                            )
-                            Divider(color = BorderCharcoal, thickness = 1.dp)
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.FileDownload, contentDescription = null, tint = NeonEmerald, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Export Backup (JSON)", color = TextPrimary)
-                                    }
-                                },
-                                onClick = {
-                                    showSyncMenu = false
-                                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
-                                    exportLauncher.launch("CampusFold_Backup_$timestamp.json")
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.FileUpload, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Import Backup (JSON)", color = TextPrimary)
-                                    }
-                                },
-                                onClick = {
-                                    showSyncMenu = false
-                                    importLauncher.launch(arrayOf("application/json", "*/*"))
-                                }
-                            )
-                            Divider(color = BorderCharcoal, thickness = 1.dp)
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = NeonCrimson, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Start Afresh (Clear All)", color = NeonCrimson)
-                                    }
-                                },
-                                onClick = {
-                                    showSyncMenu = false
-                                    showClearAllConfirmDialog = true
-                                }
-                            )
-                        }
                     }
                 }
             }
@@ -365,33 +226,19 @@ fun HomeScreen(
                             color = TextSecondary
                         )
                         Spacer(modifier = Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = {
-                                    val intent = android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                                    context.startActivity(intent)
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = NeonPurple,
-                                    contentColor = OledBlack
-                                ),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.height(34.dp)
-                            ) {
-                                Text("Enable Access", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            OutlinedButton(
-                                onClick = { showGmailSyncDialog = true },
-                                shape = RoundedCornerShape(8.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, NeonPurple.copy(alpha = 0.5f)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonPurple),
-                                modifier = Modifier.height(34.dp)
-                            ) {
-                                Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Sync Axis Direct", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
+                        Button(
+                            onClick = {
+                                val intent = android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                context.startActivity(intent)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = NeonPurple,
+                                contentColor = OledBlack
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Text("Enable Access", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -804,110 +651,11 @@ fun HomeScreen(
         )
     }
 
-    // Start Afresh (Clear All) Confirmation Dialog
-    if (showClearAllConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearAllConfirmDialog = false },
-            containerColor = MatteCharcoal,
-            title = {
-                Text(
-                    text = "Start Afresh (Clear All)?",
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = NeonCrimson
-                )
-            },
-            text = {
-                Text(
-                    text = "This will erase all transactions, unsettled splits, and suggestions so you start with ₹0.00 spend.\n\nYour categories, vendor mappings, and accounts will be preserved.",
-                    fontSize = 13.sp,
-                    color = TextPrimary
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.clearAllTransactionsAndReset()
-                        showClearAllConfirmDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeonCrimson, contentColor = TextPrimary),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("Clear All & Start Afresh", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearAllConfirmDialog = false }) {
-                    Text("Cancel", color = TextSecondary)
-                }
-            }
-        )
-    }
-
-    // Confirm Data Restore Dialog
-    if (showImportConfirmDialog != null) {
-        val uri = showImportConfirmDialog!!
-        AlertDialog(
-            onDismissRequest = { showImportConfirmDialog = null },
-            containerColor = MatteCharcoal,
-            title = {
-                Text(
-                    text = "Confirm Data Restore",
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-            },
-            text = {
-                Text(
-                    text = "This will restore transactions, categories, vendor mappings, persons, and accounts from the selected JSON backup file. Matching records will be updated safely.",
-                    color = TextSecondary,
-                    fontSize = 13.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.importBackup(context, uri)
-                        showImportConfirmDialog = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack)
-                ) {
-                    Text("Restore Now")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showImportConfirmDialog = null }) {
-                    Text("Cancel", color = TextSecondary)
-                }
-            }
-        )
-    }
-
     // AI Financial Coach Bottom Sheet
     if (showAiCoachSheet) {
         com.campusfold.tracker.ui.sheets.AiCoachSheet(
             viewModel = viewModel,
             onDismiss = { showAiCoachSheet = false }
-        )
-    }
-
-    // Direct Axis Bank Gmail IMAP Sync Dialog
-    if (showGmailSyncDialog) {
-        com.campusfold.tracker.ui.sheets.GmailSyncDialog(
-            viewModel = viewModel,
-            onDismiss = { showGmailSyncDialog = false }
-        )
-    }
-
-    // Sync from Custom Date Dialog
-    if (showSyncDateDialog) {
-        SyncFromDateDialog(
-            isScanning = isScanning,
-            onDismiss = { showSyncDateDialog = false },
-            onConfirmSync = { startDateMillis ->
-                viewModel.scanInboxFromDate(startDateMillis)
-            }
         )
     }
 
@@ -934,6 +682,8 @@ fun HomeScreen(
     }
 }
 
+private val feedDateFormat = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
+
 @Composable
 fun FoldTransactionFeedCard(
     transaction: TransactionEntity,
@@ -942,8 +692,11 @@ fun FoldTransactionFeedCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val dateFormat = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
-    val formattedDate = dateFormat.format(Date(transaction.timestamp))
+    val formattedDate = remember(transaction.timestamp) {
+        synchronized(feedDateFormat) {
+            feedDateFormat.format(Date(transaction.timestamp))
+        }
+    }
     val isCredit = transaction.type == TransactionType.INCOME
     val isCcBill = transaction.type == TransactionType.CC_BILL_TRANSFER
 

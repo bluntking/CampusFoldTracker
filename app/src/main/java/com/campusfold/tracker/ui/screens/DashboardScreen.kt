@@ -63,8 +63,6 @@ fun DashboardScreen(
 ) {
     val allTransactions by viewModel.allTransactions.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
-    val isScanning by viewModel.isScanning.collectAsState()
-    val isGmailSyncing by viewModel.isGmailSyncing.collectAsState()
     val context = LocalContext.current
 
     // Period selection state
@@ -73,9 +71,6 @@ fun DashboardScreen(
     var weekOffset by remember { mutableIntStateOf(0) }  // 0 = this week, -1 = last week...
     var showPeriodPickerSheet by remember { mutableStateOf(false) }
     var showAiCoachSheet by remember { mutableStateOf(false) }
-    var showSyncMenu by remember { mutableStateOf(false) }
-    var showSyncDateDialog by remember { mutableStateOf(false) }
-    var showGmailSyncDialog by remember { mutableStateOf(false) }
 
     // Selected Heatmap day tooltip
     var selectedHeatmapDate by remember { mutableStateOf<HeatmapDayInfo?>(null) }
@@ -185,102 +180,21 @@ fun DashboardScreen(
                     )
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // 1. PennyWise AI Coach Pill Button
+                Button(
+                    onClick = { showAiCoachSheet = true },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NeonPurple.copy(alpha = 0.18f),
+                        contentColor = NeonPurple
+                    ),
+                    shape = RoundedCornerShape(17.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NeonPurple.copy(alpha = 0.5f)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    modifier = Modifier.height(34.dp)
                 ) {
-                    // 1. PennyWise AI Coach Pill Button
-                    Button(
-                        onClick = { showAiCoachSheet = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = NeonPurple.copy(alpha = 0.18f),
-                            contentColor = NeonPurple
-                        ),
-                        shape = RoundedCornerShape(17.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, NeonPurple.copy(alpha = 0.5f)),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                        modifier = Modifier.height(34.dp)
-                    ) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("AI Coach", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    // 2. Sync Pill Button with Dropdown (Axis Gmail + SMS from Date)
-                    Box {
-                        Button(
-                            onClick = { showSyncMenu = true },
-                            enabled = !isScanning && !isGmailSyncing,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = NeonCyan.copy(alpha = 0.18f),
-                                contentColor = NeonCyan,
-                                disabledContainerColor = MatteCharcoal,
-                                disabledContentColor = TextMuted
-                            ),
-                            shape = RoundedCornerShape(17.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, NeonCyan.copy(alpha = 0.5f)),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            if (isScanning || isGmailSyncing) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(13.dp),
-                                    color = NeonCyan,
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(5.dp))
-                                Text("Syncing", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            } else {
-                                Icon(
-                                    Icons.Default.Sync,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Sync ▾", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        DropdownMenu(
-                            expanded = showSyncMenu,
-                            onDismissRequest = { showSyncMenu = false },
-                            modifier = Modifier.background(MatteCharcoal)
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Email, contentDescription = null, tint = NeonPurple, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Text("Sync Axis from Gmail", color = TextPrimary, fontWeight = FontWeight.Bold)
-                                            Text("Direct IMAP for Debits & Credits", fontSize = 10.sp, color = TextMuted)
-                                        }
-                                    }
-                                },
-                                onClick = {
-                                    showSyncMenu = false
-                                    showGmailSyncDialog = true
-                                }
-                            )
-                            Divider(color = BorderCharcoal, thickness = 1.dp)
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Text("Sync SMS from Date", color = TextPrimary, fontWeight = FontWeight.Bold)
-                                            Text("Import SMS inbox transactions", fontSize = 10.sp, color = TextMuted)
-                                        }
-                                    }
-                                },
-                                onClick = {
-                                    showSyncMenu = false
-                                    showSyncDateDialog = true
-                                }
-                            )
-                        }
-                    }
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("AI Coach", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -597,7 +511,7 @@ fun DashboardScreen(
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val dateFormat = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
+                    val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
                     recentTransactions.forEach { tx ->
                         val isCredit = tx.type == TransactionType.INCOME
                         val isCcBill = tx.type == TransactionType.CC_BILL_TRANSFER
@@ -719,25 +633,6 @@ fun DashboardScreen(
         AiCoachSheet(
             viewModel = viewModel,
             onDismiss = { showAiCoachSheet = false }
-        )
-    }
-
-    // Direct Axis Bank Gmail IMAP Sync Dialog
-    if (showGmailSyncDialog) {
-        com.campusfold.tracker.ui.sheets.GmailSyncDialog(
-            viewModel = viewModel,
-            onDismiss = { showGmailSyncDialog = false }
-        )
-    }
-
-    // Sync from Custom Date Dialog
-    if (showSyncDateDialog) {
-        SyncFromDateDialog(
-            isScanning = isScanning,
-            onDismiss = { showSyncDateDialog = false },
-            onConfirmSync = { startDateMillis ->
-                viewModel.scanInboxFromDate(startDateMillis)
-            }
         )
     }
 }

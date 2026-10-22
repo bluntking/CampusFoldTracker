@@ -525,7 +525,7 @@ fun FriendBalanceCard(
             if (expanded && unsettledBills.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val dateFormat = SimpleDateFormat("dd MMM", Locale.getDefault())
+                    val dateFormat = remember { SimpleDateFormat("dd MMM", Locale.getDefault()) }
                     unsettledBills.forEach { bill ->
                         val dateFormatted = dateFormat.format(Date(bill.createdAt))
                         val isPartial = bill.amountPaidSoFar > 0.0
