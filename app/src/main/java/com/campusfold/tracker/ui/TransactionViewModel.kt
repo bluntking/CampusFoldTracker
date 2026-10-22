@@ -34,6 +34,7 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
 
     // Persons (strictly normalized dynamic balances)
     val personsWithBalances: StateFlow<List<PersonWithBalance>>
+    val allPersons: StateFlow<List<PersonEntity>>
 
     // Pending 1-tap settlement suggestions
     val pendingSuggestions: StateFlow<List<PendingSettlementSuggestionEntity>>
@@ -113,6 +114,12 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         )
 
         personsWithBalances = repository.personsWithBalances.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        allPersons = repository.allPersons.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
             emptyList()
@@ -229,6 +236,32 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             repository.toggleCcBillTransfer(transactionId)
             _statusMessage.value = "Toggled CC Bill Transfer status."
+        }
+    }
+
+    fun getTransactionWithSplits(id: Long): Flow<TransactionWithSplits?> =
+        repository.getTransactionWithSplits(id)
+
+    fun saveVendorMappingForFuture(rawKeyword: String, friendlyName: String, categoryId: Long?) {
+        viewModelScope.launch {
+            repository.addVendorMapping(
+                VendorMappingEntity(
+                    rawSmsKeyword = rawKeyword.trim(),
+                    friendlyName = friendlyName.trim(),
+                    categoryId = categoryId
+                )
+            )
+            _statusMessage.value = "Saved mapping: '$rawKeyword' → '$friendlyName' for future SMS"
+        }
+    }
+
+    fun updateTransactionWithSplits(
+        transaction: TransactionEntity,
+        splits: List<SplitItemEntity>
+    ) {
+        viewModelScope.launch {
+            repository.editTransactionWithSplits(transaction, splits)
+            _statusMessage.value = "Transaction and splits updated cleanly."
         }
     }
 
