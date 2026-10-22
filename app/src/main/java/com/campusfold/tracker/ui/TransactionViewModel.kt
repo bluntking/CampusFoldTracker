@@ -309,6 +309,32 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    // ─── 1-Tap JSON Backup & Restore ──────────────────────────────────────────
+
+    fun exportBackup(context: android.content.Context, uri: android.net.Uri) {
+        viewModelScope.launch {
+            _statusMessage.value = "Exporting data to JSON..."
+            val result = repository.exportBackup(context, uri)
+            result.onSuccess { stats ->
+                _statusMessage.value = "Backup saved! (${stats.transactionCount} txns, ${stats.splitCount} splits, ${stats.accountCount} accounts)"
+            }.onFailure { e ->
+                _statusMessage.value = "Export failed: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    fun importBackup(context: android.content.Context, uri: android.net.Uri) {
+        viewModelScope.launch {
+            _statusMessage.value = "Restoring data from JSON..."
+            val result = repository.importBackup(context, uri)
+            result.onSuccess { stats ->
+                _statusMessage.value = "Backup restored! (${stats.transactionCount} txns, ${stats.splitCount} splits, ${stats.accountCount} accounts)"
+            }.onFailure { e ->
+                _statusMessage.value = "Import failed: ${e.localizedMessage}"
+            }
+        }
+    }
+
     // ─── Transaction CRUD & Split Recalculation ──────────────────────────────
 
     fun addManualTransaction(

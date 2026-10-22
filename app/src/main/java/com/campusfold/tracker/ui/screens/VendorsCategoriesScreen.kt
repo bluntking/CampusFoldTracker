@@ -1,5 +1,8 @@
 package com.campusfold.tracker.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -29,6 +33,9 @@ import com.campusfold.tracker.ui.components.FoldCard
 import com.campusfold.tracker.ui.components.MonospaceCurrencyText
 import com.campusfold.tracker.ui.components.StatusPill
 import com.campusfold.tracker.ui.theme.*
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
@@ -123,11 +130,11 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "Categories",
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
                             color = if (selectedTab == 1) NeonCyan else TextSecondary
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         StatusPill(
                             text = categories.size.toString(),
                             bgColor = if (selectedTab == 1) NeonCyan.copy(alpha = 0.2f) else BorderCharcoal,
@@ -136,54 +143,90 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                         )
                     }
                 }
+
+                // Settings & Backup Tab
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (selectedTab == 2) CardElevated else Color.Transparent)
+                        .clickable { selectedTab = 2 }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = if (selectedTab == 2) NeonPurple else TextSecondary,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = "Backup",
+                            fontSize = 12.sp,
+                            fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selectedTab == 2) NeonPurple else TextSecondary
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
             // Tab Content
-            if (selectedTab == 0) {
-                // Vendors List
-                VendorsListContent(
-                    mappings = vendorMappings,
-                    categories = categories,
-                    onEdit = {
-                        vendorToEdit = it
-                        showAddVendorDialog = true
-                    },
-                    onDelete = { viewModel.deleteVendorMapping(it) }
-                )
-            } else {
-                // Categories List
-                CategoriesListContent(
-                    categories = categories,
-                    spending = categorySpending,
-                    onEdit = {
-                        categoryToEdit = it
-                        showAddCategoryDialog = true
-                    },
-                    onDelete = { viewModel.deleteCategory(it) }
-                )
+            when (selectedTab) {
+                0 -> {
+                    // Vendors List
+                    VendorsListContent(
+                        mappings = vendorMappings,
+                        categories = categories,
+                        onEdit = {
+                            vendorToEdit = it
+                            showAddVendorDialog = true
+                        },
+                        onDelete = { viewModel.deleteVendorMapping(it) }
+                    )
+                }
+                1 -> {
+                    // Categories List
+                    CategoriesListContent(
+                        categories = categories,
+                        spending = categorySpending,
+                        onEdit = {
+                            categoryToEdit = it
+                            showAddCategoryDialog = true
+                        },
+                        onDelete = { viewModel.deleteCategory(it) }
+                    )
+                }
+                2 -> {
+                    // Settings & Backup
+                    SettingsBackupContent(viewModel = viewModel)
+                }
             }
         }
 
         // Floating Action Button
-        FloatingActionButton(
-            onClick = {
-                if (selectedTab == 0) {
-                    vendorToEdit = null
-                    showAddVendorDialog = true
-                } else {
-                    categoryToEdit = null
-                    showAddCategoryDialog = true
-                }
-            },
-            containerColor = if (selectedTab == 0) NeonEmerald else NeonCyan,
-            contentColor = OledBlack,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(24.dp)
-        ) {
-            Icon(Icons.Default.Add, contentDescription = "Add New")
+        if (selectedTab != 2) {
+            FloatingActionButton(
+                onClick = {
+                    if (selectedTab == 0) {
+                        vendorToEdit = null
+                        showAddVendorDialog = true
+                    } else {
+                        categoryToEdit = null
+                        showAddCategoryDialog = true
+                    }
+                },
+                containerColor = if (selectedTab == 0) NeonEmerald else NeonCyan,
+                contentColor = OledBlack,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(24.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add New")
+            }
         }
     }
 
@@ -583,4 +626,263 @@ fun AddEditCategoryDialog(
             }
         }
     )
+}
+
+@Composable
+fun SettingsBackupContent(viewModel: TransactionViewModel) {
+    val context = LocalContext.current
+    var showImportConfirmDialog by remember { mutableStateOf<Uri?>(null) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.exportBackup(context, uri)
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            showImportConfirmDialog = uri
+        }
+    }
+
+    if (showImportConfirmDialog != null) {
+        val uri = showImportConfirmDialog!!
+        AlertDialog(
+            onDismissRequest = { showImportConfirmDialog = null },
+            containerColor = MatteCharcoal,
+            title = {
+                Text(
+                    text = "Confirm Data Restore",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "This will restore transactions, categories, vendor mappings, persons, and accounts from the selected JSON backup file. Matching records will be updated safely.",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.importBackup(context, uri)
+                        showImportConfirmDialog = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack)
+                ) {
+                    Text("Restore Now")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImportConfirmDialog = null }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 90.dp)
+    ) {
+        // 1. Data Backup & Restore Card
+        item {
+            FoldCard {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(NeonEmerald.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Save,
+                                contentDescription = null,
+                                tint = NeonEmerald,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "1-Tap Local Backup & Restore",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "Portable JSON format (Storage Access Framework)",
+                                fontSize = 11.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Safeguard your financial records offline. Exports all transactions, split shares, custom categories, campus vendor mappings, and account details into an open JSON file.",
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        lineHeight = 17.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Export Button
+                        Button(
+                            onClick = {
+                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
+                                exportLauncher.launch("CampusFold_Backup_$timestamp.json")
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = NeonEmerald,
+                                contentColor = OledBlack
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Export JSON", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        }
+
+                        // Import Button
+                        OutlinedButton(
+                            onClick = {
+                                importLauncher.launch(arrayOf("application/json", "*/*"))
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = NeonCyan
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NeonCyan.copy(alpha = 0.7f)),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Import JSON", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. App In-Place Updates & Data Safety Engine Card
+        item {
+            FoldCard {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(NeonCyan.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = NeonCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Data Safety & In-Place Updates",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "Zero data loss during APK updates",
+                                fontSize = 11.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    SafetyFeatureRow(
+                        title = "Permanent Signing Keystore",
+                        subtitle = "Persistent RSA-2048 keystore (campusfold.jks) prevents INSTALL_FAILED_UPDATE_INCOMPATIBLE error.",
+                        isActive = true
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    SafetyFeatureRow(
+                        title = "Auto-Incrementing Version Code",
+                        subtitle = "Every build auto-increments versionCode based on GitHub run number for smooth in-place installs.",
+                        isActive = true
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    SafetyFeatureRow(
+                        title = "Safe Room Schema Migrations",
+                        subtitle = "fallbackToDestructiveMigrationOnDowngrade + MIGRATION_1_2 prevents database wipes during schema updates.",
+                        isActive = true
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SafetyFeatureRow(
+    title: String,
+    subtitle: String,
+    isActive: Boolean
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(InputBg)
+            .border(1.dp, BorderCharcoal, RoundedCornerShape(8.dp))
+            .padding(10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            imageVector = if (isActive) Icons.Default.CheckCircle else Icons.Default.Info,
+            contentDescription = null,
+            tint = if (isActive) NeonEmerald else TextMuted,
+            modifier = Modifier
+                .size(16.dp)
+                .padding(top = 2.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column {
+            Text(
+                text = title,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                fontSize = 10.sp,
+                color = TextSecondary,
+                lineHeight = 14.sp
+            )
+        }
+    }
 }

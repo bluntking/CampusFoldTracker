@@ -53,6 +53,11 @@ class AppPreferences(private val context: Context) {
         return prefs[OVERALL_MONTHLY_BUDGET] ?: 20000.0
     }
 
+    suspend fun getLatestPnbCreditLimitSync(): Double {
+        val prefs = context.dataStore.data.first()
+        return prefs[PNB_CREDIT_LIMIT] ?: 50000.0
+    }
+
     // ─── Budget Alert Threshold Tracking (50, 70, 90, 100) ───────────────────
 
     suspend fun getCategoryAlertThresholdSync(yearMonth: String, categoryId: Long): Int {

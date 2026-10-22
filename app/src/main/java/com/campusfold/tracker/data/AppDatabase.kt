@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.campusfold.tracker.data.dao.AccountDao
 import com.campusfold.tracker.data.dao.CategoryDao
@@ -34,7 +35,7 @@ import kotlinx.coroutines.launch
         AccountEntity::class
     ],
     version = 2,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
 
@@ -50,6 +51,30 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `accounts` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `bankName` TEXT NOT NULL,
+                        `accountType` TEXT NOT NULL,
+                        `last4` TEXT NOT NULL,
+                        `creditLimitOrBalance` REAL NOT NULL,
+                        `colorHex` TEXT NOT NULL
+                    )
+                """.trimIndent())
+
+                // Pre-seed the default 6 accounts
+                db.execSQL("INSERT OR IGNORE INTO `accounts` (`id`, `name`, `bankName`, `accountType`, `last4`, `creditLimitOrBalance`, `colorHex`) VALUES (1, 'PNB Credit Card 8598', 'PNB', 'CREDIT_CARD', '8598', 59396.93, '#F43F5E')")
+                db.execSQL("INSERT OR IGNORE INTO `accounts` (`id`, `name`, `bankName`, `accountType`, `last4`, `creditLimitOrBalance`, `colorHex`) VALUES (2, 'Axis Bank XX2003', 'Axis Bank', 'SAVINGS', '2003', 0.0, '#8B5CF6')")
+                db.execSQL("INSERT OR IGNORE INTO `accounts` (`id`, `name`, `bankName`, `accountType`, `last4`, `creditLimitOrBalance`, `colorHex`) VALUES (3, 'Federal (Jupiter) 2548', 'Federal Bank', 'SAVINGS', '2548', 0.0, '#F59E0B')")
+                db.execSQL("INSERT OR IGNORE INTO `accounts` (`id`, `name`, `bankName`, `accountType`, `last4`, `creditLimitOrBalance`, `colorHex`) VALUES (4, 'PNB Savings Account 5557', 'PNB', 'SAVINGS', '5557', 0.0, '#06B6D4')")
+                db.execSQL("INSERT OR IGNORE INTO `accounts` (`id`, `name`, `bankName`, `accountType`, `last4`, `creditLimitOrBalance`, `colorHex`) VALUES (5, 'Axis Bank Savings Account 5476', 'Axis Bank', 'SAVINGS', '5476', 0.0, '#3B82F6')")
+                db.execSQL("INSERT OR IGNORE INTO `accounts` (`id`, `name`, `bankName`, `accountType`, `last4`, `creditLimitOrBalance`, `colorHex`) VALUES (6, 'Axis Bank Credit Card', 'Axis Bank', 'CREDIT_CARD', 'Axis CC', 0.0, '#EC4899')")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -57,7 +82,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "campus_fold_tracker.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_1_2)
+                    .fallbackToDestructiveMigrationOnDowngrade()
                     .addCallback(DatabaseCallback())
                     .build()
                 INSTANCE = instance

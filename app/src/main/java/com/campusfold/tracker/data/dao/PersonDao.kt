@@ -51,6 +51,9 @@ interface PersonDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPerson(person: PersonEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPersons(persons: List<PersonEntity>): List<Long>
+
     @Update
     suspend fun updatePerson(person: PersonEntity)
 

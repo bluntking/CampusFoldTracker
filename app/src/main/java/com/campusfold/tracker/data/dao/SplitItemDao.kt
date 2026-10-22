@@ -23,6 +23,9 @@ interface SplitItemDao {
     @Query("SELECT * FROM split_items WHERE isSettled = 0 ORDER BY createdAt DESC")
     fun getAllUnsettledSplits(): Flow<List<SplitItemEntity>>
 
+    @Query("SELECT * FROM split_items ORDER BY id ASC")
+    suspend fun getAllSplitsSync(): List<SplitItemEntity>
+
     @Query("SELECT * FROM split_items WHERE id = :id LIMIT 1")
     suspend fun getSplitById(id: Long): SplitItemEntity?
 

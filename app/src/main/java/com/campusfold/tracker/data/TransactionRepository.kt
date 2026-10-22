@@ -47,6 +47,16 @@ class TransactionRepository(
         suggestionDao.clearAll()
     }
 
+    // ─── JSON Backup & Restore ────────────────────────────────────────────────
+
+    suspend fun exportBackup(context: android.content.Context, uri: android.net.Uri): Result<com.campusfold.tracker.util.BackupStats> {
+        return com.campusfold.tracker.util.BackupManager.exportBackup(context, uri, db, appPreferences)
+    }
+
+    suspend fun importBackup(context: android.content.Context, uri: android.net.Uri): Result<com.campusfold.tracker.util.BackupStats> {
+        return com.campusfold.tracker.util.BackupManager.importBackup(context, uri, db, appPreferences)
+    }
+
     // ─── Transactions Flow & Queries ──────────────────────────────────────────
     val allTransactions: Flow<List<TransactionEntity>> = transactionDao.getAllTransactions()
     val allTransactionsWithSplits: Flow<List<TransactionWithSplits>> = transactionDao.getAllTransactionsWithSplits()

@@ -1,5 +1,8 @@
 package com.campusfold.tracker.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -54,11 +58,29 @@ fun HomeScreen(
     val isScanning by viewModel.isScanning.collectAsState()
 
     val totalOwedToMe = personsWithBalances.sumOf { it.totalOwedToMe }
+    val context = LocalContext.current
 
     // Bottom sheet state
     var selectedTransactionForSheet by remember { mutableStateOf<TransactionEntity?>(null) }
     var showSyncMenu by remember { mutableStateOf(false) }
     var showClearAllConfirmDialog by remember { mutableStateOf(false) }
+    var showImportConfirmDialog by remember { mutableStateOf<Uri?>(null) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.exportBackup(context, uri)
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            showImportConfirmDialog = uri
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -145,6 +167,34 @@ fun HomeScreen(
                             onClick = {
                                 showSyncMenu = false
                                 viewModel.scanInbox(daysBack = 90)
+                            }
+                        )
+                        Divider(color = BorderCharcoal, thickness = 1.dp)
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.FileDownload, contentDescription = null, tint = NeonEmerald, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Export Backup (JSON)", color = TextPrimary)
+                                }
+                            },
+                            onClick = {
+                                showSyncMenu = false
+                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
+                                exportLauncher.launch("CampusFold_Backup_$timestamp.json")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.FileUpload, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Import Backup (JSON)", color = TextPrimary)
+                                }
+                            },
+                            onClick = {
+                                showSyncMenu = false
+                                importLauncher.launch(arrayOf("application/json", "*/*"))
                             }
                         )
                         Divider(color = BorderCharcoal, thickness = 1.dp)
@@ -611,6 +661,45 @@ fun HomeScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearAllConfirmDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
+    }
+
+    // Confirm Data Restore Dialog
+    if (showImportConfirmDialog != null) {
+        val uri = showImportConfirmDialog!!
+        AlertDialog(
+            onDismissRequest = { showImportConfirmDialog = null },
+            containerColor = MatteCharcoal,
+            title = {
+                Text(
+                    text = "Confirm Data Restore",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "This will restore transactions, categories, vendor mappings, persons, and accounts from the selected JSON backup file. Matching records will be updated safely.",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.importBackup(context, uri)
+                        showImportConfirmDialog = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack)
+                ) {
+                    Text("Restore Now")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImportConfirmDialog = null }) {
                     Text("Cancel", color = TextSecondary)
                 }
             }
