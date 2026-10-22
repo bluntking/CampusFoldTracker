@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple rupee-coin mark: green ring with a highlight dot. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M54,28 A26,26 0 1,0 54.01,28 Z M54,40 A14,14 0 1,1 53.99,40 Z" />
+    <path
+        android:fillColor="#0F0F14"
+        android:pathData="M40,50 L68,50 L68,56 L40,56 Z M47,38 L61,38 L61,44 L52,44 L52,50 L64,50 L64,56 L47,56 Z" />
+</vector>
