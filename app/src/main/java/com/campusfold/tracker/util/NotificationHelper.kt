@@ -9,7 +9,8 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.campusfold.tracker.MainActivity
 import com.campusfold.tracker.R
-import com.campusfold.tracker.data.TransactionEntity
+import com.campusfold.tracker.data.entity.TransactionEntity
+import com.campusfold.tracker.data.entity.TransactionType
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -46,18 +47,19 @@ object NotificationHelper {
 
         val formatter = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
         val formattedAmount = formatter.format(transaction.amount)
-        val title = if (transaction.type == "CREDIT") {
-            "Money Received: $formattedAmount"
-        } else {
-            "Expense Tracked: $formattedAmount"
+        val title = when (transaction.type) {
+            TransactionType.INCOME -> "Money Received: $formattedAmount"
+            TransactionType.CC_BILL_TRANSFER -> "CC Bill Payment: $formattedAmount"
+            TransactionType.SPLIT_SETTLEMENT -> "Split Settlement: $formattedAmount"
+            TransactionType.EXPENSE -> "Expense Tracked: $formattedAmount"
         }
-        val content = "${transaction.merchant} (${transaction.category}) via ${transaction.bank}"
+        val content = "${transaction.friendlyVendorName} via ${transaction.paymentMode}"
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(content)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$content\n\"${transaction.rawBody}\""))
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$content\n\"${transaction.rawSms}\""))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)

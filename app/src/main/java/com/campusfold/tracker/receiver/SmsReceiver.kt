@@ -6,6 +6,11 @@ import android.content.Intent
 import android.provider.Telephony
 import android.util.Log
 import com.campusfold.tracker.data.AppDatabase
+import com.campusfold.tracker.data.TransactionRepository
+import com.campusfold.tracker.data.entity.PendingSettlementSuggestionEntity
+import com.campusfold.tracker.data.entity.SettlementSuggestionStatus
+import com.campusfold.tracker.data.entity.TransactionType
+import com.campusfold.tracker.data.pref.AppPreferences
 import com.campusfold.tracker.util.NotificationHelper
 import com.campusfold.tracker.util.SmsParser
 import kotlinx.coroutines.CoroutineScope
@@ -13,8 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * BroadcastReceiver for incoming SMS notifications.
- * Registered with high priority (999) in AndroidManifest.xml.
+ * High-priority SMS BroadcastReceiver for incoming transaction messages.
  */
 class SmsReceiver : BroadcastReceiver() {
 
@@ -32,7 +36,6 @@ class SmsReceiver : BroadcastReceiver() {
             return
         }
 
-        // Group multipart SMS chunks by sender and accumulate bodies
         val sender = messages.firstOrNull()?.originatingAddress ?: ""
         val timestamp = messages.firstOrNull()?.timestampMillis ?: System.currentTimeMillis()
         val bodyBuilder = StringBuilder()
@@ -44,20 +47,49 @@ class SmsReceiver : BroadcastReceiver() {
         val fullBody = bodyBuilder.toString()
         if (fullBody.isBlank()) return
 
-        Log.d(TAG, "Received SMS from $sender: $fullBody")
-
-        val transaction = SmsParser.parse(fullBody, sender, timestamp)
-        if (transaction != null) {
-            Log.d(TAG, "Parsed transaction: ${transaction.amount} INR at ${transaction.merchant}")
-
+        val parsed = SmsParser.parse(fullBody, sender, timestamp)
+        if (parsed != null) {
             val pendingResult = goAsync()
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val db = AppDatabase.getDatabase(context)
-                    db.transactionDao().insert(transaction)
-                    NotificationHelper.showTransactionNotification(context, transaction)
+                    val prefs = AppPreferences(context)
+                    val repository = TransactionRepository(db, prefs)
+
+                    // Resolve friendly vendor & default category from campus vendor mappings
+                    val (friendlyName, categoryId) = repository.resolveVendor(parsed.rawMerchant)
+                    val resolvedTx = parsed.copy(
+                        friendlyVendorName = friendlyName,
+                        categoryId = categoryId
+                    )
+
+                    val txId = repository.addTransaction(resolvedTx)
+
+                    // If incoming money (CREDIT), check if it matches a friend's aliases for 1-tap settlement
+                    if (resolvedTx.type == TransactionType.INCOME) {
+                        val persons = db.personDao().getAllPersonsList()
+                        val lowerBody = fullBody.lowercase()
+                        for (person in persons) {
+                            val aliases = person.exactSmsAliases.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+                            val isMatch = aliases.any { alias -> lowerBody.contains(alias) } || lowerBody.contains(person.name.lowercase())
+                            if (isMatch) {
+                                repository.createSettlementSuggestion(
+                                    PendingSettlementSuggestionEntity(
+                                        transactionId = txId,
+                                        suggestedPersonId = person.id,
+                                        detectedSenderName = parsed.rawMerchant,
+                                        amount = parsed.amount,
+                                        status = SettlementSuggestionStatus.PENDING
+                                    )
+                                )
+                                break
+                            }
+                        }
+                    }
+
+                    NotificationHelper.showTransactionNotification(context, resolvedTx)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error saving received SMS transaction", e)
+                    Log.e(TAG, "Error processing incoming SMS transaction", e)
                 } finally {
                     pendingResult.finish()
                 }

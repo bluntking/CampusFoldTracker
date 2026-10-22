@@ -3,7 +3,7 @@ package com.campusfold.tracker.util
 import android.content.Context
 import android.provider.Telephony
 import android.util.Log
-import com.campusfold.tracker.data.TransactionEntity
+import com.campusfold.tracker.data.entity.TransactionEntity
 
 object SmsReader {
 
