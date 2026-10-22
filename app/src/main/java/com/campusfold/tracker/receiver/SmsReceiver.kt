@@ -9,6 +9,7 @@ import com.campusfold.tracker.data.AppDatabase
 import com.campusfold.tracker.data.TransactionRepository
 import com.campusfold.tracker.data.entity.PendingSettlementSuggestionEntity
 import com.campusfold.tracker.data.entity.SettlementSuggestionStatus
+import com.campusfold.tracker.data.entity.TransactionEntity
 import com.campusfold.tracker.data.entity.TransactionType
 import com.campusfold.tracker.data.pref.AppPreferences
 import com.campusfold.tracker.util.CampusSmsParser

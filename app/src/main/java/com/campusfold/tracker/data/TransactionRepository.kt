@@ -178,6 +178,10 @@ class TransactionRepository(
         txId
     }
 
+    suspend fun updateTransaction(transaction: TransactionEntity) = withContext(Dispatchers.IO) {
+        transactionDao.updateTransaction(transaction)
+    }
+
     /**
      * Updates transaction details and recalculates splits cleanly.
      */
