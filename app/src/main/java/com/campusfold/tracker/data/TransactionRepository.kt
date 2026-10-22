@@ -702,6 +702,64 @@ class TransactionRepository(
         )
     }
 
+    /**
+     * Manually map/link an incoming money transfer (Income) to an existing Expense.
+     * Reduces the user's out-of-pocket share (myActualShare) on the expense,
+     * marks the income as a SPLIT_SETTLEMENT so it doesn't inflate gross personal income,
+     * and updates any corresponding split records on the expense.
+     */
+    suspend fun linkIncomeToExpense(
+        incomeTransactionId: Long,
+        expenseTransactionId: Long,
+        customOffsetAmount: Double? = null
+    ) = withContext(Dispatchers.IO) {
+        val incomeTx = transactionDao.getTransactionByIdSync(incomeTransactionId) ?: return@withContext
+        val expenseTx = transactionDao.getTransactionByIdSync(expenseTransactionId) ?: return@withContext
+
+        val offset = customOffsetAmount ?: incomeTx.amount
+        val newMyShare = (expenseTx.myActualShare - offset).coerceAtLeast(0.0)
+
+        // 1. Update expense with reduced true personal spend
+        transactionDao.updateTransaction(
+            expenseTx.copy(myActualShare = newMyShare)
+        )
+
+        // 2. Mark income as SPLIT_SETTLEMENT
+        val expenseLabel = if (expenseTx.friendlyVendorName.isNotBlank()) {
+            expenseTx.friendlyVendorName
+        } else {
+            expenseTx.rawMerchant.ifBlank { "Expense #${expenseTx.id}" }
+        }
+        transactionDao.updateTransaction(
+            incomeTx.copy(
+                type = TransactionType.SPLIT_SETTLEMENT,
+                friendlyVendorName = "Reimbursement for $expenseLabel"
+            )
+        )
+
+        // 3. Settle any split items attached to this expense
+        val splits = splitDao.getSplitsForTransactionSync(expenseTransactionId)
+        if (splits.isNotEmpty()) {
+            var remaining = offset
+            for (split in splits) {
+                if (remaining <= 0) break
+                val unpaid = (split.amountOwed - split.amountPaidSoFar).coerceAtLeast(0.0)
+                if (unpaid > 0) {
+                    val paying = minOf(remaining, unpaid)
+                    val newPaid = split.amountPaidSoFar + paying
+                    val isSettled = newPaid >= split.amountOwed - 0.01
+                    splitDao.update(
+                        split.copy(
+                            amountPaidSoFar = newPaid,
+                            isSettled = isSettled
+                        )
+                    )
+                    remaining -= paying
+                }
+            }
+        }
+    }
+
     suspend fun ensurePreseededData() = withContext(Dispatchers.IO) {
         val existingCategories = categoryDao.getAllCategoriesList()
         if (existingCategories.isEmpty()) {

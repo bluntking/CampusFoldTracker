@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.campusfold.tracker.data.entity.*
@@ -40,16 +41,21 @@ fun TransactionDetailBottomSheet(
     categories: List<CategoryEntity>,
     vendorMappings: List<VendorMappingEntity>,
     allPersons: List<PersonEntity>,
+    allTransactions: List<TransactionEntity> = emptyList(),
     initialSplits: List<SplitItemEntity> = emptyList(),
     onDismiss: () -> Unit,
     onSaveTransaction: (updatedTx: TransactionEntity, splits: List<SplitItemEntity>) -> Unit,
     onToggleCcBill: () -> Unit,
+    onLinkIncomeToExpense: ((incomeId: Long, expenseId: Long, offsetAmount: Double) -> Unit)? = null,
     onSaveVendorMapping: (rawKeyword: String, friendlyName: String, categoryId: Long?) -> Unit,
     onAddPersonInline: (name: String, aliases: String) -> Unit = { _, _ -> },
     onDeletePersonInline: (PersonEntity) -> Unit = {},
     onDelete: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Link Income <-> Expense state
+    var showLinkIncomeExpenseDialog by remember { mutableStateOf(false) }
 
     // Form states
     var amountText by remember { mutableStateOf(transaction.amount.toString()) }
@@ -189,6 +195,90 @@ fun TransactionDetailBottomSheet(
                             fontSize = 11.sp,
                             color = TextSecondary
                         )
+                    }
+                }
+            }
+
+            // Map Income to Expense / Offset with Income Card
+            if (onLinkIncomeToExpense != null && allTransactions.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                if (selectedType == TransactionType.INCOME) {
+                    FoldCard(
+                        containerColor = InputBg,
+                        borderColor = NeonEmerald.copy(alpha = 0.5f),
+                        onClick = { showLinkIncomeExpenseDialog = true }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = null,
+                                tint = NeonEmerald
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Map to an Expense (Reimbursement)",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Friend paid back? Link to the expense you covered to reduce your share.",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                } else if (selectedType == TransactionType.EXPENSE) {
+                    FoldCard(
+                        containerColor = InputBg,
+                        borderColor = NeonCyan.copy(alpha = 0.4f),
+                        onClick = { showLinkIncomeExpenseDialog = true }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AttachMoney,
+                                contentDescription = null,
+                                tint = NeonCyan
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Offset with Income / Friend Payment",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Link an incoming transfer directly to reduce your true share of this bill.",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -421,67 +511,121 @@ fun TransactionDetailBottomSheet(
 
                         // Add new split
                         if (allPersons.isNotEmpty()) {
+                            var showPersonDropdown by remember { mutableStateOf(false) }
+                            val currentPerson = allPersons.find { it.id == newSplitPersonId } ?: allPersons.first()
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                // Friend dropdown / chip preview
-                                val currentPerson = allPersons.find { it.id == newSplitPersonId } ?: allPersons.first()
+                                // Friend selector dropdown (44.dp height)
                                 Box(
                                     modifier = Modifier
                                         .weight(1.2f)
+                                        .height(44.dp)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(MatteCharcoal)
                                         .border(1.dp, BorderCharcoal, RoundedCornerShape(8.dp))
-                                        .padding(8.dp)
+                                        .clickable { showPersonDropdown = true }
+                                        .padding(horizontal = 10.dp),
+                                    contentAlignment = Alignment.CenterStart
                                 ) {
-                                    Text(
-                                        text = currentPerson.name,
-                                        fontSize = 12.sp,
-                                        color = TextPrimary,
-                                        maxLines = 1
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = currentPerson.name,
+                                            fontSize = 12.sp,
+                                            color = TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Icon(
+                                            Icons.Default.ArrowDropDown,
+                                            contentDescription = null,
+                                            tint = TextSecondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = showPersonDropdown,
+                                        onDismissRequest = { showPersonDropdown = false },
+                                        modifier = Modifier.background(MatteCharcoal)
+                                    ) {
+                                        allPersons.forEach { person ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        text = person.name,
+                                                        fontSize = 12.sp,
+                                                        color = if (person.id == currentPerson.id) NeonAmber else TextPrimary
+                                                    )
+                                                },
+                                                onClick = {
+                                                    newSplitPersonId = person.id
+                                                    showPersonDropdown = false
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
 
+                                // Owed Amount Input (44.dp height, perfectly matching)
                                 OutlinedTextField(
                                     value = newSplitAmountText,
                                     onValueChange = { newSplitAmountText = it },
-                                    label = { Text("Owed ₹", fontSize = 10.sp) },
+                                    placeholder = { Text("Owed ₹", fontSize = 11.sp, color = TextMuted) },
+                                    singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp),
                                     shape = RoundedCornerShape(8.dp),
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedContainerColor = MatteCharcoal,
                                         unfocusedContainerColor = MatteCharcoal,
                                         focusedBorderColor = NeonAmber,
                                         unfocusedBorderColor = BorderCharcoal
+                                    ),
+                                    textStyle = androidx.compose.ui.text.TextStyle(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
                                     )
                                 )
 
-                                IconButton(
-                                    onClick = {
-                                        val owed = newSplitAmountText.toDoubleOrNull() ?: 0.0
-                                        if (owed > 0) {
-                                            splitList.add(
-                                                SplitItemEntity(
-                                                    transactionId = transaction.id,
-                                                    personId = currentPerson.id,
-                                                    amountOwed = owed
-                                                )
-                                            )
-                                            newSplitAmountText = ""
-                                        }
-                                    },
+                                // Add Button (44.dp square, perfectly matching)
+                                Box(
                                     modifier = Modifier
+                                        .size(44.dp)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(NeonAmber)
-                                        .size(36.dp)
+                                        .clickable {
+                                            val owed = newSplitAmountText.toDoubleOrNull() ?: 0.0
+                                            if (owed > 0) {
+                                                splitList.add(
+                                                    SplitItemEntity(
+                                                        transactionId = transaction.id,
+                                                        personId = currentPerson.id,
+                                                        amountOwed = owed
+                                                    )
+                                                )
+                                                newSplitAmountText = ""
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         Icons.Default.Add,
                                         contentDescription = "Add Split",
-                                        tint = OledBlack
+                                        tint = OledBlack,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
@@ -607,4 +751,300 @@ fun TransactionDetailBottomSheet(
             onDeletePersonInline = onDeletePersonInline
         )
     }
+
+    if (showLinkIncomeExpenseDialog && onLinkIncomeToExpense != null) {
+        LinkIncomeExpenseDialog(
+            currentTransaction = transaction,
+            allTransactions = allTransactions,
+            onDismiss = { showLinkIncomeExpenseDialog = false },
+            onConfirmLink = { incomeId, expenseId, offsetAmount ->
+                onLinkIncomeToExpense(incomeId, expenseId, offsetAmount)
+                showLinkIncomeExpenseDialog = false
+                onDismiss()
+            }
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Map Income <-> Expense Manual Linking Dialog
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+fun LinkIncomeExpenseDialog(
+    currentTransaction: TransactionEntity,
+    allTransactions: List<TransactionEntity>,
+    onDismiss: () -> Unit,
+    onConfirmLink: (incomeId: Long, expenseId: Long, offsetAmount: Double) -> Unit
+) {
+    val isCurrentIncome = currentTransaction.type == TransactionType.INCOME
+    val candidateType = if (isCurrentIncome) TransactionType.EXPENSE else TransactionType.INCOME
+
+    var searchQuery by remember { mutableStateOf("") }
+    val candidates = remember(allTransactions, candidateType, searchQuery) {
+        allTransactions.filter { tx ->
+            tx.id != currentTransaction.id &&
+            tx.type == candidateType &&
+            (if (isCurrentIncome) tx.myActualShare > 0.01 else true) &&
+            (searchQuery.isBlank() ||
+                tx.friendlyVendorName.contains(searchQuery, ignoreCase = true) ||
+                tx.rawMerchant.contains(searchQuery, ignoreCase = true) ||
+                tx.amount.toString().contains(searchQuery))
+        }.sortedByDescending { it.timestamp }
+    }
+
+    var selectedCandidate by remember { mutableStateOf<TransactionEntity?>(candidates.firstOrNull()) }
+    var offsetAmountText by remember(selectedCandidate) {
+        val initialOffset = if (selectedCandidate != null) {
+            if (isCurrentIncome) {
+                minOf(currentTransaction.amount, selectedCandidate!!.myActualShare)
+            } else {
+                minOf(selectedCandidate!!.amount, currentTransaction.myActualShare)
+            }
+        } else currentTransaction.amount
+        mutableStateOf(String.format(Locale.US, "%.2f", initialOffset))
+    }
+
+    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MatteCharcoal,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Link,
+                    contentDescription = null,
+                    tint = if (isCurrentIncome) NeonEmerald else NeonCyan,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isCurrentIncome) "Map to an Expense" else "Offset with Income",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = TextPrimary
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = if (isCurrentIncome) {
+                        "Select the expense that this incoming payment (₹${currentTransaction.amount.toInt()}) is reimbursing. Your share of the expense will be reduced."
+                    } else {
+                        "Select the incoming payment that reimburses this expense (Share: ₹${currentTransaction.myActualShare.toInt()})."
+                    },
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+
+                // Search field
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search payee, vendor, or amount...", fontSize = 11.sp, color = TextMuted) },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = InputBg,
+                        unfocusedContainerColor = InputBg,
+                        focusedBorderColor = NeonCyan,
+                        unfocusedBorderColor = BorderCharcoal
+                    )
+                )
+
+                Text(
+                    text = if (isCurrentIncome) "RECENT EXPENSES (${candidates.size})" else "RECENT INCOMES (${candidates.size})",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMuted
+                )
+
+                if (candidates.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isCurrentIncome) "No eligible expenses found." else "No eligible incoming payments found.",
+                            fontSize = 12.sp,
+                            color = TextMuted
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        candidates.take(25).forEach { candidate ->
+                            val isSelected = selectedCandidate?.id == candidate.id
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) InputBg else MatteCharcoal)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) (if (isCurrentIncome) NeonEmerald else NeonCyan) else BorderCharcoal,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { selectedCandidate = candidate }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = candidate.friendlyVendorName.ifBlank { candidate.rawMerchant },
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "${dateFormat.format(Date(candidate.timestamp))} • ${candidate.paymentMode}",
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = TextMuted
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        MonospaceCurrencyText(
+                                            amount = candidate.amount,
+                                            fontSize = 12.sp,
+                                            color = TextPrimary
+                                        )
+                                        if (candidate.type == TransactionType.EXPENSE) {
+                                            Text(
+                                                text = "Share: ₹${candidate.myActualShare.toInt()}",
+                                                fontSize = 10.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = NeonAmber
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // If candidate is selected: Calculation Preview
+                if (selectedCandidate != null) {
+                    val candidate = selectedCandidate!!
+                    val expenseTx = if (isCurrentIncome) candidate else currentTransaction
+                    val incomeTx = if (isCurrentIncome) currentTransaction else candidate
+
+                    val parsedOffset = offsetAmountText.toDoubleOrNull() ?: 0.0
+                    val newShare = (expenseTx.myActualShare - parsedOffset).coerceAtLeast(0.0)
+
+                    FoldCard(
+                        containerColor = InputBg,
+                        borderColor = BorderCharcoal
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Reimbursement Offset ₹:", fontSize = 11.sp, color = TextSecondary)
+                                OutlinedTextField(
+                                    value = offsetAmountText,
+                                    onValueChange = { offsetAmountText = it },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    modifier = Modifier
+                                        .width(100.dp)
+                                        .height(40.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedContainerColor = MatteCharcoal,
+                                        unfocusedContainerColor = MatteCharcoal,
+                                        focusedBorderColor = NeonCyan,
+                                        unfocusedBorderColor = BorderCharcoal
+                                    ),
+                                    textStyle = androidx.compose.ui.text.TextStyle(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                )
+                            }
+                            Divider(color = BorderCharcoal)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Original Share:", fontSize = 11.sp, color = TextMuted)
+                                Text("₹${expenseTx.myActualShare.toInt()}", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = TextPrimary)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("New Share After Offset:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NeonEmerald)
+                                Text("₹${newShare.toInt()}", fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = NeonEmerald)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (selectedCandidate != null) {
+                        val offset = offsetAmountText.toDoubleOrNull() ?: 0.0
+                        if (offset > 0.0) {
+                            val incomeId = if (isCurrentIncome) currentTransaction.id else selectedCandidate!!.id
+                            val expenseId = if (isCurrentIncome) selectedCandidate!!.id else currentTransaction.id
+                            onConfirmLink(incomeId, expenseId, offset)
+                        }
+                    }
+                },
+                enabled = selectedCandidate != null && (offsetAmountText.toDoubleOrNull() ?: 0.0) > 0.0,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isCurrentIncome) NeonEmerald else NeonCyan,
+                    contentColor = OledBlack
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("Confirm Link", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        }
+    )
 }

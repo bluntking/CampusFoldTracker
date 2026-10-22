@@ -94,6 +94,9 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         // Initialize Local On-Device AI Manager
         com.campusfold.tracker.ai.LocalAiManager.init(application)
 
+        // Auto-sync Axis Bank Gmail IMAP on launch (Option 1)
+        checkAndAutoSyncGmail()
+
         allTransactions = repository.allTransactions.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
@@ -766,6 +769,56 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             val prefs = AppPreferences(getApplication())
             prefs.clearGmailCredentials()
             _statusMessage.value = "Cleared saved Gmail credentials."
+        }
+    }
+
+    /**
+     * Silent auto-sync on app open / resume (Option 1).
+     * Connects in the background, pulls new transactions since last sync, and updates UI seamlessly.
+     */
+    fun checkAndAutoSyncGmail() {
+        if (_isGmailSyncing.value) return
+        val prefs = AppPreferences(getApplication())
+        val email = prefs.getGmailEmail()
+        val password = prefs.getGmailAppPassword()
+        if (email.isNullOrBlank() || password.isNullOrBlank()) return
+
+        val lastSync = prefs.getGmailLastSyncTimestamp()
+        // Throttle: don't sync if last sync was within 2 minutes
+        if (System.currentTimeMillis() - lastSync < 120_000L) return
+
+        val startTime = if (lastSync > 0L) {
+            lastSync - 3600_000L // 1 hour buffer
+        } else {
+            System.currentTimeMillis() - 30L * 86400000L
+        }
+
+        syncAxisFromGmail(
+            emailAddress = email,
+            appPassword = password,
+            startDateMillis = startTime,
+            saveCredentials = false
+        )
+    }
+
+    /**
+     * Maps an incoming transfer (Income) directly to an Expense as a reimbursement.
+     * Decreases the user's out-of-pocket share (myActualShare) on the expense and updates split balances.
+     */
+    fun linkIncomeToExpense(
+        incomeTransactionId: Long,
+        expenseTransactionId: Long,
+        offsetAmount: Double? = null,
+        onComplete: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.linkIncomeToExpense(incomeTransactionId, expenseTransactionId, offsetAmount)
+                _statusMessage.value = "✓ Successfully mapped income to expense reimbursement!"
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error mapping income to expense: ${e.message}"
+            }
         }
     }
 

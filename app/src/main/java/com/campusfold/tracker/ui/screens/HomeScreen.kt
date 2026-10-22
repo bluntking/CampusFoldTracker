@@ -617,6 +617,7 @@ fun HomeScreen(
             categories = categories,
             vendorMappings = vendorMappings,
             allPersons = allPersons,
+            allTransactions = allTransactions,
             initialSplits = txWithSplits?.splits ?: emptyList(),
             onDismiss = { selectedTransactionForSheet = null },
             onSaveTransaction = { updatedTx, splits ->
@@ -624,6 +625,9 @@ fun HomeScreen(
             },
             onToggleCcBill = {
                 viewModel.toggleCcBillTransfer(tx.id)
+            },
+            onLinkIncomeToExpense = { incomeId, expenseId, offsetAmount ->
+                viewModel.linkIncomeToExpense(incomeId, expenseId, offsetAmount)
             },
             onSaveVendorMapping = { keyword, friendly, catId ->
                 viewModel.saveVendorMappingForFuture(keyword, friendly, catId)

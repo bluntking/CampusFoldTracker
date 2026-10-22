@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         updatePermissionStatus()
+        viewModel.checkAndAutoSyncGmail()
     }
 
     private fun updatePermissionStatus() {
