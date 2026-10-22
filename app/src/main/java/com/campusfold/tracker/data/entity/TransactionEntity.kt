@@ -34,5 +34,6 @@ data class TransactionEntity(
     val categoryId: Long? = null,
     val timestamp: Long,
     val upiRef: String? = null, // Unique index for deduplication
-    val rawSms: String? = null
+    val rawSms: String? = null,
+    val description: String? = null
 )

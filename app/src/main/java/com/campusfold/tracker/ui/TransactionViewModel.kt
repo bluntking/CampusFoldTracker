@@ -391,7 +391,8 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         categoryId: Long?,
         type: TransactionType = TransactionType.EXPENSE,
         paymentMode: String = "Cash/Manual",
-        splits: List<SplitItemEntity> = emptyList()
+        splits: List<SplitItemEntity> = emptyList(),
+        description: String? = null
     ) {
         viewModelScope.launch {
             val tx = TransactionEntity(
@@ -402,7 +403,8 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
                 rawMerchant = vendorName,
                 friendlyVendorName = vendorName,
                 categoryId = categoryId,
-                timestamp = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis(),
+                description = description
             )
             repository.addTransaction(tx, splits)
             _statusMessage.value = "Transaction added successfully."

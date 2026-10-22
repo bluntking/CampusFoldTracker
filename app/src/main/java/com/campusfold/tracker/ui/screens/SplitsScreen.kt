@@ -23,7 +23,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.campusfold.tracker.data.entity.CategoryEntity
 import com.campusfold.tracker.data.entity.PersonEntity
+import com.campusfold.tracker.data.entity.TransactionType
 import com.campusfold.tracker.data.model.PersonWithBalance
 import com.campusfold.tracker.data.model.UnsettledBillItem
 import com.campusfold.tracker.ui.TransactionViewModel
@@ -43,10 +45,12 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
     val unallocatedCredits by viewModel.unallocatedHiddenSenderCredits.collectAsState()
 
     val totalOwedToMe = personsWithBalances.sumOf { it.totalOwedToMe }
+    val categories by viewModel.categories.collectAsState()
 
     // Dialog states
     var showAddFriendDialog by remember { mutableStateOf(false) }
     var friendToEdit by remember { mutableStateOf<PersonEntity?>(null) }
+    var friendToLogShare by remember { mutableStateOf<PersonWithBalance?>(null) }
 
     // Manual Settle Dialog state
     var friendToSettle by remember { mutableStateOf<PersonWithBalance?>(null) }
@@ -294,6 +298,9 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                             onSettleCash = {
                                 friendToSettle = personWithBal
                             },
+                            onLogPaidShare = {
+                                friendToLogShare = personWithBal
+                            },
                             onEdit = {
                                 friendToEdit = PersonEntity(
                                     id = personWithBal.id,
@@ -374,6 +381,27 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
         )
     }
 
+    // Log Paid Friend Share Dialog
+    friendToLogShare?.let { friend ->
+        LogFriendShareDialog(
+            friend = friend,
+            categories = categories,
+            onDismiss = { friendToLogShare = null },
+            onConfirm = { amount, categoryId, note ->
+                viewModel.addManualTransaction(
+                    amount = amount,
+                    vendorName = "Paid to ${friend.name} (My Share)",
+                    categoryId = categoryId,
+                    type = TransactionType.EXPENSE,
+                    paymentMode = "UPI/Cash",
+                    splits = emptyList(),
+                    description = note.ifBlank { "My share paid to ${friend.name}" }
+                )
+                friendToLogShare = null
+            }
+        )
+    }
+
     // Add / Edit Friend Dialog
     if (showAddFriendDialog) {
         AddEditPersonDialog(
@@ -400,6 +428,7 @@ fun FriendBalanceCard(
     personWithBalance: PersonWithBalance,
     unsettledBills: List<UnsettledBillItem>,
     onSettleCash: () -> Unit,
+    onLogPaidShare: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -497,7 +526,7 @@ fun FriendBalanceCard(
                     )
                 }
 
-                // Actions: Settle Cash / Edit / Delete
+                // Actions: Settle Cash / Paid Share / Edit / Delete
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (personWithBalance.totalOwedToMe > 0) {
                         Button(
@@ -509,8 +538,23 @@ fun FriendBalanceCard(
                         ) {
                             Text("Settle Cash", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                     }
+
+                    Button(
+                        onClick = onLogPaidShare,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeonAmber.copy(alpha = 0.18f),
+                            contentColor = NeonAmber
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(28.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NeonAmber.copy(alpha = 0.5f))
+                    ) {
+                        Text("Paid Share", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     IconButton(onClick = onEdit, modifier = Modifier.size(24.dp)) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit", tint = TextSecondary, modifier = Modifier.size(14.dp))
@@ -647,6 +691,133 @@ fun ManualSettleDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack)
             ) {
                 Text("Confirm FIFO Settlement", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun LogFriendShareDialog(
+    friend: PersonWithBalance,
+    categories: List<CategoryEntity>,
+    onDismiss: () -> Unit,
+    onConfirm: (amount: Double, categoryId: Long?, description: String) -> Unit
+) {
+    var amountText by remember { mutableStateOf("") }
+    var selectedCategoryId by remember { mutableStateOf(categories.firstOrNull()?.id) }
+    var descriptionText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MatteCharcoal,
+        title = {
+            Column {
+                Text(
+                    text = "PAID FRIEND FOR MY SHARE",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    color = NeonAmber
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Pay Share to ${friend.name}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = TextPrimary
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "When ${friend.name} paid the bill and you paid them back your personal share.",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+
+                // Amount
+                OutlinedTextField(
+                    value = amountText,
+                    onValueChange = { amountText = it },
+                    label = { Text("Amount Paid (₹)", color = TextSecondary) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = TextPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = InputBg,
+                        unfocusedContainerColor = InputBg,
+                        focusedBorderColor = NeonAmber,
+                        unfocusedBorderColor = BorderCharcoal
+                    )
+                )
+
+                // Category
+                if (categories.isNotEmpty()) {
+                    Text("Expense Category:", fontSize = 11.sp, color = TextMuted)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        categories.forEach { cat ->
+                            FilterChip(
+                                selected = selectedCategoryId == cat.id,
+                                onClick = { selectedCategoryId = cat.id },
+                                label = { Text(cat.name, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = NeonEmerald.copy(alpha = 0.2f),
+                                    selectedLabelColor = NeonEmerald
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Description
+                OutlinedTextField(
+                    value = descriptionText,
+                    onValueChange = { descriptionText = it },
+                    label = { Text("Why did you pay? (Optional)", color = TextSecondary) },
+                    placeholder = { Text("e.g. Dinner share at canteen, cab fare", color = TextMuted, fontSize = 11.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = InputBg,
+                        unfocusedContainerColor = InputBg,
+                        focusedBorderColor = NeonAmber,
+                        unfocusedBorderColor = BorderCharcoal
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val amount = amountText.toDoubleOrNull() ?: 0.0
+                    if (amount > 0) {
+                        onConfirm(amount, selectedCategoryId, descriptionText.trim())
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = NeonAmber, contentColor = OledBlack),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("Record Expense", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

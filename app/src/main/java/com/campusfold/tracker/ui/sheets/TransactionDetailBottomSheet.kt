@@ -60,9 +60,11 @@ fun TransactionDetailBottomSheet(
     // Form states
     var amountText by remember { mutableStateOf(transaction.amount.toString()) }
     var friendlyVendor by remember { mutableStateOf(transaction.friendlyVendorName) }
+    var descriptionText by remember { mutableStateOf(transaction.description ?: "") }
     var selectedCategoryId by remember { mutableStateOf(transaction.categoryId) }
     var selectedType by remember { mutableStateOf(transaction.type) }
     var paymentMode by remember { mutableStateOf(transaction.paymentMode) }
+    var showPaidFriendSection by remember { mutableStateOf(false) }
 
     // Split state
     var showSplitSection by remember { mutableStateOf(false) }
@@ -283,6 +285,126 @@ fun TransactionDetailBottomSheet(
                 }
             }
 
+            // Paid Friend for My Share Card
+            if (selectedType == TransactionType.EXPENSE) {
+                Spacer(modifier = Modifier.height(10.dp))
+                FoldCard(
+                    containerColor = if (showPaidFriendSection) Color(0xFF14241D) else InputBg,
+                    borderColor = if (showPaidFriendSection) NeonEmerald else NeonAmber.copy(alpha = 0.5f),
+                    onClick = { showPaidFriendSection = !showPaidFriendSection }
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Handshake,
+                                contentDescription = null,
+                                tint = if (showPaidFriendSection) NeonEmerald else NeonAmber
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Paid Friend for My Share",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Friend paid for you? Assign to friend & select true expense category.",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                            Icon(
+                                imageVector = if (showPaidFriendSection) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        if (showPaidFriendSection) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Divider(color = BorderCharcoal)
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Text("WHICH FRIEND DID YOU PAY?", fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = TextMuted)
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            if (allPersons.isEmpty()) {
+                                Text(
+                                    text = "No friends added yet. Add friends in Splits tab to pick them.",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            } else {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    items(allPersons) { friend ->
+                                        val isCurrentFriend = friendlyVendor.contains(friend.name, ignoreCase = true)
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (isCurrentFriend) NeonAmber.copy(alpha = 0.2f) else InputBg)
+                                                .border(1.dp, if (isCurrentFriend) NeonAmber else BorderCharcoal, RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    friendlyVendor = "Paid to ${friend.name} (My Share)"
+                                                    if (descriptionText.isBlank()) {
+                                                        descriptionText = "My share paid to ${friend.name}"
+                                                    }
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = friend.name,
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isCurrentFriend) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isCurrentFriend) NeonAmber else TextPrimary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text("WHAT WAS YOUR SHARE FOR?", fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = TextMuted)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(categories) { cat ->
+                                    val isSelected = selectedCategoryId == cat.id
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSelected) NeonEmerald.copy(alpha = 0.2f) else InputBg)
+                                            .border(1.dp, if (isSelected) NeonEmerald else BorderCharcoal, RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                selectedCategoryId = cat.id
+                                                if (descriptionText.isBlank() || descriptionText.startsWith("My share")) {
+                                                    val friendPart = friendlyVendor.removePrefix("Paid to ").removeSuffix(" (My Share)")
+                                                    descriptionText = if (friendPart.isNotBlank() && friendPart != friendlyVendor) {
+                                                        "My share to $friendPart for ${cat.name}"
+                                                    } else {
+                                                        "My share for ${cat.name}"
+                                                    }
+                                                }
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = cat.name,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) NeonEmerald else TextSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Edit Fields Section
@@ -330,6 +452,26 @@ fun TransactionDetailBottomSheet(
                     focusedContainerColor = InputBg,
                     unfocusedContainerColor = InputBg
                 ),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Note / Description field
+            OutlinedTextField(
+                value = descriptionText,
+                onValueChange = { descriptionText = it },
+                label = { Text("Note / Why did you spend this? (Optional)", color = TextSecondary) },
+                placeholder = { Text("e.g. Dinner with Rahul at BBQ Nation, hostel groceries", color = TextMuted, fontSize = 12.sp) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = NeonEmerald,
+                    unfocusedBorderColor = BorderCharcoal,
+                    focusedContainerColor = InputBg,
+                    unfocusedContainerColor = InputBg
+                ),
+                minLines = 2,
+                maxLines = 4,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             )
@@ -717,7 +859,8 @@ fun TransactionDetailBottomSheet(
                             friendlyVendorName = friendlyVendor.trim(),
                             categoryId = selectedCategoryId,
                             type = selectedType,
-                            paymentMode = paymentMode
+                            paymentMode = paymentMode,
+                            description = descriptionText.trim().ifBlank { null }
                         )
                         onSaveTransaction(updated, splitList.toList())
                         onDismiss()

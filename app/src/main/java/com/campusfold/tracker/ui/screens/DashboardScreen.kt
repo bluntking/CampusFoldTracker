@@ -566,6 +566,16 @@ fun DashboardScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    if (!tx.description.isNullOrBlank()) {
+                                        Text(
+                                            text = "“${tx.description}”",
+                                            fontSize = 10.sp,
+                                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                            color = NeonCyan.copy(alpha = 0.8f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = dateFormat.format(Date(tx.timestamp)),

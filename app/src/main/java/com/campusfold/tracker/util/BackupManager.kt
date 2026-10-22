@@ -122,6 +122,7 @@ object BackupManager {
                         put("timestamp", tx.timestamp)
                         put("upiRef", tx.upiRef ?: JSONObject.NULL)
                         put("rawSms", tx.rawSms ?: JSONObject.NULL)
+                        put("description", tx.description ?: JSONObject.NULL)
                     })
                 }
                 put("transactions", txArray)
@@ -316,6 +317,7 @@ object BackupManager {
                         val catId = if (obj.isNull("categoryId")) null else obj.optLong("categoryId")
                         val upi = if (obj.isNull("upiRef")) null else obj.optString("upiRef")
                         val rawSms = if (obj.isNull("rawSms")) null else obj.optString("rawSms")
+                        val description = if (obj.isNull("description")) null else obj.optString("description")
 
                         list.add(
                             TransactionEntity(
@@ -329,7 +331,8 @@ object BackupManager {
                                 categoryId = catId,
                                 timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
                                 upiRef = upi,
-                                rawSms = rawSms
+                                rawSms = rawSms,
+                                description = description
                             )
                         )
                     }

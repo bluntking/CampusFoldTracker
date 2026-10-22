@@ -759,6 +759,18 @@ fun FoldTransactionFeedCard(
                         }
                     }
 
+                    if (!transaction.description.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "“${transaction.description}”",
+                            fontSize = 11.sp,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                            color = NeonCyan.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(2.dp))
 
                     // Category pill & Payment badge

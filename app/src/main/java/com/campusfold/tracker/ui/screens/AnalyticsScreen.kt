@@ -75,6 +75,7 @@ fun AnalyticsScreen(
     viewModel: TransactionViewModel,
     onNavigateToTransactions: ((filterType: String, filterValue: String) -> Unit)? = null
 ) {
+    val categories by viewModel.categories.collectAsState()
     val monthCategorySpending by viewModel.monthCategorySpending.collectAsState()
     val monthVendorSpending by viewModel.monthVendorSpending.collectAsState()
     val currentMonthTotalTrueSpend by viewModel.currentMonthTotalTrueSpend.collectAsState()
@@ -85,6 +86,12 @@ fun AnalyticsScreen(
     val weekOverWeekSpike by viewModel.weekOverWeekSpike.collectAsState()
     val allTransactions by viewModel.allTransactions.collectAsState()
 
+    // Period selection state (Month vs Week, offsets)
+    var dateViewMode by remember { mutableStateOf(DateViewMode.MONTH) }
+    var monthOffset by remember { mutableIntStateOf(0) }
+    var weekOffset by remember { mutableIntStateOf(0) }
+    var showPeriodPickerSheet by remember { mutableStateOf(false) }
+
     var breakdownMode by remember { mutableStateOf(ChartBreakdownMode.CATEGORY) }
     var selectedSliceId by remember { mutableStateOf<String?>(null) }
 
@@ -92,8 +99,86 @@ fun AnalyticsScreen(
     var showOverallBudgetDialog by remember { mutableStateOf(false) }
     var categoryToEditBudget by remember { mutableStateOf<CategorySpending?>(null) }
 
-    val currentMonthName = remember {
-        SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date())
+    // Compute period bounds
+    val (periodStart, periodEnd, periodLabel) = remember(dateViewMode, monthOffset, weekOffset) {
+        if (dateViewMode == DateViewMode.MONTH) {
+            val cal = Calendar.getInstance().apply {
+                add(Calendar.MONTH, monthOffset)
+                set(Calendar.DAY_OF_MONTH, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val start = cal.timeInMillis
+            cal.set(Calendar.DAY_OF_MONTH, cal.getActualMaximum(Calendar.DAY_OF_MONTH))
+            cal.set(Calendar.HOUR_OF_DAY, 23)
+            cal.set(Calendar.MINUTE, 59)
+            cal.set(Calendar.SECOND, 59)
+            cal.set(Calendar.MILLISECOND, 999)
+            val end = cal.timeInMillis
+            val fmt = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
+            Triple(start, end, fmt.format(Date(start)))
+        } else {
+            val cal = Calendar.getInstance().apply {
+                firstDayOfWeek = Calendar.MONDAY
+                add(Calendar.WEEK_OF_YEAR, weekOffset)
+                set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val start = cal.timeInMillis
+            cal.add(Calendar.DAY_OF_WEEK, 6)
+            cal.set(Calendar.HOUR_OF_DAY, 23)
+            cal.set(Calendar.MINUTE, 59)
+            cal.set(Calendar.SECOND, 59)
+            cal.set(Calendar.MILLISECOND, 999)
+            val end = cal.timeInMillis
+            val fmt = SimpleDateFormat("dd MMM", Locale.getDefault())
+            Triple(start, end, "${fmt.format(Date(start))} - ${fmt.format(Date(end))}")
+        }
+    }
+
+    // Filtered expenses for selected period
+    val periodExpenses = remember(allTransactions, periodStart, periodEnd) {
+        allTransactions.filter { it.timestamp in periodStart..periodEnd && it.type == TransactionType.EXPENSE }
+    }
+
+    val selectedPeriodTotalTrueSpend = remember(periodExpenses) {
+        periodExpenses.sumOf { it.myActualShare }
+    }
+
+    // Dynamic Category spending for the selected period
+    val selectedPeriodCategorySpending = remember(periodExpenses, categories) {
+        val catMap = periodExpenses.filter { it.categoryId != null && it.categoryId != 0L }
+            .groupBy { it.categoryId!! }
+
+        categories.map { cat ->
+            val spent = catMap[cat.id]?.sumOf { it.myActualShare } ?: 0.0
+            CategorySpending(
+                categoryId = cat.id,
+                categoryName = cat.name,
+                colorHex = cat.colorHex,
+                iconName = cat.iconName,
+                monthlyBudget = cat.monthlyBudget,
+                totalSpent = spent
+            )
+        }.sortedByDescending { it.totalSpent }
+    }
+
+    // Dynamic Vendor spending for the selected period
+    val selectedPeriodVendorSpending = remember(periodExpenses) {
+        periodExpenses
+            .groupBy { it.friendlyVendorName.ifBlank { it.rawMerchant }.ifBlank { "Unknown" } }
+            .map { (vendor, txs) ->
+                VendorSpendingItem(
+                    vendorName = vendor,
+                    totalSpent = txs.sumOf { it.myActualShare },
+                    transactionCount = txs.size
+                )
+            }.sortedByDescending { it.totalSpent }
     }
 
     // Palette for vendors & dynamic colors
@@ -111,13 +196,13 @@ fun AnalyticsScreen(
     )
 
     // Compute slices for Donut Chart
-    val chartSlices = remember(breakdownMode, monthCategorySpending, monthVendorSpending, currentMonthTotalTrueSpend) {
-        val total = currentMonthTotalTrueSpend
+    val chartSlices = remember(breakdownMode, selectedPeriodCategorySpending, selectedPeriodVendorSpending, selectedPeriodTotalTrueSpend) {
+        val total = selectedPeriodTotalTrueSpend
         if (total <= 0.0) emptyList()
         else {
             when (breakdownMode) {
                 ChartBreakdownMode.CATEGORY -> {
-                    val rawSlices = monthCategorySpending
+                    val rawSlices = selectedPeriodCategorySpending
                         .filter { it.totalSpent > 0.0 }
                         .mapIndexed { index, cat ->
                             val sliceColor = try {
@@ -159,7 +244,7 @@ fun AnalyticsScreen(
                     }
                 }
                 ChartBreakdownMode.CAMPUS_VENDOR -> {
-                    val rawSlices = monthVendorSpending
+                    val rawSlices = selectedPeriodVendorSpending
                         .filter { it.totalSpent > 0.0 }
                         .mapIndexed { index, v ->
                             Triple(v.vendorName, v.vendorName, v.totalSpent) to foldColors[index % foldColors.size]
@@ -213,35 +298,144 @@ fun AnalyticsScreen(
             contentPadding = PaddingValues(top = 16.dp, bottom = 90.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Screen Header
+            // Screen Header & Period Controls
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "CAMPUSFOLD ANALYTICS",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextMuted
-                        )
-                        Text(
-                            text = "True Spend Matrix",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
-                            color = TextPrimary
-                        )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "CAMPUSFOLD ANALYTICS",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextMuted
+                            )
+                            Text(
+                                text = "True Spend Matrix",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                color = TextPrimary
+                            )
+                        }
+
+                        // Month / Week Segmented Switcher
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(InputBg)
+                                .border(1.dp, BorderCharcoal, RoundedCornerShape(10.dp))
+                                .padding(2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (dateViewMode == DateViewMode.MONTH) MatteCharcoal else Color.Transparent)
+                                    .clickable {
+                                        dateViewMode = DateViewMode.MONTH
+                                        monthOffset = 0
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Month",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (dateViewMode == DateViewMode.MONTH) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (dateViewMode == DateViewMode.MONTH) NeonEmerald else TextSecondary
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (dateViewMode == DateViewMode.WEEK) MatteCharcoal else Color.Transparent)
+                                    .clickable {
+                                        dateViewMode = DateViewMode.WEEK
+                                        weekOffset = 0
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Week",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (dateViewMode == DateViewMode.WEEK) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (dateViewMode == DateViewMode.WEEK) NeonCyan else TextSecondary
+                                )
+                            }
+                        }
                     }
 
-                    StatusPill(
-                        text = currentMonthName.uppercase(),
-                        bgColor = InputBg,
-                        textColor = NeonCyan,
-                        fontSize = 10.sp
-                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Period Pager Bar (<  October 2026  > + Filter)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MatteCharcoal)
+                            .border(1.dp, BorderCharcoal, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = {
+                                if (dateViewMode == DateViewMode.MONTH) monthOffset-- else weekOffset--
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.ChevronLeft, contentDescription = "Previous", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { showPeriodPickerSheet = true }
+                        ) {
+                            Text(
+                                text = periodLabel,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = {
+                                    if (dateViewMode == DateViewMode.MONTH) {
+                                        if (monthOffset < 0) monthOffset++
+                                    } else {
+                                        if (weekOffset < 0) weekOffset++
+                                    }
+                                },
+                                enabled = (if (dateViewMode == DateViewMode.MONTH) monthOffset < 0 else weekOffset < 0),
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.ChevronRight,
+                                    contentDescription = "Next",
+                                    tint = if (if (dateViewMode == DateViewMode.MONTH) monthOffset < 0 else weekOffset < 0) TextSecondary else BorderCharcoal,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(4.dp))
+
+                            IconButton(
+                                onClick = { showPeriodPickerSheet = true },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.DateRange, contentDescription = "Select Period", tint = NeonCyan, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
                 }
             }
 
@@ -326,7 +520,7 @@ fun AnalyticsScreen(
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        text = "No Personal Expenses in $currentMonthName",
+                                        text = "No Personal Expenses in $periodLabel",
                                         fontSize = 12.sp,
                                         color = TextSecondary
                                     )
@@ -448,7 +642,7 @@ fun AnalyticsScreen(
                                         )
                                         Spacer(modifier = Modifier.height(2.dp))
                                         MonospaceCurrencyText(
-                                            amount = currentMonthTotalTrueSpend,
+                                            amount = selectedPeriodTotalTrueSpend,
                                             fontSize = 20.sp,
                                             color = TextPrimary
                                         )
@@ -659,19 +853,40 @@ fun AnalyticsScreen(
             // Overall Monthly Personal Budget Card
             item {
                 OverallBudgetProgressCard(
-                    totalSpend = currentMonthTotalTrueSpend,
+                    totalSpend = selectedPeriodTotalTrueSpend,
                     overallBudget = overallMonthlyBudget,
                     onEditClick = { showOverallBudgetDialog = true }
                 )
             }
 
             // Category Budgets Progress List
-            items(monthCategorySpending, key = { it.categoryId }) { cat ->
+            items(selectedPeriodCategorySpending, key = { it.categoryId }) { cat ->
                 CategoryBudgetProgressRow(
                     categorySpending = cat,
                     onEditBudget = { categoryToEditBudget = cat }
                 )
             }
+        }
+    }
+
+    // Period Picker Bottom Sheet
+    if (showPeriodPickerSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showPeriodPickerSheet = false },
+            containerColor = CardElevated,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = BorderCharcoal) }
+        ) {
+            PeriodPickerContent(
+                currentMode = dateViewMode,
+                monthOffset = monthOffset,
+                weekOffset = weekOffset,
+                onSelectPeriod = { mode, mOff, wOff ->
+                    dateViewMode = mode
+                    monthOffset = mOff
+                    weekOffset = wOff
+                    showPeriodPickerSheet = false
+                }
+            )
         }
     }
 

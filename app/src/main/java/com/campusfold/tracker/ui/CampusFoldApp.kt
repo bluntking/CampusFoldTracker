@@ -325,12 +325,14 @@ fun CampusFoldApp(
     // Manual Add Transaction Dialog
     if (showAddDialog) {
         val accountsList by viewModel.accounts.collectAsState()
+        val allPersonsList by viewModel.allPersons.collectAsState()
         AddManualTransactionDialog(
             categories = categories,
             accounts = accountsList,
+            allPersons = allPersonsList,
             onDismiss = { showAddDialog = false },
-            onAdd = { amount, vendor, categoryId, type, paymentMode ->
-                viewModel.addManualTransaction(amount, vendor, categoryId, type, paymentMode)
+            onAdd = { amount, vendor, categoryId, type, paymentMode, desc ->
+                viewModel.addManualTransaction(amount, vendor, categoryId, type, paymentMode, emptyList(), desc)
                 showAddDialog = false
             }
         )
@@ -342,11 +344,13 @@ fun CampusFoldApp(
 fun AddManualTransactionDialog(
     categories: List<CategoryEntity>,
     accounts: List<AccountEntity> = emptyList(),
+    allPersons: List<PersonEntity> = emptyList(),
     onDismiss: () -> Unit,
-    onAdd: (amount: Double, vendor: String, categoryId: Long?, type: TransactionType, paymentMode: String) -> Unit
+    onAdd: (amount: Double, vendor: String, categoryId: Long?, type: TransactionType, paymentMode: String, description: String?) -> Unit
 ) {
     var amountText by remember { mutableStateOf("") }
     var vendorName by remember { mutableStateOf("") }
+    var descriptionText by remember { mutableStateOf("") }
     var selectedCategoryId by remember { mutableStateOf(categories.firstOrNull()?.id) }
     var selectedType by remember { mutableStateOf(TransactionType.EXPENSE) }
     var paymentMode by remember { mutableStateOf(accounts.firstOrNull()?.name ?: "PNB CC 8598") }
@@ -459,6 +463,50 @@ fun AddManualTransactionDialog(
                     )
                 )
 
+                // Paid Friend for My Share Quick Helper
+                if (selectedType == TransactionType.EXPENSE && allPersons.isNotEmpty()) {
+                    Text("Friend paid for you? Tap friend to set share:", fontSize = 10.sp, color = NeonAmber, fontFamily = FontFamily.Monospace)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        allPersons.forEach { friend ->
+                            val isSelected = vendorName.contains(friend.name, ignoreCase = true)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    vendorName = "Paid to ${friend.name} (My Share)"
+                                    if (descriptionText.isBlank()) {
+                                        descriptionText = "My share paid to ${friend.name}"
+                                    }
+                                },
+                                label = { Text(friend.name, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = NeonAmber.copy(alpha = 0.2f),
+                                    selectedLabelColor = NeonAmber
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Note / Description
+                OutlinedTextField(
+                    value = descriptionText,
+                    onValueChange = { descriptionText = it },
+                    label = { Text("Note / Description (Optional)", color = TextSecondary) },
+                    placeholder = { Text("e.g. Dinner with Rahul, lab manuals, hostel groceries", color = TextMuted, fontSize = 11.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = InputBg,
+                        unfocusedContainerColor = InputBg,
+                        focusedBorderColor = NeonEmerald,
+                        unfocusedBorderColor = BorderCharcoal
+                    )
+                )
+
                 // Account selector chips
                 if (accounts.isNotEmpty()) {
                     Text("Select Account:", fontSize = 11.sp, color = TextMuted)
@@ -528,7 +576,14 @@ fun AddManualTransactionDialog(
                 onClick = {
                     val amount = amountText.toDoubleOrNull() ?: 0.0
                     if (amount > 0 && vendorName.isNotBlank()) {
-                        onAdd(amount, vendorName.trim(), selectedCategoryId, selectedType, paymentMode.trim())
+                        onAdd(
+                            amount,
+                            vendorName.trim(),
+                            selectedCategoryId,
+                            selectedType,
+                            paymentMode.trim(),
+                            descriptionText.trim().ifBlank { null }
+                        )
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack),

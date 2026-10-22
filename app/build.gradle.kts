@@ -15,7 +15,7 @@ android {
         val runNum = System.getenv("GITHUB_RUN_NUMBER") ?: "local"
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()?.plus(100) ?: 1
         versionName = "1.0.$runNum"
-        manifestPlaceholders["appName"] = "CampusFold 1.0.$runNum"
+        manifestPlaceholders["appName"] = "CampusFold"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
