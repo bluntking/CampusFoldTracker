@@ -94,9 +94,6 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         // Initialize Local On-Device AI Manager
         com.campusfold.tracker.ai.LocalAiManager.init(application)
 
-        // Auto-sync Axis Bank Gmail IMAP on launch (Option 1)
-        checkAndAutoSyncGmail()
-
         allTransactions = repository.allTransactions.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
@@ -275,6 +272,11 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         unallocatedHiddenSenderCredits = allTransactions.map { list ->
             list.filter { it.type == TransactionType.INCOME && (it.friendlyVendorName.contains("Sender hidden") || it.rawMerchant == "Axis Gmail Credit") }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        // Auto-sync Axis Bank Gmail IMAP on launch (Option 1) in background coroutine once all state flows are ready
+        viewModelScope.launch {
+            checkAndAutoSyncGmail()
+        }
     }
 
     fun setFilter(filter: String) {
@@ -779,27 +781,31 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
      * Connects in the background, pulls new transactions since last sync, and updates UI seamlessly.
      */
     fun checkAndAutoSyncGmail() {
-        if (_isGmailSyncing.value) return
-        val email = gmailSyncEmail.value
-        val password = gmailSyncAppPassword.value
-        if (email.isNullOrBlank() || password.isNullOrBlank()) return
+        try {
+            if (_isGmailSyncing.value) return
+            val email = gmailSyncEmail.value
+            val password = gmailSyncAppPassword.value
+            if (email.isNullOrBlank() || password.isNullOrBlank()) return
 
-        val lastSync = gmailLastSyncTimestamp.value
-        // Throttle: don't sync if last sync was within 2 minutes
-        if (lastSync > 0L && (System.currentTimeMillis() - lastSync) < 120_000L) return
+            val lastSync = gmailLastSyncTimestamp.value
+            // Throttle: don't sync if last sync was within 2 minutes
+            if (lastSync > 0L && (System.currentTimeMillis() - lastSync) < 120_000L) return
 
-        val startTime = if (lastSync > 0L) {
-            lastSync - 3600_000L // 1 hour buffer
-        } else {
-            System.currentTimeMillis() - 30L * 86400000L
+            val startTime = if (lastSync > 0L) {
+                lastSync - 3600_000L // 1 hour buffer
+            } else {
+                System.currentTimeMillis() - 30L * 86400000L
+            }
+
+            syncAxisFromGmail(
+                emailAddress = email,
+                appPassword = password,
+                startDateMillis = startTime,
+                saveCredentials = false
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("TransactionViewModel", "Silent Gmail auto-sync check error", e)
         }
-
-        syncAxisFromGmail(
-            emailAddress = email,
-            appPassword = password,
-            startDateMillis = startTime,
-            saveCredentials = false
-        )
     }
 
     /**
