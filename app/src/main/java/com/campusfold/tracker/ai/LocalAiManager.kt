@@ -29,6 +29,26 @@ sealed class AiModelStatus {
     data class Error(val message: String) : AiModelStatus()
 }
 
+enum class QwenModelVariant(
+    val displayName: String,
+    val fileName: String,
+    val url: String,
+    val minValidSizeBytes: Long
+) {
+    QWEN_0_5B(
+        displayName = "Qwen 2.5 (0.5B)",
+        fileName = "Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
+        url = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
+        minValidSizeBytes = 500L * 1024 * 1024
+    ),
+    QWEN_1_5B(
+        displayName = "Qwen 2.5 (1.5B)",
+        fileName = "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
+        url = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
+        minValidSizeBytes = 1500L * 1024 * 1024
+    )
+}
+
 data class ChatMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
     val sender: String, // "USER" or "AI"
@@ -171,27 +191,30 @@ object LocalAiManager {
     }
 
     /**
-     * 1-Tap Download Qwen 2.5 (0.5B - 547MB) directly from HuggingFace to context.filesDir.
+     * 1-Tap Download Qwen 2.5 (0.5B - 547MB or 1.5B - 1.6GB) directly from HuggingFace to context.filesDir.
      * Follows HTTP 302 redirects properly and tracks download progress.
      */
-    suspend fun downloadQwenModel(context: Context) = withContext(Dispatchers.IO) {
+    suspend fun downloadQwenModel(
+        context: Context,
+        variant: QwenModelVariant = QwenModelVariant.QWEN_0_5B
+    ) = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
         val modelsDir = File(appContext.filesDir, "llm_models").apply { mkdirs() }
-        val targetFile = File(modelsDir, QWEN_MODEL_FILENAME)
-        val tempFile = File(modelsDir, "$QWEN_MODEL_FILENAME.tmp")
+        val targetFile = File(modelsDir, variant.fileName)
+        val tempFile = File(modelsDir, "${variant.fileName}.tmp")
 
-        // If file already exists and has valid size (> 500MB), initialize directly
-        if (targetFile.exists() && targetFile.length() > 500L * 1024 * 1024) {
-            Log.i(TAG, "Qwen model already downloaded (${targetFile.length()} bytes). Initializing...")
+        // If file already exists and has valid size, initialize directly
+        if (targetFile.exists() && targetFile.length() > variant.minValidSizeBytes) {
+            Log.i(TAG, "${variant.displayName} model already downloaded (${targetFile.length()} bytes). Initializing...")
             AppPreferences(appContext).setSavedAiModelPath(targetFile.absolutePath)
-            loadModelFromPath(appContext, targetFile.absolutePath, "Qwen 2.5 (0.5B)")
+            loadModelFromPath(appContext, targetFile.absolutePath, variant.displayName)
             return@withContext
         }
 
         try {
-            _modelStatus.value = AiModelStatus.Loading("Connecting to Hugging Face...", 0)
+            _modelStatus.value = AiModelStatus.Loading("Connecting to Hugging Face for ${variant.displayName}...", 0)
 
-            var currentUrl = QWEN_MODEL_URL
+            var currentUrl = variant.url
             var connection: HttpURLConnection
             var redirectCount = 0
 
@@ -221,7 +244,7 @@ object LocalAiManager {
             }
 
             val totalBytes = connection.contentLengthLong
-            Log.i(TAG, "Downloading Qwen 2.5 (0.5B) total size: $totalBytes bytes")
+            Log.i(TAG, "Downloading ${variant.displayName} total size: $totalBytes bytes")
 
             var downloadedBytes = 0L
             connection.inputStream.use { input ->
@@ -241,8 +264,8 @@ object LocalAiManager {
                                 ((downloadedBytes.toDouble() / totalBytes.toDouble()) * 100).toInt().coerceIn(0, 99)
                             } else 0
                             val mbDownloaded = downloadedBytes / (1024 * 1024)
-                            val totalMb = if (totalBytes > 0) "${totalBytes / (1024 * 1024)}MB" else "~547MB"
-                            _modelStatus.value = AiModelStatus.Loading("Downloading Qwen 2.5 ($mbDownloaded MB / $totalMb)...", progress)
+                            val totalMb = if (totalBytes > 0) "${totalBytes / (1024 * 1024)}MB" else "calculating..."
+                            _modelStatus.value = AiModelStatus.Loading("Downloading ${variant.displayName} ($mbDownloaded MB / $totalMb)...", progress)
                         }
                     }
                     output.flush()
@@ -262,13 +285,13 @@ object LocalAiManager {
             appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putString(KEY_MODEL_PATH, targetFile.absolutePath)
-                .putString(KEY_MODEL_NAME, "Qwen 2.5 (0.5B)")
+                .putString(KEY_MODEL_NAME, variant.displayName)
                 .apply()
 
-            loadModelFromPath(appContext, targetFile.absolutePath, "Qwen 2.5 (0.5B)")
+            loadModelFromPath(appContext, targetFile.absolutePath, variant.displayName)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error downloading Qwen model", e)
+            Log.e(TAG, "Error downloading ${variant.displayName}", e)
             if (tempFile.exists()) tempFile.delete()
             _modelStatus.value = AiModelStatus.Error("Download failed: ${e.localizedMessage}")
         }

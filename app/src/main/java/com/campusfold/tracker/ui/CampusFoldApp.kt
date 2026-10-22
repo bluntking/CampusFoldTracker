@@ -3,8 +3,10 @@ package com.campusfold.tracker.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -79,9 +81,10 @@ fun CampusFoldApp(
                     label = {
                         Text(
                             text = "Dashboard",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
+                            softWrap = false,
                             fontWeight = if (currentScreen == AppNavScreen.HOME) FontWeight.Bold else FontWeight.Normal
                         )
                     },
@@ -107,9 +110,10 @@ fun CampusFoldApp(
                     label = {
                         Text(
                             text = "Accounts",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
+                            softWrap = false,
                             fontWeight = if (currentScreen == AppNavScreen.ACCOUNTS) FontWeight.Bold else FontWeight.Normal
                         )
                     },
@@ -135,9 +139,10 @@ fun CampusFoldApp(
                     label = {
                         Text(
                             text = "Analytics",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
+                            softWrap = false,
                             fontWeight = if (currentScreen == AppNavScreen.ANALYTICS) FontWeight.Bold else FontWeight.Normal
                         )
                     },
@@ -163,9 +168,10 @@ fun CampusFoldApp(
                     label = {
                         Text(
                             text = "Splits",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
+                            softWrap = false,
                             fontWeight = if (currentScreen == AppNavScreen.SPLITS) FontWeight.Bold else FontWeight.Normal
                         )
                     },
@@ -190,12 +196,11 @@ fun CampusFoldApp(
                     },
                     label = {
                         Text(
-                            text = "Rules & Budgets",
-                            fontSize = 10.sp,
+                            text = "Rules",
+                            fontSize = 11.sp,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
                             softWrap = false,
-                            modifier = Modifier.fillMaxWidth(),
                             fontWeight = if (currentScreen == AppNavScreen.VENDORS_AND_CATEGORIES) FontWeight.Bold else FontWeight.Normal
                         )
                     },
@@ -282,6 +287,7 @@ fun CampusFoldApp(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddManualTransactionDialog(
     categories: List<CategoryEntity>,
@@ -308,7 +314,12 @@ fun AddManualTransactionDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 // Type Switcher
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -317,7 +328,7 @@ fun AddManualTransactionDialog(
                     FilterChip(
                         selected = selectedType == TransactionType.EXPENSE,
                         onClick = { selectedType = TransactionType.EXPENSE },
-                        label = { Text("Expense", fontSize = 10.sp) },
+                        label = { Text("Expense", fontSize = 11.sp, maxLines = 1) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = PillBgExpense,
                             selectedLabelColor = PillTextExpense
@@ -332,7 +343,7 @@ fun AddManualTransactionDialog(
                     FilterChip(
                         selected = selectedType == TransactionType.INCOME,
                         onClick = { selectedType = TransactionType.INCOME },
-                        label = { Text("Income", fontSize = 10.sp) },
+                        label = { Text("Income", fontSize = 11.sp, maxLines = 1) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = PillBgIncome,
                             selectedLabelColor = PillTextIncome
@@ -347,7 +358,7 @@ fun AddManualTransactionDialog(
                     FilterChip(
                         selected = selectedType == TransactionType.CC_BILL_TRANSFER,
                         onClick = { selectedType = TransactionType.CC_BILL_TRANSFER },
-                        label = { Text("CC Bill", fontSize = 10.sp) },
+                        label = { Text("CC Bill", fontSize = 11.sp, maxLines = 1) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = PillBgCcBill,
                             selectedLabelColor = PillTextCcBill
@@ -401,21 +412,28 @@ fun AddManualTransactionDialog(
                 // Account selector chips
                 if (accounts.isNotEmpty()) {
                     Text("Select Account:", fontSize = 11.sp, color = TextMuted)
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        accounts.take(3).forEach { acc ->
+                        accounts.forEach { acc ->
                             FilterChip(
                                 selected = paymentMode == acc.name,
                                 onClick = { paymentMode = acc.name },
-                                label = { Text(acc.name.take(14), fontSize = 10.sp) }
+                                label = {
+                                    Text(
+                                        text = acc.name,
+                                        fontSize = 11.sp,
+                                        maxLines = 1
+                                    )
+                                }
                             )
                         }
                     }
                 }
 
-                // Payment Mode
+                // Payment Mode Override
                 OutlinedTextField(
                     value = paymentMode,
                     onValueChange = { paymentMode = it },
@@ -431,17 +449,26 @@ fun AddManualTransactionDialog(
                 )
 
                 // Category chips
-                Text("Category:", fontSize = 11.sp, color = TextMuted)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    categories.take(3).forEach { cat ->
-                        FilterChip(
-                            selected = selectedCategoryId == cat.id,
-                            onClick = { selectedCategoryId = cat.id },
-                            label = { Text(cat.name, fontSize = 10.sp) }
-                        )
+                if (categories.isNotEmpty()) {
+                    Text("Category:", fontSize = 11.sp, color = TextMuted)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        categories.forEach { cat ->
+                            FilterChip(
+                                selected = selectedCategoryId == cat.id,
+                                onClick = { selectedCategoryId = cat.id },
+                                label = {
+                                    Text(
+                                        text = cat.name,
+                                        fontSize = 11.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
             }

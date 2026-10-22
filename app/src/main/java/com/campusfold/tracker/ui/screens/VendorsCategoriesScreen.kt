@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.campusfold.tracker.data.entity.CategoryEntity
@@ -37,6 +38,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
     val categories by viewModel.categories.collectAsState()
@@ -51,6 +53,7 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
 
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var categoryToEdit by remember { mutableStateOf<CategoryEntity?>(null) }
+    var showBackupSheet by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -64,48 +67,88 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Screen Header
-            Text(
-                text = "MANAGE REPOSITORIES",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextMuted
-            )
-            Text(
-                text = "Campus Rules & Budgets",
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                color = TextPrimary
-            )
+            // Screen Header with Title on Left and ⚙ Backup Button on Right
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "MANAGE REPOSITORIES",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextMuted
+                    )
+                    Text(
+                        text = "Campus Rules & Budgets",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        color = TextPrimary
+                    )
+                }
+
+                // ⚙ Backup Button in Header
+                Button(
+                    onClick = { showBackupSheet = true },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = InputBg,
+                        contentColor = TextPrimary
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, BorderCharcoal),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Backup & Restore",
+                        tint = NeonPurple,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Backup",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Fold Segmented Switcher
+            // Clean 2-Segment Full-Width Pill Switcher (Campus Vendors vs Categories)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(MatteCharcoal)
                     .border(1.dp, BorderCharcoal, RoundedCornerShape(12.dp))
-                    .padding(4.dp)
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // Vendors Tab
+                // 1. Campus Vendors Pill
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(if (selectedTab == 0) CardElevated else Color.Transparent)
                         .clickable { selectedTab = 0 }
                         .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
                         Text(
                             text = "Campus Vendors",
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
-                            color = if (selectedTab == 0) NeonEmerald else TextSecondary
+                            color = if (selectedTab == 0) NeonEmerald else TextSecondary,
+                            maxLines = 1
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         StatusPill(
@@ -117,56 +160,33 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                     }
                 }
 
-                // Categories Tab
+                // 2. Categories Pill
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(if (selectedTab == 1) CardElevated else Color.Transparent)
                         .clickable { selectedTab = 1 }
                         .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
                         Text(
                             text = "Categories",
                             fontSize = 12.sp,
                             fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
-                            color = if (selectedTab == 1) NeonCyan else TextSecondary
+                            color = if (selectedTab == 1) NeonCyan else TextSecondary,
+                            maxLines = 1
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         StatusPill(
                             text = categories.size.toString(),
                             bgColor = if (selectedTab == 1) NeonCyan.copy(alpha = 0.2f) else BorderCharcoal,
                             textColor = if (selectedTab == 1) NeonCyan else TextSecondary,
                             fontSize = 9.sp
-                        )
-                    }
-                }
-
-                // Settings & Backup Tab
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (selectedTab == 2) CardElevated else Color.Transparent)
-                        .clickable { selectedTab = 2 }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = null,
-                            tint = if (selectedTab == 2) NeonPurple else TextSecondary,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = "Backup",
-                            fontSize = 12.sp,
-                            fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium,
-                            color = if (selectedTab == 2) NeonPurple else TextSecondary
                         )
                     }
                 }
@@ -200,28 +220,23 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                         onDelete = { viewModel.deleteCategory(it) }
                     )
                 }
-                2 -> {
-                    // Settings & Backup
-                    SettingsBackupContent(viewModel = viewModel)
-                }
             }
         }
 
         // Floating Action Button
-        if (selectedTab != 2) {
-            FloatingActionButton(
-                onClick = {
-                    if (selectedTab == 0) {
-                        vendorToEdit = null
-                        showAddVendorDialog = true
-                    } else {
-                        categoryToEdit = null
-                        showAddCategoryDialog = true
-                    }
-                },
-                containerColor = if (selectedTab == 0) NeonEmerald else NeonCyan,
-                contentColor = OledBlack,
-                modifier = Modifier
+        FloatingActionButton(
+            onClick = {
+                if (selectedTab == 0) {
+                    vendorToEdit = null
+                    showAddVendorDialog = true
+                } else {
+                    categoryToEdit = null
+                    showAddCategoryDialog = true
+                }
+            },
+            containerColor = if (selectedTab == 0) NeonEmerald else NeonCyan,
+            contentColor = OledBlack,
+            modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(24.dp)
             ) {
@@ -262,6 +277,17 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
             }
         )
     }
+
+    // Backup & Settings Bottom Sheet
+    if (showBackupSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showBackupSheet = false },
+            containerColor = CardElevated,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = BorderCharcoal) }
+        ) {
+            SettingsBackupContent(viewModel = viewModel)
+        }
+    }
 }
 
 @Composable
@@ -298,7 +324,9 @@ fun VendorsListContent(
                                 text = mapping.friendlyName,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
-                                color = TextPrimary
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -312,7 +340,9 @@ fun VendorsListContent(
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = NeonAmber
+                                    color = NeonAmber,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             if (category != null) {
@@ -377,7 +407,10 @@ fun CategoriesListContent(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Box(
                                     modifier = Modifier
                                         .size(12.dp)
@@ -389,7 +422,9 @@ fun CategoriesListContent(
                                     text = cat.name,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
-                                    color = TextPrimary
+                                    color = TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 

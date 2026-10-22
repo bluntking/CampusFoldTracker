@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.campusfold.tracker.ai.AiModelStatus
 import com.campusfold.tracker.ai.ChatMessage
 import com.campusfold.tracker.ai.LocalAiManager
+import com.campusfold.tracker.ai.QwenModelVariant
 import com.campusfold.tracker.ui.TransactionViewModel
 import com.campusfold.tracker.ui.components.FoldCard
 import com.campusfold.tracker.ui.components.StatusPill
@@ -156,140 +157,182 @@ fun AiCoachSheet(
                     else -> BorderCharcoal
                 }
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            when (val status = modelStatus) {
-                                is AiModelStatus.Ready -> {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(NeonEmerald))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Model Ready: ${status.modelName}",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = NeonEmerald
-                                        )
-                                    }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Top Section: Full-width title and subtitle
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        when (val status = modelStatus) {
+                            is AiModelStatus.Ready -> {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(NeonEmerald))
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Offline MediaPipe neural inference active",
-                                        fontSize = 10.sp,
-                                        color = TextMuted
+                                        text = "Model Ready: ${status.modelName}",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = NeonEmerald
                                     )
                                 }
-                                is AiModelStatus.Loading -> {
-                                    Column {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(12.dp),
-                                                strokeWidth = 2.dp,
-                                                color = NeonAmber
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = status.message,
-                                                fontSize = 11.sp,
-                                                color = NeonAmber,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-                                        if (status.progressPercent > 0) {
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            LinearProgressIndicator(
-                                                progress = { status.progressPercent / 100f },
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(4.dp)
-                                                    .clip(RoundedCornerShape(2.dp)),
-                                                color = NeonAmber,
-                                                trackColor = BorderCharcoal
-                                            )
-                                        }
-                                    }
-                                }
-                                is AiModelStatus.Error -> {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = NeonCrimson, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Model Error: ${status.message.take(40)}...",
-                                            fontSize = 11.sp,
-                                            color = NeonCrimson
-                                        )
-                                    }
-                                }
-                                else -> {
-                                    Text(
-                                        text = "No local model weights loaded",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Offline MediaPipe neural inference active",
+                                    fontSize = 11.sp,
+                                    color = TextMuted
+                                )
+                            }
+                            is AiModelStatus.Loading -> {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
                                         color = NeonAmber
                                     )
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "App uses live DB rule analysis. Tap to load Gemma/Qwen .task file.",
-                                        fontSize = 9.sp,
-                                        color = TextMuted
+                                        text = status.message,
+                                        fontSize = 12.sp,
+                                        color = NeonAmber,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                if (status.progressPercent > 0) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    LinearProgressIndicator(
+                                        progress = { status.progressPercent / 100f },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp)
+                                            .clip(RoundedCornerShape(3.dp)),
+                                        color = NeonAmber,
+                                        trackColor = BorderCharcoal
                                     )
                                 }
                             }
-                        }
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (modelStatus !is AiModelStatus.Ready) {
-                                Button(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            LocalAiManager.downloadQwenModel(context)
-                                        }
-                                    },
-                                    enabled = modelStatus !is AiModelStatus.Loading,
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = NeonEmerald,
-                                        contentColor = OledBlack
-                                    ),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.height(28.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp)
-                                ) {
-                                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(13.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
+                            is AiModelStatus.Error -> {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = NeonCrimson, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Download Qwen 2.5 (0.5B - 547MB)",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
+                                        text = "Model Error: ${status.message}",
+                                        fontSize = 12.sp,
+                                        color = NeonCrimson,
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
                             }
-
-                            Button(
-                                onClick = {
-                                    modelPickerLauncher.launch(arrayOf("*/*", "application/octet-stream"))
-                                },
-                                enabled = modelStatus !is AiModelStatus.Loading,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (modelStatus is AiModelStatus.Ready) BorderCharcoal else NeonPurple,
-                                    contentColor = if (modelStatus is AiModelStatus.Ready) TextPrimary else OledBlack
-                                ),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.height(28.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp)
-                            ) {
+                            else -> {
                                 Text(
-                                    text = if (modelStatus is AiModelStatus.Ready) "Change Model" else "Select File",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = "No local model weights loaded",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeonAmber
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "App uses live DB rule analysis. Download a model below or select a local .task file.",
+                                    fontSize = 11.sp,
+                                    color = TextMuted
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    // Middle Section: Model Download & File Picker Buttons
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (modelStatus !is AiModelStatus.Ready) {
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        LocalAiManager.downloadQwenModel(context, QwenModelVariant.QWEN_0_5B)
+                                    }
+                                },
+                                enabled = modelStatus !is AiModelStatus.Loading,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = NeonEmerald,
+                                    contentColor = OledBlack
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp)
+                            ) {
+                                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Download Qwen 2.5 (0.5B - 547MB)",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+                            }
 
-                    // Unstructured SMS AI Fallback Toggle
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        LocalAiManager.downloadQwenModel(context, QwenModelVariant.QWEN_1_5B)
+                                    }
+                                },
+                                enabled = modelStatus !is AiModelStatus.Loading,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = NeonCyan,
+                                    contentColor = OledBlack
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp)
+                            ) {
+                                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Download Qwen 2.5 (1.5B - 1.6GB)",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                modelPickerLauncher.launch(arrayOf("*/*", "application/octet-stream"))
+                            },
+                            enabled = modelStatus !is AiModelStatus.Loading,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (modelStatus is AiModelStatus.Ready) BorderCharcoal else NeonPurple,
+                                contentColor = if (modelStatus is AiModelStatus.Ready) TextPrimary else OledBlack
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (modelStatus is AiModelStatus.Ready) Icons.Default.SwapHoriz else Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (modelStatus is AiModelStatus.Ready) "Change Model (Select .task / .bin File)" else "Select Local .task / .bin File",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    // Bottom Section: Unstructured SMS AI Fallback Toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -297,7 +340,7 @@ fun AiCoachSheet(
                     ) {
                         Text(
                             text = "AI Unstructured SMS/Email Fallback",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             color = TextSecondary
                         )
                         Switch(
@@ -314,7 +357,7 @@ fun AiCoachSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Quick Prompt Chips
             val quickPrompts = listOf(
@@ -325,7 +368,7 @@ fun AiCoachSheet(
             )
 
             LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 items(quickPrompts) { promptText ->
@@ -352,12 +395,13 @@ fun AiCoachSheet(
                                     coroutineScope
                                 )
                             }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Text(
                             text = promptText,
-                            fontSize = 10.sp,
-                            color = TextSecondary
+                            fontSize = 11.sp,
+                            color = TextSecondary,
+                            maxLines = 1
                         )
                     }
                 }

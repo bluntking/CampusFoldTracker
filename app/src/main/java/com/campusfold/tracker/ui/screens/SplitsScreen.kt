@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.campusfold.tracker.data.entity.PersonEntity
@@ -436,7 +437,9 @@ fun FriendBalanceCard(
                         text = personWithBalance.name,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (personWithBalance.exactSmsAliases.isNotBlank()) {
                         Text(
@@ -444,7 +447,8 @@ fun FriendBalanceCard(
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                             color = TextMuted,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -541,7 +545,9 @@ fun FriendBalanceCard(
                                     text = bill.vendorName,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = TextPrimary
+                                    color = TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = "$dateFormatted • Bill Total: ₹${bill.transactionTotal.toInt()}",

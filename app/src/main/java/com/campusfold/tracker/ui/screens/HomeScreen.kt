@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.campusfold.tracker.data.entity.TransactionEntity
@@ -496,110 +498,141 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Quick Filter Chips Row
-            Row(
+            // Quick Filter Chips Bar
+            LazyRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterChip(
-                    selected = selectedFilter == "ALL",
-                    onClick = { viewModel.setFilter("ALL") },
-                    label = { Text("All", fontSize = 11.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MatteCharcoal,
-                        selectedLabelColor = TextPrimary,
-                        containerColor = InputBg,
-                        labelColor = TextSecondary
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = selectedFilter == "ALL",
-                        borderColor = BorderCharcoal,
-                        selectedBorderColor = NeonEmerald
-                    )
-                )
-                FilterChip(
-                    selected = selectedFilter == "EXPENSE",
-                    onClick = { viewModel.setFilter("EXPENSE") },
-                    label = { Text("Expenses", fontSize = 11.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MatteCharcoal,
-                        selectedLabelColor = NeonCrimson,
-                        containerColor = InputBg,
-                        labelColor = TextSecondary
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = selectedFilter == "EXPENSE",
-                        borderColor = BorderCharcoal,
-                        selectedBorderColor = NeonCrimson
-                    )
-                )
-                FilterChip(
-                    selected = selectedFilter == "INCOME",
-                    onClick = { viewModel.setFilter("INCOME") },
-                    label = { Text("Income", fontSize = 11.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MatteCharcoal,
-                        selectedLabelColor = NeonEmerald,
-                        containerColor = InputBg,
-                        labelColor = TextSecondary
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = selectedFilter == "INCOME",
-                        borderColor = BorderCharcoal,
-                        selectedBorderColor = NeonEmerald
-                    )
-                )
-                FilterChip(
-                    selected = selectedFilter == "CC_BILL",
-                    onClick = { viewModel.setFilter("CC_BILL") },
-                    label = { Text("CC Bills", fontSize = 11.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MatteCharcoal,
-                        selectedLabelColor = NeonCyan,
-                        containerColor = InputBg,
-                        labelColor = TextSecondary
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = selectedFilter == "CC_BILL",
-                        borderColor = BorderCharcoal,
-                        selectedBorderColor = NeonCyan
-                    )
-                )
-
-                // Active Category or Vendor Filter from Analytics
-                if (selectedFilter.startsWith("CATEGORY:") || selectedFilter.startsWith("VENDOR:")) {
-                    val filterLabel = if (selectedFilter.startsWith("CATEGORY:")) {
-                        val parts = selectedFilter.removePrefix("CATEGORY:").split(":")
-                        "Cat: ${parts.getOrNull(1) ?: "Filter"}"
-                    } else {
-                        "Vendor: ${selectedFilter.removePrefix("VENDOR:")}"
-                    }
-
+                item {
                     FilterChip(
-                        selected = true,
+                        selected = selectedFilter == "ALL",
                         onClick = { viewModel.setFilter("ALL") },
-                        label = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(filterLabel, fontSize = 11.sp)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(12.dp))
-                            }
-                        },
+                        label = { Text("All", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = NeonPurple.copy(alpha = 0.2f),
-                            selectedLabelColor = NeonPurple
+                            selectedContainerColor = MatteCharcoal,
+                            selectedLabelColor = TextPrimary,
+                            containerColor = InputBg,
+                            labelColor = TextSecondary
                         ),
                         border = FilterChipDefaults.filterChipBorder(
                             enabled = true,
-                            selected = true,
-                            borderColor = NeonPurple,
-                            selectedBorderColor = NeonPurple
+                            selected = selectedFilter == "ALL",
+                            borderColor = BorderCharcoal,
+                            selectedBorderColor = NeonEmerald
                         )
                     )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedFilter == "EXPENSE",
+                        onClick = { viewModel.setFilter("EXPENSE") },
+                        label = { Text("Expenses", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MatteCharcoal,
+                            selectedLabelColor = NeonCrimson,
+                            containerColor = InputBg,
+                            labelColor = TextSecondary
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = selectedFilter == "EXPENSE",
+                            borderColor = BorderCharcoal,
+                            selectedBorderColor = NeonCrimson
+                        )
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedFilter == "INCOME",
+                        onClick = { viewModel.setFilter("INCOME") },
+                        label = { Text("Income", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MatteCharcoal,
+                            selectedLabelColor = NeonEmerald,
+                            containerColor = InputBg,
+                            labelColor = TextSecondary
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = selectedFilter == "INCOME",
+                            borderColor = BorderCharcoal,
+                            selectedBorderColor = NeonEmerald
+                        )
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedFilter == "CC_BILL",
+                        onClick = { viewModel.setFilter("CC_BILL") },
+                        label = { Text("CC Bills", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MatteCharcoal,
+                            selectedLabelColor = NeonCyan,
+                            containerColor = InputBg,
+                            labelColor = TextSecondary
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = selectedFilter == "CC_BILL",
+                            borderColor = BorderCharcoal,
+                            selectedBorderColor = NeonCyan
+                        )
+                    )
+                }
+            }
+
+            // Dedicated Active Category / Vendor Filter Banner (never squished)
+            if (selectedFilter.startsWith("CATEGORY:") || selectedFilter.startsWith("VENDOR:")) {
+                val filterLabel = if (selectedFilter.startsWith("CATEGORY:")) {
+                    val parts = selectedFilter.removePrefix("CATEGORY:").split(":")
+                    "Category: ${parts.getOrNull(1) ?: "Filter"}"
+                } else {
+                    "Vendor: ${selectedFilter.removePrefix("VENDOR:")}"
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(NeonPurple.copy(alpha = 0.15f))
+                        .border(1.dp, NeonPurple.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            Icons.Default.FilterAlt,
+                            contentDescription = null,
+                            tint = NeonPurple,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = filterLabel,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NeonPurple,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = { viewModel.setFilter("ALL") },
+                        modifier = Modifier.size(22.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Clear Filter",
+                            tint = NeonPurple,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                 }
             }
 
@@ -847,7 +880,9 @@ fun FoldTransactionFeedCard(
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             color = TextPrimary,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         if (isUnmapped) {
                             Spacer(modifier = Modifier.width(6.dp))
