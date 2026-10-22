@@ -11,6 +11,7 @@ jobs:
   build:
     name: Build Debug APK
     runs-on: ubuntu-latest
+    permissions: write-all
 
     steps:
       - name: Checkout Repository
@@ -44,9 +45,22 @@ jobs:
             echo "Gradle build passed!"
           else
             echo "Gradle build failed!"
-            cat build.log | grep -E "e: |Error: |FAILURE: |Exception" || true
+            grep -E "e: |Error: |FAILURE: |Exception" build.log | head -n 20 | while IFS= read -r line; do
+              echo "::error title=Compiler Error::$line"
+            done
             exit 1
           fi
+
+      - name: Push Build Log to Debug Branch
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B ci-debug-log
+          cp build.log ci_build.log
+          git add ci_build.log
+          git commit -m "ci: build log artifact" || true
+          git push origin ci-debug-log --force || true
 
       - name: Upload Debug APK Artifact
         if: success()
