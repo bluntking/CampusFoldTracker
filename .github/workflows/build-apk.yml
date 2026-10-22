@@ -100,6 +100,27 @@ jobs:
             exit 1
           fi
 
+      - name: Publish Direct APK to GitHub Releases (No ZIP)
+        if: success() && (github.ref == 'refs/heads/main' || github.ref_name == 'main')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v1.0.${{ github.run_number }}"
+          APK_FILE="release-apk/CampusFold-1.0.${{ github.run_number }}.apk"
+          if [ -f "$APK_FILE" ]; then
+            echo "Publishing release $TAG with direct APK..."
+            gh release create "$TAG" "$APK_FILE" \
+              --title "CampusFold v1.0.${{ github.run_number }}" \
+              --notes "Direct APK download without ZIP for build 1.0.${{ github.run_number }}." \
+              --latest || true
+
+            REPO="${{ github.repository }}"
+            APK_URL="https://github.com/$REPO/releases/download/$TAG/CampusFold-1.0.${{ github.run_number }}.apk"
+            echo "## 📱 Direct APK Download (No ZIP)" >> $GITHUB_STEP_SUMMARY
+            echo "Download directly to your Android device without unzipping:" >> $GITHUB_STEP_SUMMARY
+            echo "[Download CampusFold-1.0.${{ github.run_number }}.apk]($APK_URL)" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Push Artifacts to Debug Branch
         if: always()
         run: |
