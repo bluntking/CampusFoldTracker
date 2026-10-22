@@ -46,6 +46,7 @@ object CampusSmsParser {
     )
 
     private val genericUpiPatterns = listOf(
+        Regex("""UPI/(?:P2M|P2P|p2m|p2p)/([0-9A-Za-z]{8,20})""", RegexOption.IGNORE_CASE),
         Regex("""(?:upi\s*ref(?:erence)?\s*(?:no\.?|num)?|utr|ref\s*no\.?)[:\s]+([0-9]{8,18})""", RegexOption.IGNORE_CASE),
         Regex("""(?:rrn|txn\s*id)[:\s]+([0-9A-Za-z]{8,20})""", RegexOption.IGNORE_CASE)
     )
@@ -53,7 +54,9 @@ object CampusSmsParser {
     private val genericMerchantPatterns = listOf(
         Regex("""(?:VPA|UPI ID|to VPA)[:\s]+([A-Za-z0-9._-]{2,60}@[A-Za-z0-9._-]{2,30})""", RegexOption.IGNORE_CASE),
         Regex("""\b([A-Za-z0-9._-]{2,60}@[A-Za-z0-9._-]{2,30})\b""", RegexOption.IGNORE_CASE),
+        Regex("""UPI/(?:P2M|P2P|p2m|p2p)/[0-9A-Za-z]{8,20}/([^\r\n.,;]+)""", RegexOption.IGNORE_CASE),
         Regex("""(?:paid to|transferred to|sent to|to)\s+([A-Za-z0-9 &'._-]{2,40}?)(?=\s+(?:on|via|using|ref|upi|utr|a/c|acct|from|avbl)\b|[.,;]|$)""", RegexOption.IGNORE_CASE),
+        Regex("""(?:received from|transferred by|sent by|from|by)\s+([A-Za-z0-9 &'._-]{2,40}?)(?=\s+(?:on|via|using|ref|upi|utr|a/c|acct|avbl)\b|[.,;]|$)""", RegexOption.IGNORE_CASE),
         Regex("""(?:at|towards|merchant|store|info)\s*[:\s]+([A-Za-z0-9 &'._-]{2,40}?)(?=\s+(?:on|via|using|ref|upi|utr|a/c|acct|from|avbl)\b|[.,;]|$)""", RegexOption.IGNORE_CASE)
     )
 
@@ -170,6 +173,11 @@ object CampusSmsParser {
 
         if (!isAxis2003) return null
 
+        // Format 2 is strictly for Axis debits & outbound CC bill transfers.
+        // Incoming credits / deposits / reversals fall through to generic income / settlement handling.
+        val isCredit = Regex("""\b(credited|received|cashback|refund|reversal|deposit|deposited)\b""", RegexOption.IGNORE_CASE).containsMatchIn(body)
+        if (isCredit) return null
+
         // Extract Amount
         val amount = axisAmountPattern.find(body)?.groupValues?.getOrNull(1)?.replace(",", "")?.toDoubleOrNull()
             ?: extractAmount(body)
@@ -263,7 +271,12 @@ object CampusSmsParser {
         var merchant: String? = null
         for (pattern in genericMerchantPatterns) {
             val candidate = pattern.find(body)?.groupValues?.getOrNull(1)?.trim()
-            if (!candidate.isNullOrBlank() && !candidate.equals("a/c", ignoreCase = true) && !candidate.equals("account", ignoreCase = true)) {
+            if (!candidate.isNullOrBlank() &&
+                !candidate.equals("a/c", ignoreCase = true) &&
+                !candidate.equals("account", ignoreCase = true) &&
+                !candidate.equals("upi", ignoreCase = true) &&
+                !candidate.equals("bank", ignoreCase = true) &&
+                !candidate.equals("card", ignoreCase = true)) {
                 merchant = candidate
                 break
             }

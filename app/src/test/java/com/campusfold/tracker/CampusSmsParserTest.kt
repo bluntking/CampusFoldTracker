@@ -75,6 +75,8 @@ class CampusSmsParserTest {
         assertEquals(500.0, tx.amount, 0.001)
         // Must be INCOME, not CC_BILL_TRANSFER
         assertEquals(TransactionType.INCOME, tx.type)
+        assertEquals("Rahul", tx.rawMerchant)
+        assertEquals("Axis Bank XX2003", tx.paymentMode)
     }
 
     @Test
