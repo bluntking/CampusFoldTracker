@@ -19,6 +19,7 @@ val NeonCyan = Color(0xFF06B6D4)
 val NeonAmber = Color(0xFFF59E0B)
 val NeonCrimson = Color(0xFFEF4444)
 val NeonViolet = Color(0xFF8B5CF6)
+val NeonPurple = Color(0xFF8B5CF6)
 
 // High-contrast status pills
 val PillBgExpense = Color(0xFF2A1214)

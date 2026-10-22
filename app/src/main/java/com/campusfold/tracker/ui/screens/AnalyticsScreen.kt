@@ -972,7 +972,7 @@ fun OverallBudgetProgressCard(
 
             // Progress Bar
             LinearProgressIndicator(
-                progress = { progress },
+                progress = progress,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(6.dp)
@@ -1085,7 +1085,7 @@ fun CategoryBudgetProgressRow(
             Spacer(modifier = Modifier.height(8.dp))
 
             LinearProgressIndicator(
-                progress = { progress },
+                progress = progress,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
