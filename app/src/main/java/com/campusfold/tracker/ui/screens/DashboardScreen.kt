@@ -1143,17 +1143,6 @@ fun DashboardActivityHeatmap(
                     }
                 }
             }
-                        monthHeaders.take(4).forEach { (_, monthName) ->
-                            Text(
-                                text = monthName,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = TextMuted
-                            )
-                        }
-                    }
-                }
-            }
 
             Spacer(modifier = Modifier.height(10.dp))
 
