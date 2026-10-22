@@ -35,6 +35,7 @@ import com.campusfold.tracker.ui.TransactionViewModel
 import com.campusfold.tracker.ui.components.FoldCard
 import com.campusfold.tracker.ui.components.MonospaceCurrencyText
 import com.campusfold.tracker.ui.components.StatusPill
+import com.campusfold.tracker.ui.sheets.SyncFromDateDialog
 import com.campusfold.tracker.ui.sheets.TransactionDetailBottomSheet
 import com.campusfold.tracker.ui.theme.*
 import java.text.SimpleDateFormat
@@ -70,6 +71,7 @@ fun HomeScreen(
     var selectedTransactionForSheet by remember { mutableStateOf<TransactionEntity?>(initialSelectedTransaction) }
     var showCategoryFilterDialog by remember { mutableStateOf(false) }
     var showSyncMenu by remember { mutableStateOf(false) }
+    var showSyncDateDialog by remember { mutableStateOf(false) }
     var showClearAllConfirmDialog by remember { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf<Uri?>(null) }
     var showAiCoachSheet by remember { mutableStateOf(false) }
@@ -190,17 +192,16 @@ fun HomeScreen(
                             modifier = Modifier.background(MatteCharcoal)
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Sync Last 30 Days", color = TextPrimary) },
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Sync from Date...", color = TextPrimary)
+                                    }
+                                },
                                 onClick = {
                                     showSyncMenu = false
-                                    viewModel.scanInbox(daysBack = 30)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Sync Last 90 Days", color = TextPrimary) },
-                                onClick = {
-                                    showSyncMenu = false
-                                    viewModel.scanInbox(daysBack = 90)
+                                    showSyncDateDialog = true
                                 }
                             )
                             Divider(color = BorderCharcoal, thickness = 1.dp)
@@ -295,14 +296,14 @@ fun HomeScreen(
                                 Text("Grant Permissions", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                             OutlinedButton(
-                                onClick = { viewModel.scanInbox(daysBack = 90) },
+                                onClick = { showSyncDateDialog = true },
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.height(34.dp),
                                 border = ButtonDefaults.outlinedButtonBorder.copy(
                                     brush = androidx.compose.ui.graphics.SolidColor(BorderCharcoal)
                                 )
                             ) {
-                                Text("Sync SMS Inbox", fontSize = 11.sp, color = TextPrimary)
+                                Text("Sync from Date", fontSize = 11.sp, color = TextPrimary)
                             }
                         }
                     }
@@ -310,8 +311,10 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(10.dp))
             }
 
-            // Gmail Notification Access Status Card
-            val hasGmailAccess = com.campusfold.tracker.service.GmailNotificationListener.isNotificationAccessGranted(context)
+            // Gmail Notification Access Status Card (cached with remember to avoid IPC query per frame)
+            val hasGmailAccess = remember(context) {
+                com.campusfold.tracker.service.GmailNotificationListener.isNotificationAccessGranted(context)
+            }
             if (!hasGmailAccess) {
                 FoldCard(
                     containerColor = Color(0xFF1B1622),
@@ -689,30 +692,30 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Tap Sync SMS above or '+' below to log an expense.",
+                            text = "Tap 'Sync from Date' or '+' below to log an expense.",
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
                     }
                 }
             } else {
+                val categoryMap = remember(categories) { categories.associateBy { it.id } }
+                val mappedKeywords = remember(vendorMappings) { vendorMappings.map { it.rawSmsKeyword.lowercase() }.toSet() }
+
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 90.dp)
                 ) {
                     items(transactions, key = { it.id }) { txn ->
-                        val category = categories.find { it.id == txn.categoryId }
-                        val isMapped = vendorMappings.any {
-                            it.rawSmsKeyword.equals(txn.rawMerchant, ignoreCase = true)
-                        }
+                        val category = categoryMap[txn.categoryId]
+                        val isMapped = mappedKeywords.contains(txn.rawMerchant.lowercase())
 
                         FoldTransactionFeedCard(
                             transaction = txn,
                             categoryName = category?.name ?: "General",
                             isUnmapped = !isMapped && txn.rawMerchant.isNotBlank(),
-                            onClick = { selectedTransactionForSheet = txn },
-                            modifier = Modifier.animateItemPlacement()
+                            onClick = { selectedTransactionForSheet = txn }
                         )
                     }
                 }
@@ -851,6 +854,17 @@ fun HomeScreen(
         com.campusfold.tracker.ui.sheets.AiCoachSheet(
             viewModel = viewModel,
             onDismiss = { showAiCoachSheet = false }
+        )
+    }
+
+    // Sync from Custom Date Dialog
+    if (showSyncDateDialog) {
+        SyncFromDateDialog(
+            isScanning = isScanning,
+            onDismiss = { showSyncDateDialog = false },
+            onConfirmSync = { startDateMillis ->
+                viewModel.scanInboxFromDate(startDateMillis)
+            }
         )
     }
 

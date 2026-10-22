@@ -2,9 +2,11 @@ package com.campusfold.tracker.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -20,9 +22,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -37,6 +45,7 @@ import com.campusfold.tracker.ui.components.FoldCard
 import com.campusfold.tracker.ui.components.MonospaceCurrencyText
 import com.campusfold.tracker.ui.components.StatusPill
 import com.campusfold.tracker.ui.sheets.AiCoachSheet
+import com.campusfold.tracker.ui.sheets.SyncFromDateDialog
 import com.campusfold.tracker.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -63,6 +72,7 @@ fun DashboardScreen(
     var weekOffset by remember { mutableIntStateOf(0) }  // 0 = this week, -1 = last week...
     var showPeriodPickerSheet by remember { mutableStateOf(false) }
     var showAiCoachSheet by remember { mutableStateOf(false) }
+    var showSyncDateDialog by remember { mutableStateOf(false) }
 
     // Selected Heatmap day tooltip
     var selectedHeatmapDate by remember { mutableStateOf<HeatmapDayInfo?>(null) }
@@ -176,46 +186,54 @@ fun DashboardScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // PennyWise AI Coach Button
+                    // 1. PennyWise AI Coach Pill Button
                     Button(
                         onClick = { showAiCoachSheet = true },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = NeonPurple.copy(alpha = 0.2f),
+                            containerColor = NeonPurple.copy(alpha = 0.18f),
                             contentColor = NeonPurple
                         ),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(17.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, NeonPurple.copy(alpha = 0.5f)),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                         modifier = Modifier.height(34.dp)
                     ) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("AI Coach", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // Sync SMS Button
-                    IconButton(
-                        onClick = { viewModel.scanInbox(90) },
+                    // 2. Sync from Date Pill Button
+                    Button(
+                        onClick = { showSyncDateDialog = true },
                         enabled = !isScanning,
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MatteCharcoal)
-                            .border(1.dp, BorderCharcoal, RoundedCornerShape(10.dp))
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeonCyan.copy(alpha = 0.18f),
+                            contentColor = NeonCyan,
+                            disabledContainerColor = MatteCharcoal,
+                            disabledContentColor = TextMuted
+                        ),
+                        shape = RoundedCornerShape(17.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NeonCyan.copy(alpha = 0.5f)),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier.height(34.dp)
                     ) {
                         if (isScanning) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = NeonEmerald,
+                                modifier = Modifier.size(13.dp),
+                                color = NeonCyan,
                                 strokeWidth = 2.dp
                             )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("Syncing", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         } else {
                             Icon(
-                                Icons.Default.Sync,
-                                contentDescription = "Sync SMS",
-                                tint = NeonEmerald,
-                                modifier = Modifier.size(16.dp)
+                                Icons.Default.CalendarMonth,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
                             )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("Sync Date", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -658,6 +676,17 @@ fun DashboardScreen(
             onDismiss = { showAiCoachSheet = false }
         )
     }
+
+    // Sync from Custom Date Dialog
+    if (showSyncDateDialog) {
+        SyncFromDateDialog(
+            isScanning = isScanning,
+            onDismiss = { showSyncDateDialog = false },
+            onConfirmSync = { startDateMillis ->
+                viewModel.scanInboxFromDate(startDateMillis)
+            }
+        )
+    }
 }
 
 /**
@@ -855,9 +884,28 @@ fun DashboardActivityHeatmap(
     selectedDay: HeatmapDayInfo?,
     onSelectDay: (HeatmapDayInfo?) -> Unit
 ) {
-    // Generate 14 weeks (98 days) up to today
-    val weeks = remember(transactions) {
-        val expenseTx = transactions.filter { it.type == TransactionType.EXPENSE }
+    // 1. O(1) Pre-aggregate expenses by calendar day start
+    val (dailySpendMap, dailyCountMap) = remember(transactions) {
+        val spendMap = mutableMapOf<Long, Double>()
+        val countMap = mutableMapOf<Long, Int>()
+        val cal = Calendar.getInstance()
+        transactions.forEach { tx ->
+            if (tx.type == TransactionType.EXPENSE) {
+                cal.timeInMillis = tx.timestamp
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                val dayKey = cal.timeInMillis
+                spendMap[dayKey] = (spendMap[dayKey] ?: 0.0) + tx.myActualShare
+                countMap[dayKey] = (countMap[dayKey] ?: 0) + 1
+            }
+        }
+        Pair(spendMap, countMap)
+    }
+
+    // 2. Generate 14 weeks (98 days) up to today
+    val weeks = remember(dailySpendMap, dailyCountMap) {
         val cal = Calendar.getInstance().apply {
             firstDayOfWeek = Calendar.MONDAY
             set(Calendar.HOUR_OF_DAY, 23)
@@ -867,11 +915,9 @@ fun DashboardActivityHeatmap(
         }
         val endCal = cal.clone() as Calendar
 
-        // Align back 14 weeks from current week's Sunday
         val weekList = mutableListOf<List<HeatmapDayInfo>>()
         val dayFmt = SimpleDateFormat("EEE, dd MMM yyyy", Locale.getDefault())
 
-        // Find Monday of 13 weeks ago
         val startCal = Calendar.getInstance().apply {
             firstDayOfWeek = Calendar.MONDAY
             add(Calendar.WEEK_OF_YEAR, -13)
@@ -887,14 +933,8 @@ fun DashboardActivityHeatmap(
 
         while (runner.timeInMillis <= endCal.timeInMillis || currentWeek.isNotEmpty()) {
             val dStart = runner.timeInMillis
-            runner.set(Calendar.HOUR_OF_DAY, 23)
-            runner.set(Calendar.MINUTE, 59)
-            runner.set(Calendar.SECOND, 59)
-            val dEnd = runner.timeInMillis
-
-            val dayTxs = expenseTx.filter { it.timestamp in dStart..dEnd }
-            val daySpend = dayTxs.sumOf { it.myActualShare }
-            val dayCount = dayTxs.size
+            val daySpend = dailySpendMap[dStart] ?: 0.0
+            val dayCount = dailyCountMap[dStart] ?: 0
 
             val level = when {
                 daySpend <= 0.0 -> 0
@@ -928,16 +968,55 @@ fun DashboardActivityHeatmap(
         weekList
     }
 
-    // Month headers
-    val monthHeaders = remember(weeks) {
+    // Month transitions to split and center month labels across their respective columns
+    val monthTransitions = remember(weeks) {
         val monthFmt = SimpleDateFormat("MMM", Locale.getDefault())
-        weeks.mapIndexedNotNull { index, weekDays ->
-            val firstDay = weekDays.firstOrNull() ?: return@mapIndexedNotNull null
+        val list = mutableListOf<Triple<Int, String, Int>>() // colIdx, monthName, columnCount
+        var currentMonth = -1
+        var currentStartCol = 0
+        var currentMonthName = ""
+
+        weeks.forEachIndexed { colIdx, weekDays ->
+            val firstDay = weekDays.firstOrNull() ?: return@forEachIndexed
             val cal = Calendar.getInstance().apply { timeInMillis = firstDay.timestamp }
-            if (cal.get(Calendar.DAY_OF_MONTH) <= 7 || index == 0) {
-                index to monthFmt.format(Date(firstDay.timestamp))
-            } else null
+            val month = cal.get(Calendar.MONTH)
+            if (month != currentMonth) {
+                if (currentMonth != -1) {
+                    list.add(Triple(currentStartCol, currentMonthName, colIdx - currentStartCol))
+                }
+                currentMonth = month
+                currentStartCol = colIdx
+                currentMonthName = monthFmt.format(Date(firstDay.timestamp))
+            }
         }
+        if (currentMonth != -1) {
+            list.add(Triple(currentStartCol, currentMonthName, weeks.size - currentStartCol))
+        }
+        list
+    }
+
+    val cellColors = remember {
+        listOf(
+            Color(0xFF212328),
+            Color(0xFF2C3A4E),
+            Color(0xFF435C80),
+            Color(0xFF6287BF),
+            Color(0xFF8CB4F8)
+        )
+    }
+
+    val density = LocalDensity.current
+    val cellSizeDp = 15.dp
+    val spacingDp = 4.dp
+    val cellSizePx = with(density) { cellSizeDp.toPx() }
+    val spacingPx = with(density) { spacingDp.toPx() }
+    val cornerRadiusPx = with(density) { 4.dp.toPx() }
+    val canvasWidthDp = (14 * 15 + 13 * 4).dp
+    val canvasHeightDp = (7 * 15 + 6 * 4).dp
+    val canvasHeightPx = with(density) { canvasHeightDp.toPx() }
+
+    val monthBoundaryColIndices = remember(monthTransitions) {
+        monthTransitions.map { it.first }.filter { it > 0 }.toSet()
     }
 
     Card(
@@ -957,12 +1036,12 @@ fun DashboardActivityHeatmap(
                     .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.Top
             ) {
-                // Day Labels on Left (M, W, F)
+                // Day Labels on Left (M, W, F, S)
                 Column(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.padding(end = 8.dp, top = 2.dp)
                 ) {
-                    val labels = listOf("M", "", "W", "", "F", "", "")
+                    val labels = listOf("M", "", "W", "", "F", "", "S")
                     labels.forEach { l ->
                         Box(
                             modifier = Modifier.size(15.dp),
@@ -972,53 +1051,98 @@ fun DashboardActivityHeatmap(
                                 text = l,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = TextMuted
+                                color = if (l == "S") Color(0xFF8CB4F8) else TextMuted
                             )
                         }
                     }
                 }
 
-                // Grid of Weeks
+                // High-performance Hardware-Accelerated Heatmap Canvas (0 composable overhead)
                 Column {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        weeks.forEach { weekDays ->
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                weekDays.forEach { dayInfo ->
-                                    val cellColor = when (dayInfo.level) {
-                                        0 -> Color(0xFF212328)
-                                        1 -> Color(0xFF2C3A4E)
-                                        2 -> Color(0xFF435C80)
-                                        3 -> Color(0xFF6287BF)
-                                        else -> Color(0xFF8CB4F8)
+                    Canvas(
+                        modifier = Modifier
+                            .size(width = canvasWidthDp, height = canvasHeightDp)
+                            .pointerInput(weeks, selectedDay) {
+                                detectTapGestures { offset ->
+                                    val col = (offset.x / (cellSizePx + spacingPx)).toInt().coerceIn(0, weeks.lastIndex)
+                                    val row = (offset.y / (cellSizePx + spacingPx)).toInt().coerceIn(0, 6)
+                                    val clickedDay = weeks.getOrNull(col)?.getOrNull(row)
+                                    if (clickedDay != null) {
+                                        if (selectedDay?.timestamp == clickedDay.timestamp) {
+                                            onSelectDay(null)
+                                        } else {
+                                            onSelectDay(clickedDay)
+                                        }
                                     }
-                                    val isSelected = selectedDay?.timestamp == dayInfo.timestamp
+                                }
+                            }
+                    ) {
+                        // Draw month separation lines so user can clearly see which month is which
+                        monthBoundaryColIndices.forEach { boundaryCol ->
+                            val dividerX = boundaryCol * (cellSizePx + spacingPx) - (spacingPx / 2f)
+                            drawLine(
+                                color = Color(0xFF383D48),
+                                start = Offset(dividerX, 0f),
+                                end = Offset(dividerX, canvasHeightPx),
+                                strokeWidth = 1.dp.toPx()
+                            )
+                        }
 
-                                    Box(
-                                        modifier = Modifier
-                                            .size(15.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(cellColor)
-                                            .border(
-                                                width = if (isSelected) 1.5.dp else 0.dp,
-                                                color = if (isSelected) NeonEmerald else Color.Transparent,
-                                                shape = RoundedCornerShape(4.dp)
-                                            )
-                                            .clickable {
-                                                if (isSelected) onSelectDay(null) else onSelectDay(dayInfo)
-                                            }
+                        weeks.forEachIndexed { colIdx, weekDays ->
+                            val x = colIdx * (cellSizePx + spacingPx)
+                            weekDays.forEachIndexed { rowIdx, dayInfo ->
+                                val y = rowIdx * (cellSizePx + spacingPx)
+                                val isSelected = selectedDay?.timestamp == dayInfo.timestamp
+                                val color = cellColors.getOrElse(dayInfo.level) { cellColors[0] }
+
+                                drawRoundRect(
+                                    color = color,
+                                    topLeft = Offset(x, y),
+                                    size = Size(cellSizePx, cellSizePx),
+                                    cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx)
+                                )
+
+                                if (isSelected) {
+                                    drawRoundRect(
+                                        color = NeonEmerald,
+                                        topLeft = Offset(x - 1f, y - 1f),
+                                        size = Size(cellSizePx + 2f, cellSizePx + 2f),
+                                        cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx),
+                                        style = Stroke(width = 2.dp.toPx())
                                     )
                                 }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // Month Labels below the grid
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    // Month Labels split across their exact columns (never squished)
+                    Box(
+                        modifier = Modifier
+                            .width(canvasWidthDp)
+                            .height(20.dp)
                     ) {
+                        monthTransitions.forEach { (startCol, monthName, colSpan) ->
+                            val startXDp = (startCol * (15 + 4)).dp
+                            val spanWidthDp = (colSpan * 15 + (colSpan - 1).coerceAtLeast(0) * 4).dp
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = startXDp)
+                                    .width(spanWidthDp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = monthName,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF8CB4F8)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
                         monthHeaders.take(4).forEach { (_, monthName) ->
                             Text(
                                 text = monthName,

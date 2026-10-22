@@ -31,26 +31,26 @@ object InboxSmsScanner {
     )
 
     /**
-     * Scans Telephony.Sms.Inbox for messages over the given time window (e.g. 30 or 90 days),
-     * parses transactions with CampusSmsParser, deduplicates against existing records,
-     * updates PNB credit limits in DataStore, and creates 1-tap settlement suggestions.
+     * Scans Telephony.Sms.Inbox for messages starting from a specific timestamp up to an end timestamp (default: now).
+     * Useful when a user wants to start tracking after a specific date (e.g. 20 Oct 2026).
      */
-    suspend fun scanInbox(
+    suspend fun scanInboxFromDate(
         context: Context,
         repository: TransactionRepository,
-        daysBack: Int = 90,
-        maxMessages: Int = 2000
+        startDateMillis: Long,
+        endDateMillis: Long = System.currentTimeMillis(),
+        maxMessages: Int = 3000
     ): ScanResult = withContext(Dispatchers.IO) {
         var totalRead = 0
         var importedCount = 0
         var skippedDuplicates = 0
         var highestDetectedLimit: Double? = null
 
-        val startTime = System.currentTimeMillis() - (daysBack.toLong() * 24L * 60L * 60L * 1000L)
-        val selection = "${Telephony.Sms.TYPE} = ? AND ${Telephony.Sms.DATE} >= ?"
+        val selection = "${Telephony.Sms.TYPE} = ? AND ${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.DATE} <= ?"
         val selectionArgs = arrayOf(
             Telephony.Sms.MESSAGE_TYPE_INBOX.toString(),
-            startTime.toString()
+            startDateMillis.toString(),
+            endDateMillis.toString()
         )
         val sortOrder = "${Telephony.Sms.DATE} ASC" // Process chronologically
 
@@ -126,6 +126,19 @@ object InboxSmsScanner {
             skippedDuplicates = skippedDuplicates,
             latestCreditLimit = highestDetectedLimit
         )
+    }
+
+    /**
+     * Backward-compatible helper to scan by days back
+     */
+    suspend fun scanInbox(
+        context: Context,
+        repository: TransactionRepository,
+        daysBack: Int = 90,
+        maxMessages: Int = 2000
+    ): ScanResult {
+        val startTime = System.currentTimeMillis() - (daysBack.toLong() * 24L * 60L * 60L * 1000L)
+        return scanInboxFromDate(context, repository, startTime, System.currentTimeMillis(), maxMessages)
     }
 
     private suspend fun checkFriendSplitSuggestion(

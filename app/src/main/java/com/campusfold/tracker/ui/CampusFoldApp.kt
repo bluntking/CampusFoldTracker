@@ -121,7 +121,7 @@ fun CampusFoldApp(
                     label = {
                         Text(
                             text = "Transactions",
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
                             softWrap = false,
@@ -249,9 +249,8 @@ fun CampusFoldApp(
             AnimatedContent(
                 targetState = currentScreen,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(200)) +
-                    scaleIn(initialScale = 0.98f, animationSpec = tween(200)) togetherWith
-                    fadeOut(animationSpec = tween(160))
+                    fadeIn(animationSpec = tween(130)) togetherWith
+                    fadeOut(animationSpec = tween(100))
                 },
                 label = "ScreenSwitch"
             ) { targetScreen ->

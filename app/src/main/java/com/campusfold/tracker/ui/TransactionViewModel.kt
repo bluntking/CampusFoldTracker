@@ -652,26 +652,34 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
 
     // ─── Inbox Scanning ───────────────────────────────────────────────────────
 
-    fun scanInbox(daysBack: Int = 90) {
+    fun scanInboxFromDate(startDateMillis: Long, endDateMillis: Long = System.currentTimeMillis()) {
         if (_isScanning.value) return
         _isScanning.value = true
-        _statusMessage.value = "Scanning SMS inbox ($daysBack days) with CampusSmsParser..."
+        val dateFmt = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault())
+        val dateStr = dateFmt.format(java.util.Date(startDateMillis))
+        _statusMessage.value = "Scanning SMS from $dateStr to today..."
 
         viewModelScope.launch {
             try {
-                val result = com.campusfold.tracker.util.InboxSmsScanner.scanInbox(
+                val result = com.campusfold.tracker.util.InboxSmsScanner.scanInboxFromDate(
                     context = getApplication(),
                     repository = repository,
-                    daysBack = daysBack
+                    startDateMillis = startDateMillis,
+                    endDateMillis = endDateMillis
                 )
-                val limitInfo = if (result.latestCreditLimit != null) " • PNB Limit: ₹${result.latestCreditLimit}" else ""
-                _statusMessage.value = "Imported ${result.importedCount} new txns (${result.skippedDuplicates} dupes skipped)$limitInfo"
+                val limitInfo = if (result.latestCreditLimit != null) " • PNB Limit: ₹${result.latestCreditLimit.toInt()}" else ""
+                _statusMessage.value = "Imported ${result.importedCount} txns from $dateStr (${result.skippedDuplicates} dupes skipped)$limitInfo"
             } catch (e: Exception) {
                 _statusMessage.value = "Error scanning SMS: ${e.localizedMessage}"
             } finally {
                 _isScanning.value = false
             }
         }
+    }
+
+    fun scanInbox(daysBack: Int = 90) {
+        val startTime = System.currentTimeMillis() - (daysBack.toLong() * 24L * 60L * 60L * 1000L)
+        scanInboxFromDate(startTime)
     }
 
     fun clearStatusMessage() {
