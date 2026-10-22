@@ -174,7 +174,64 @@ class TransactionRepository(
         transactionDao.deleteTransactionById(id)
     }
 
-    // ─── Split Settlements ───────────────────────────────────────────────────
+    // ─── Dynamic Balance & Split Queries ─────────────────────────────────────
+    fun getNetPendingBalanceForPerson(personId: Long): Flow<Double> =
+        splitDao.getNetPendingBalanceForPerson(personId)
+
+    fun getUnsettledBillsForPerson(personId: Long): Flow<List<com.campusfold.tracker.data.model.UnsettledBillItem>> =
+        splitDao.getUnsettledBillsForPerson(personId)
+
+    val allUnsettledBills: Flow<List<com.campusfold.tracker.data.model.UnsettledBillItem>> =
+        splitDao.getAllUnsettledBills()
+
+    // ─── FIFO Settlement Engine (Partial, Full & Overpayments) ───────────────
+
+    /**
+     * Settles amount X for a friend using strict FIFO (oldest split items first).
+     * Handles partial payments (isSettled = false), full settlement (isSettled = true),
+     * and excess overpayment.
+     */
+    suspend fun settleAmountForPerson(personId: Long, amountToSettle: Double): com.campusfold.tracker.data.model.SettlementResult = withContext(Dispatchers.IO) {
+        val person = personDao.getPersonById(personId)
+        val friendName = person?.name ?: "Friend"
+
+        // Fetch unsettled rows ordered by createdAt ASC (FIFO)
+        val unsettledRows = splitDao.getUnsettledSplitsForPersonSync(personId)
+        val totalOwedBefore = unsettledRows.sumOf { it.amountOwed - it.amountPaidSoFar }
+
+        var remainingX = amountToSettle
+        var updatedCount = 0
+
+        for (row in unsettledRows) {
+            if (remainingX <= 0.0) break
+            val rowRemaining = row.amountOwed - row.amountPaidSoFar
+
+            if (remainingX < rowRemaining) {
+                // Partial settlement
+                val newPaid = row.amountPaidSoFar + remainingX
+                splitDao.updateSplitItem(row.copy(amountPaidSoFar = newPaid, isSettled = false))
+                remainingX = 0.0
+                updatedCount++
+            } else {
+                // Full settlement of this row, carry remainder to next
+                splitDao.updateSplitItem(row.copy(amountPaidSoFar = row.amountOwed, isSettled = true))
+                remainingX -= rowRemaining
+                updatedCount++
+            }
+        }
+
+        val excess = if (remainingX > 0.0) remainingX else 0.0
+        val newRemainingOwed = (totalOwedBefore - amountToSettle).coerceAtLeast(0.0)
+        val actuallySettled = minOf(amountToSettle, totalOwedBefore)
+
+        com.campusfold.tracker.data.model.SettlementResult(
+            friendName = friendName,
+            settledAmount = actuallySettled,
+            remainingOwed = newRemainingOwed,
+            excessAmount = excess,
+            updatedSplitCount = updatedCount
+        )
+    }
 
     suspend fun recordSplitPayment(splitId: Long, paymentAmount: Double) = withContext(Dispatchers.IO) {
         splitDao.recordPayment(splitId, paymentAmount)
@@ -184,7 +241,21 @@ class TransactionRepository(
         splitDao.markSettled(splitId, isSettled)
     }
 
-    // ─── Pending Settlement Suggestions ───────────────────────────────────────
+    suspend fun logOverpaymentAsIncome(excessAmount: Double, friendName: String): Long = withContext(Dispatchers.IO) {
+        val tx = TransactionEntity(
+            amount = excessAmount,
+            myActualShare = excessAmount,
+            type = TransactionType.INCOME,
+            paymentMode = "Cash/Manual",
+            rawMerchant = "Advance from $friendName",
+            friendlyVendorName = "Advance from $friendName",
+            categoryId = null,
+            timestamp = System.currentTimeMillis()
+        )
+        transactionDao.insertTransaction(tx)
+    }
+
+    // ─── Pending Settlement Suggestions & 1-Tap Alias Saving ──────────────────
     val pendingSuggestions: Flow<List<PendingSettlementSuggestionEntity>> = suggestionDao.getPendingSuggestions()
 
     suspend fun createSettlementSuggestion(suggestion: PendingSettlementSuggestionEntity): Long = withContext(Dispatchers.IO) {
@@ -192,24 +263,46 @@ class TransactionRepository(
     }
 
     /**
-     * 1-Tap Confirmation for a settlement suggestion.
-     * Records the payment against unsettled splits for the suggested friend.
+     * 1-Tap 'Confirm & Save Alias' button logic:
+     * Settles the balance via FIFO, saves the detected SMS name to exactSmsAliases for future auto-settlement,
+     * marks suggestion CONFIRMED, and updates transaction to SPLIT_SETTLEMENT.
      */
-    suspend fun confirmSettlementSuggestion(suggestionId: Long) = withContext(Dispatchers.IO) {
-        val suggestion = suggestionDao.getSuggestionById(suggestionId) ?: return@withContext
-        var remainingCredit = suggestion.amount
+    suspend fun confirmAndSaveAlias(suggestionId: Long): com.campusfold.tracker.data.model.SettlementResult? = withContext(Dispatchers.IO) {
+        val suggestion = suggestionDao.getSuggestionById(suggestionId) ?: return@withContext null
+        val person = personDao.getPersonById(suggestion.suggestedPersonId) ?: return@withContext null
 
-        // Find unsettled splits for this person
-        val unsettledSplits = splitDao.getUnsettledSplitsForPersonSync(suggestion.suggestedPersonId)
-        for (split in unsettledSplits) {
-            if (remainingCredit <= 0.0) break
-            val outstanding = split.amountOwed - split.amountPaidSoFar
-            val paymentForThisSplit = minOf(remainingCredit, outstanding)
-            splitDao.recordPayment(split.id, paymentForThisSplit)
-            remainingCredit -= paymentForThisSplit
+        // 1. Run FIFO settlement
+        val result = settleAmountForPerson(person.id, suggestion.amount)
+
+        // 2. Add detectedSenderName to exactSmsAliases for future auto-settlement
+        val existingAliases = person.exactSmsAliases.split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toMutableList()
+
+        if (!existingAliases.any { it.equals(suggestion.detectedSenderName.trim(), ignoreCase = true) }) {
+            existingAliases.add(suggestion.detectedSenderName.trim())
+            val updatedString = existingAliases.joinToString(", ")
+            personDao.updatePerson(person.copy(exactSmsAliases = updatedString))
         }
 
+        // 3. Mark suggestion CONFIRMED
         suggestionDao.updateStatus(suggestionId, SettlementSuggestionStatus.CONFIRMED)
+
+        // 4. Update transaction type to SPLIT_SETTLEMENT if transaction exists
+        suggestion.transactionId?.let { txId ->
+            val tx = transactionDao.getTransactionByIdSync(txId)
+            if (tx != null) {
+                transactionDao.updateTransaction(
+                    tx.copy(
+                        type = TransactionType.SPLIT_SETTLEMENT,
+                        friendlyVendorName = "Settlement from ${person.name}"
+                    )
+                )
+            }
+        }
+
+        result
     }
 
     suspend fun dismissSettlementSuggestion(suggestionId: Long) = withContext(Dispatchers.IO) {

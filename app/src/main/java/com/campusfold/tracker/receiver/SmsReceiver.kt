@@ -81,34 +81,80 @@ class SmsReceiver : BroadcastReceiver() {
 
                 val txId = repository.addTransaction(resolvedTx)
 
-                // Route ONLY genuine INCOME to friend split settlement suggestions
+                // Route ONLY genuine INCOME to friend split settlement engine
                 // (PNB CC Bill confirmations are CC_BILL_TRANSFER and are NEVER routed here)
                 if (resolvedTx.type == TransactionType.INCOME && txId > 0) {
                     val persons = repository.getAllPersonsList()
-                    val lowerBody = fullBody.lowercase()
+                    val senderNameOrVpa = rawTx.rawMerchant.trim()
+                    var handledExact = false
+
+                    // Check friends who currently have an unsettled balance > 0
                     for (person in persons) {
+                        val pendingBalance = db.splitItemDao().getNetPendingBalanceForPersonSync(person.id)
+                        if (pendingBalance <= 0.0) continue
+
                         val aliases = person.exactSmsAliases.split(",")
                             .map { it.trim().lowercase() }
                             .filter { it.isNotEmpty() }
-                        val matchesAlias = aliases.any { alias -> lowerBody.contains(alias) }
-                        val matchesName = lowerBody.contains(person.name.lowercase())
 
-                        if (matchesAlias || matchesName) {
-                            repository.createSettlementSuggestion(
-                                PendingSettlementSuggestionEntity(
-                                    transactionId = txId,
-                                    suggestedPersonId = person.id,
-                                    detectedSenderName = rawTx.rawMerchant,
-                                    amount = rawTx.amount,
-                                    status = SettlementSuggestionStatus.PENDING
+                        // Case A (Exact Match): auto-settle via FIFO & log as SPLIT_SETTLEMENT
+                        val isExactMatch = aliases.any { alias -> alias.equals(senderNameOrVpa, ignoreCase = true) }
+                        if (isExactMatch) {
+                            val result = repository.settleAmountForPerson(person.id, resolvedTx.amount)
+
+                            // Update transaction to SPLIT_SETTLEMENT
+                            db.transactionDao().updateTransaction(
+                                resolvedTx.copy(
+                                    id = txId,
+                                    type = TransactionType.SPLIT_SETTLEMENT,
+                                    friendlyVendorName = "Settlement from ${person.name}"
                                 )
                             )
+
+                            val notifMsg = "Auto-settled ₹${result.settledAmount.toInt()} from ${person.name}. Remaining owed: ₹${result.remainingOwed.toInt()}"
+                            NotificationHelper.showCustomNotification(context, "Friend Split Auto-Settled", notifMsg)
+                            handledExact = true
                             break
+                        }
+                    }
+
+                    // Case B (Fuzzy/First-Name Match): DO NOT auto-settle yet; create 1-tap suggestion
+                    if (!handledExact) {
+                        for (person in persons) {
+                            val pendingBalance = db.splitItemDao().getNetPendingBalanceForPersonSync(person.id)
+                            if (pendingBalance <= 0.0) continue
+
+                            val firstName = person.name.split(" ").firstOrNull()?.trim()?.lowercase() ?: ""
+                            val lowerSender = senderNameOrVpa.lowercase()
+                            val aliases = person.exactSmsAliases.split(",")
+                                .map { it.trim().lowercase() }
+                                .filter { it.isNotEmpty() }
+
+                            val isFuzzy = (firstName.length >= 3 && lowerSender.contains(firstName)) ||
+                                    aliases.any { alias -> alias.length >= 3 && (lowerSender.contains(alias) || alias.contains(lowerSender)) } ||
+                                    fullBody.lowercase().contains(firstName)
+
+                            if (isFuzzy) {
+                                repository.createSettlementSuggestion(
+                                    PendingSettlementSuggestionEntity(
+                                        transactionId = txId,
+                                        suggestedPersonId = person.id,
+                                        detectedSenderName = senderNameOrVpa,
+                                        amount = resolvedTx.amount,
+                                        status = SettlementSuggestionStatus.PENDING
+                                    )
+                                )
+                                val notifMsg = "Received ₹${resolvedTx.amount} from $senderNameOrVpa. Apply to ${person.name}'s ₹${pendingBalance.toInt()} balance?"
+                                NotificationHelper.showCustomNotification(context, "Settlement Suggestion", notifMsg)
+                                break
+                            }
                         }
                     }
                 }
 
-                NotificationHelper.showTransactionNotification(context, resolvedTx)
+                if (resolvedTx.type != TransactionType.INCOME) {
+                    NotificationHelper.showTransactionNotification(context, resolvedTx)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling incoming SMS", e)
             } finally {

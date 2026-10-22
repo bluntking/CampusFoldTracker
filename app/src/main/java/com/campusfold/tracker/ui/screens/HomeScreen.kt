@@ -483,11 +483,15 @@ fun HomeScreen(
 
     // Edit & Actions Bottom Sheet
     selectedTransactionForSheet?.let { tx ->
+        val splitsFlow = remember(tx.id) { viewModel.getTransactionWithSplits(tx.id) }
+        val txWithSplits by splitsFlow.collectAsState(initial = null)
+
         TransactionDetailBottomSheet(
             transaction = tx,
             categories = categories,
             vendorMappings = vendorMappings,
             allPersons = allPersons,
+            initialSplits = txWithSplits?.splits ?: emptyList(),
             onDismiss = { selectedTransactionForSheet = null },
             onSaveTransaction = { updatedTx, splits ->
                 viewModel.updateTransactionWithSplits(updatedTx, splits)
@@ -497,6 +501,12 @@ fun HomeScreen(
             },
             onSaveVendorMapping = { keyword, friendly, catId ->
                 viewModel.saveVendorMappingForFuture(keyword, friendly, catId)
+            },
+            onAddPersonInline = { name, aliases ->
+                viewModel.addPerson(name, aliases)
+            },
+            onDeletePersonInline = { person ->
+                viewModel.deletePerson(person)
             },
             onDelete = {
                 viewModel.deleteTransaction(tx)

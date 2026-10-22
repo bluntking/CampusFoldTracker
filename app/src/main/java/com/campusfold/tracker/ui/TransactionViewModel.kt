@@ -39,6 +39,9 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     // Pending 1-tap settlement suggestions
     val pendingSuggestions: StateFlow<List<PendingSettlementSuggestionEntity>>
 
+    // Unsettled split bills
+    val allUnsettledBills: StateFlow<List<com.campusfold.tracker.data.model.UnsettledBillItem>>
+
     // Preferences
     val pnbCreditLimit: StateFlow<Double>
     val lastSmsSyncTimestamp: StateFlow<Long>
@@ -126,6 +129,12 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         )
 
         pendingSuggestions = repository.pendingSuggestions.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        allUnsettledBills = repository.allUnsettledBills.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
             emptyList()
@@ -354,12 +363,41 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    // ─── 1-Tap Settlement Suggestions ─────────────────────────────────────────
+    // ─── FIFO Settlement Engine ──────────────────────────────────────────────
 
-    fun confirmSettlementSuggestion(suggestionId: Long) {
+    fun settleAmountForPerson(
+        personId: Long,
+        amount: Double,
+        onExcess: ((excess: Double, friendName: String) -> Unit)? = null
+    ) {
         viewModelScope.launch {
-            repository.confirmSettlementSuggestion(suggestionId)
-            _statusMessage.value = "Settlement confirmed and split payment applied."
+            val result = repository.settleAmountForPerson(personId, amount)
+            if (result.excessAmount > 0.0) {
+                _statusMessage.value = "Settled ₹${result.settledAmount.toInt()} from ${result.friendName}. Overpayment of ₹${result.excessAmount.toInt()}!"
+                onExcess?.invoke(result.excessAmount, result.friendName)
+            } else {
+                _statusMessage.value = "Settled ₹${result.settledAmount.toInt()} from ${result.friendName}. Remaining owed: ₹${result.remainingOwed.toInt()}"
+            }
+        }
+    }
+
+    fun logOverpaymentAsIncome(excessAmount: Double, friendName: String) {
+        viewModelScope.launch {
+            repository.logOverpaymentAsIncome(excessAmount, friendName)
+            _statusMessage.value = "Logged excess ₹${excessAmount.toInt()} as general income / advance."
+        }
+    }
+
+    // ─── 1-Tap 'Confirm & Save Alias' Suggestions ─────────────────────────────
+
+    fun confirmAndSaveAlias(suggestionId: Long) {
+        viewModelScope.launch {
+            val result = repository.confirmAndSaveAlias(suggestionId)
+            if (result != null) {
+                _statusMessage.value = "Settled ₹${result.settledAmount.toInt()} from ${result.friendName} & saved alias for future SMS!"
+            } else {
+                _statusMessage.value = "Settlement applied."
+            }
         }
     }
 
@@ -367,6 +405,16 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             repository.dismissSettlementSuggestion(suggestionId)
             _statusMessage.value = "Settlement suggestion dismissed."
+        }
+    }
+
+    // ─── Split an Expense with Friends ────────────────────────────────────────
+
+    fun splitExpense(transactionId: Long, splits: List<SplitItemEntity>) {
+        viewModelScope.launch {
+            val existing = allTransactions.value.find { it.id == transactionId } ?: return@launch
+            repository.editTransactionWithSplits(existing, splits)
+            _statusMessage.value = "Bill split updated! My share: ₹${(existing.amount - splits.sumOf { it.amountOwed }).toInt()}"
         }
     }
 

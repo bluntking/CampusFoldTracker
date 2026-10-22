@@ -76,4 +76,42 @@ class CampusSmsParserTest {
         // Must be INCOME, not CC_BILL_TRANSFER
         assertEquals(TransactionType.INCOME, tx.type)
     }
+
+    @Test
+    fun testAxisBankOutboundCcBillPaymentBilldesk() {
+        val sms = "INR 3500.00 debited\nA/c no. XX2003\n21-10-26, 19:15:00\nUPI/P2M/888123456789/BILLDESK"
+        val parsed = CampusSmsParser.parse(sms, "AXISBK")
+
+        assertNotNull(parsed)
+        val tx = parsed!!.transaction
+        assertEquals(3500.0, tx.amount, 0.001)
+        assertEquals("BILLDESK", tx.rawMerchant)
+        assertEquals(TransactionType.CC_BILL_TRANSFER, tx.type)
+    }
+
+    @Test
+    fun testAxisBankOutboundCcBillPaymentPnbCard() {
+        val sms = "INR 4200.00 debited\nA/c no. XX2003\n21-10-26, 20:00:00\nUPI/P2M/777123456789/PNB CARD BILL"
+        val parsed = CampusSmsParser.parse(sms, "AXISBK")
+
+        assertNotNull(parsed)
+        val tx = parsed!!.transaction
+        assertEquals(4200.0, tx.amount, 0.001)
+        assertEquals(TransactionType.CC_BILL_TRANSFER, tx.type)
+    }
+
+    @Test
+    fun testOtpMessageIgnored() {
+        val sms = "Your OTP for transaction of Rs. 500 at Amazon is 492019. Do not share this OTP with anyone."
+        val parsed = CampusSmsParser.parse(sms, "VM-AMZNOTP")
+        assertNull(parsed)
+    }
+
+    @Test
+    fun testDeterministicDedupeHash() {
+        val hash1 = CampusSmsParser.generateDedupeHash(1700000000L, 100.0, "Sekar store")
+        val hash2 = CampusSmsParser.generateDedupeHash(1700000000L, 100.0, "sekar  store")
+        assertEquals(hash1, hash2)
+        assertEquals("HASH_1700000000_100.0_sekar_store", hash1)
+    }
 }

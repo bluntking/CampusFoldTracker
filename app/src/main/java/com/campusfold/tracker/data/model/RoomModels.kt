@@ -18,6 +18,32 @@ data class PersonWithBalance(
 )
 
 /**
+ * Item-by-item unsettled bill projection for Splits UI.
+ */
+data class UnsettledBillItem(
+    val splitId: Long,
+    val transactionId: Long,
+    val personId: Long,
+    val vendorName: String,
+    val transactionTotal: Double,
+    val amountOwed: Double,
+    val amountPaidSoFar: Double,
+    val isSettled: Boolean,
+    val createdAt: Long
+)
+
+/**
+ * Result of FIFO settlement processing (partial payments, full payments & overpayments).
+ */
+data class SettlementResult(
+    val friendName: String,
+    val settledAmount: Double,
+    val remainingOwed: Double,
+    val excessAmount: Double = 0.0,
+    val updatedSplitCount: Int
+)
+
+/**
  * Complete transaction with all associated split shares.
  */
 data class TransactionWithSplits(

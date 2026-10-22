@@ -40,10 +40,13 @@ fun TransactionDetailBottomSheet(
     categories: List<CategoryEntity>,
     vendorMappings: List<VendorMappingEntity>,
     allPersons: List<PersonEntity>,
+    initialSplits: List<SplitItemEntity> = emptyList(),
     onDismiss: () -> Unit,
     onSaveTransaction: (updatedTx: TransactionEntity, splits: List<SplitItemEntity>) -> Unit,
     onToggleCcBill: () -> Unit,
     onSaveVendorMapping: (rawKeyword: String, friendlyName: String, categoryId: Long?) -> Unit,
+    onAddPersonInline: (name: String, aliases: String) -> Unit = { _, _ -> },
+    onDeletePersonInline: (PersonEntity) -> Unit = {},
     onDelete: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -57,9 +60,17 @@ fun TransactionDetailBottomSheet(
 
     // Split state
     var showSplitSection by remember { mutableStateOf(false) }
+    var showFullSplitSheet by remember { mutableStateOf(false) }
     val splitList = remember { mutableStateListOf<SplitItemEntity>() }
     var newSplitPersonId by remember { mutableStateOf(allPersons.firstOrNull()?.id ?: 0L) }
     var newSplitAmountText by remember { mutableStateOf("") }
+
+    LaunchedEffect(initialSplits) {
+        if (initialSplits.isNotEmpty() && splitList.isEmpty()) {
+            splitList.addAll(initialSplits)
+            showSplitSection = true
+        }
+    }
 
     val currentAmount = amountText.toDoubleOrNull() ?: transaction.amount
     val totalSplitOwed = splitList.sumOf { it.amountOwed }
@@ -342,6 +353,33 @@ fun TransactionDetailBottomSheet(
                     if (showSplitSection) {
                         Spacer(modifier = Modifier.height(12.dp))
 
+                        // Quick action to launch Full Equal / Custom Split Tool
+                        Button(
+                            onClick = { showFullSplitSheet = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = NeonAmber,
+                                contentColor = OledBlack
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CallSplit,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Equal & Custom Split Calculator",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
                         // Current split list
                         if (splitList.isNotEmpty()) {
                             splitList.forEachIndexed { index, split ->
@@ -553,5 +591,20 @@ fun TransactionDetailBottomSheet(
                 }
             }
         }
+    }
+
+    if (showFullSplitSheet) {
+        SplitExpenseSheet(
+            transaction = transaction.copy(amount = currentAmount),
+            allPersons = allPersons,
+            onDismiss = { showFullSplitSheet = false },
+            onSaveSplits = { newSplits ->
+                splitList.clear()
+                splitList.addAll(newSplits)
+                showFullSplitSheet = false
+            },
+            onAddPersonInline = onAddPersonInline,
+            onDeletePersonInline = onDeletePersonInline
+        )
     }
 }
