@@ -104,6 +104,9 @@ dependencies {
     // DataStore Preferences
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
+    // MediaPipe LLM Inference (Local On-Device AI)
+    implementation("com.google.mediapipe:tasks-genai:0.10.14")
+
     // Compose Tooling Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

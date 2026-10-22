@@ -50,7 +50,50 @@ class SmsReceiver : BroadcastReceiver() {
 
         Log.d(TAG, "Incoming SMS from $sender: $fullBody")
 
-        val parsedResult = CampusSmsParser.parse(fullBody, sender, timestamp) ?: return
+        val parsedResult = CampusSmsParser.parse(fullBody, sender, timestamp)
+        if (parsedResult == null) {
+            // Optional AI Unstructured Message Fallback
+            val pendingAi = goAsync()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val aiTx = com.campusfold.tracker.ai.LocalAiManager.parseUnstructuredMessage(fullBody)
+                    if (aiTx != null) {
+                        val db = AppDatabase.getDatabase(context)
+                        val prefs = AppPreferences(context)
+                        val repository = TransactionRepository(db, prefs, context.applicationContext)
+                        val txType = try {
+                            TransactionType.valueOf(aiTx.type)
+                        } catch (e: Exception) {
+                            TransactionType.EXPENSE
+                        }
+                        val (friendly, catId) = repository.resolveVendor(aiTx.merchant)
+                        val tx = TransactionEntity(
+                            amount = aiTx.amount,
+                            myActualShare = aiTx.amount,
+                            type = txType,
+                            paymentMode = "SMS / Auto-Detected",
+                            rawMerchant = aiTx.merchant,
+                            friendlyVendorName = friendly,
+                            categoryId = catId,
+                            timestamp = timestamp,
+                            upiRef = null,
+                            rawSms = fullBody
+                        )
+                        repository.addTransaction(tx)
+                        NotificationHelper.showCustomNotification(
+                            context,
+                            "AI Parsed Transaction",
+                            "Logged ₹${aiTx.amount.toInt()} at $friendly via Local AI"
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "AI SMS fallback failed", e)
+                } finally {
+                    pendingAi.finish()
+                }
+            }
+            return
+        }
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {

@@ -39,6 +39,7 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
     val personsWithBalances by viewModel.personsWithBalances.collectAsState()
     val allUnsettledBills by viewModel.allUnsettledBills.collectAsState()
     val pendingSuggestions by viewModel.pendingSuggestions.collectAsState()
+    val unallocatedCredits by viewModel.unallocatedHiddenSenderCredits.collectAsState()
 
     val totalOwedToMe = personsWithBalances.sumOf { it.totalOwedToMe }
 
@@ -155,6 +156,63 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                                     )
                                 ) {
                                     Text("Dismiss", fontSize = 11.sp, color = TextSecondary)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
+            // Case C: 1-Tap Unallocated Hidden Sender Gmail Credits Banner
+            if (unallocatedCredits.isNotEmpty()) {
+                unallocatedCredits.forEach { credit ->
+                    val unsettledFriends = personsWithBalances.filter { it.totalOwedToMe > 0 }
+                    FoldCard(
+                        containerColor = Color(0xFF161E28),
+                        borderColor = NeonCyan.copy(alpha = 0.6f)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.MailOutline,
+                                    contentDescription = null,
+                                    tint = NeonCyan,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "AXIS GMAIL CREDIT (SENDER HIDDEN)",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    color = NeonCyan
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "₹${credit.amount.toInt()} credited via Axis Gmail. Apply to a friend?",
+                                fontSize = 12.sp,
+                                color = TextPrimary
+                            )
+                            if (unsettledFriends.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Select friend who owes you:", fontSize = 10.sp, color = TextMuted)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    unsettledFriends.forEach { f ->
+                                        AssistChip(
+                                            onClick = {
+                                                viewModel.applyHiddenCreditToFriend(credit, f.id, f.name)
+                                            },
+                                            label = { Text("${f.name} (₹${f.totalOwedToMe.toInt()})", fontSize = 11.sp, color = NeonEmerald) },
+                                            colors = AssistChipDefaults.assistChipColors(containerColor = InputBg),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, BorderCharcoal)
+                                        )
+                                    }
                                 }
                             }
                         }

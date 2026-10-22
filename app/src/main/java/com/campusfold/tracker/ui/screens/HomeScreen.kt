@@ -65,6 +65,7 @@ fun HomeScreen(
     var showSyncMenu by remember { mutableStateOf(false) }
     var showClearAllConfirmDialog by remember { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf<Uri?>(null) }
+    var showAiCoachSheet by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -117,100 +118,121 @@ fun HomeScreen(
                     )
                 }
 
-                // Sync Menu
-                Box {
-                    IconButton(
-                        onClick = {
-                            if (hasSmsPermission) {
-                                showSyncMenu = true
-                            } else {
-                                onRequestPermissions()
-                            }
-                        },
-                        enabled = !isScanning,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(MatteCharcoal)
-                            .border(1.dp, BorderCharcoal, CircleShape)
-                            .size(38.dp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // AI Coach Button
+                    Button(
+                        onClick = { showAiCoachSheet = true },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeonPurple.copy(alpha = 0.2f),
+                            contentColor = NeonPurple
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NeonPurple.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.height(34.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp)
                     ) {
-                        if (isScanning) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = NeonEmerald
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Sync,
-                                contentDescription = "Sync SMS",
-                                tint = NeonEmerald,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("AI Coach", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    DropdownMenu(
-                        expanded = showSyncMenu,
-                        onDismissRequest = { showSyncMenu = false },
-                        modifier = Modifier.background(MatteCharcoal)
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Sync Last 30 Days", color = TextPrimary) },
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Sync Menu
+                    Box {
+                        IconButton(
                             onClick = {
-                                showSyncMenu = false
-                                viewModel.scanInbox(daysBack = 30)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Sync Last 90 Days", color = TextPrimary) },
-                            onClick = {
-                                showSyncMenu = false
-                                viewModel.scanInbox(daysBack = 90)
-                            }
-                        )
-                        Divider(color = BorderCharcoal, thickness = 1.dp)
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.FileDownload, contentDescription = null, tint = NeonEmerald, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Export Backup (JSON)", color = TextPrimary)
+                                if (hasSmsPermission) {
+                                    showSyncMenu = true
+                                } else {
+                                    onRequestPermissions()
                                 }
                             },
-                            onClick = {
-                                showSyncMenu = false
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
-                                exportLauncher.launch("CampusFold_Backup_$timestamp.json")
+                            enabled = !isScanning,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(MatteCharcoal)
+                                .border(1.dp, BorderCharcoal, CircleShape)
+                                .size(38.dp)
+                        ) {
+                            if (isScanning) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = NeonEmerald
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = "Sync SMS",
+                                    tint = NeonEmerald,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.FileUpload, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Import Backup (JSON)", color = TextPrimary)
+                        }
+
+                        DropdownMenu(
+                            expanded = showSyncMenu,
+                            onDismissRequest = { showSyncMenu = false },
+                            modifier = Modifier.background(MatteCharcoal)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Sync Last 30 Days", color = TextPrimary) },
+                                onClick = {
+                                    showSyncMenu = false
+                                    viewModel.scanInbox(daysBack = 30)
                                 }
-                            },
-                            onClick = {
-                                showSyncMenu = false
-                                importLauncher.launch(arrayOf("application/json", "*/*"))
-                            }
-                        )
-                        Divider(color = BorderCharcoal, thickness = 1.dp)
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = NeonCrimson, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Start Afresh (Clear All)", color = NeonCrimson)
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Sync Last 90 Days", color = TextPrimary) },
+                                onClick = {
+                                    showSyncMenu = false
+                                    viewModel.scanInbox(daysBack = 90)
                                 }
-                            },
-                            onClick = {
-                                showSyncMenu = false
-                                showClearAllConfirmDialog = true
-                            }
-                        )
+                            )
+                            Divider(color = BorderCharcoal, thickness = 1.dp)
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.FileDownload, contentDescription = null, tint = NeonEmerald, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Export Backup (JSON)", color = TextPrimary)
+                                    }
+                                },
+                                onClick = {
+                                    showSyncMenu = false
+                                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
+                                    exportLauncher.launch("CampusFold_Backup_$timestamp.json")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.FileUpload, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Import Backup (JSON)", color = TextPrimary)
+                                    }
+                                },
+                                onClick = {
+                                    showSyncMenu = false
+                                    importLauncher.launch(arrayOf("application/json", "*/*"))
+                                }
+                            )
+                            Divider(color = BorderCharcoal, thickness = 1.dp)
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = NeonCrimson, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Start Afresh (Clear All)", color = NeonCrimson)
+                                    }
+                                },
+                                onClick = {
+                                    showSyncMenu = false
+                                    showClearAllConfirmDialog = true
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -269,6 +291,56 @@ fun HomeScreen(
                             ) {
                                 Text("Sync SMS Inbox", fontSize = 11.sp, color = TextPrimary)
                             }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Gmail Notification Access Status Card
+            val hasGmailAccess = com.campusfold.tracker.service.GmailNotificationListener.isNotificationAccessGranted(context)
+            if (!hasGmailAccess) {
+                FoldCard(
+                    containerColor = Color(0xFF1B1622),
+                    borderColor = NeonPurple.copy(alpha = 0.5f)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                tint = NeonPurple,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "GMAIL NOTIFICATION ACCESS",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = NeonPurple
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Grant notification listener access to auto-capture Axis Bank credits and friend settlements from Gmail alerts.",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                val intent = android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                context.startActivity(intent)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = NeonPurple,
+                                contentColor = OledBlack
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Text("Enable Gmail Access", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -703,6 +775,14 @@ fun HomeScreen(
                     Text("Cancel", color = TextSecondary)
                 }
             }
+        )
+    }
+
+    // AI Financial Coach Bottom Sheet
+    if (showAiCoachSheet) {
+        com.campusfold.tracker.ui.sheets.AiCoachSheet(
+            viewModel = viewModel,
+            onDismiss = { showAiCoachSheet = false }
         )
     }
 }

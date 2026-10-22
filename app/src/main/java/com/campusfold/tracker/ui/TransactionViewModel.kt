@@ -69,6 +69,7 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     val statusMessage = _statusMessage.asStateFlow()
 
     val filteredTransactions: StateFlow<List<TransactionEntity>>
+    val unallocatedHiddenSenderCredits: StateFlow<List<TransactionEntity>>
 
     init {
         val db = AppDatabase.getDatabase(application)
@@ -79,6 +80,9 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             repository.ensurePreseededData()
         }
+
+        // Initialize Local On-Device AI Manager
+        com.campusfold.tracker.ai.LocalAiManager.init(application)
 
         allTransactions = repository.allTransactions.stateIn(
             viewModelScope,
@@ -230,6 +234,10 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 else -> list
             }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        unallocatedHiddenSenderCredits = allTransactions.map { list ->
+            list.filter { it.type == TransactionType.INCOME && (it.friendlyVendorName.contains("Sender hidden") || it.rawMerchant == "Axis Gmail Credit") }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     }
 
@@ -578,6 +586,19 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             repository.dismissSettlementSuggestion(suggestionId)
             _statusMessage.value = "Settlement suggestion dismissed."
+        }
+    }
+
+    fun applyHiddenCreditToFriend(transaction: TransactionEntity, personId: Long, friendName: String) {
+        viewModelScope.launch {
+            repository.settleAmountForPerson(personId, transaction.amount)
+            repository.updateTransaction(
+                transaction.copy(
+                    type = TransactionType.SPLIT_SETTLEMENT,
+                    friendlyVendorName = "Settlement from $friendName (Axis Gmail)"
+                )
+            )
+            _statusMessage.value = "Applied ₹${transaction.amount.toInt()} credit towards $friendName's balance!"
         }
     }
 
