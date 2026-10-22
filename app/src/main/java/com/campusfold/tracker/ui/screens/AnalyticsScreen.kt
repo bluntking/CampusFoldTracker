@@ -161,7 +161,6 @@ fun AnalyticsScreen(
                 categoryId = cat.id,
                 categoryName = cat.name,
                 colorHex = cat.colorHex,
-                iconName = cat.iconName,
                 monthlyBudget = cat.monthlyBudget,
                 totalSpent = spent
             )
