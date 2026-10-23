@@ -906,27 +906,10 @@ class FakeManualReviewItemDao : ReviewItemDao {
     override suspend fun deleteReviewItem(item: ReviewItemEntity) { items.remove(item.id) }
     override suspend fun updateStatus(id: Long, status: ReviewStatus) { items[id]?.let { items[id] = it.copy(status = status) } }
     override suspend fun discardAllPending() { items.values.filter { it.status == ReviewStatus.PENDING }.forEach { items[it.id] = it.copy(status = ReviewStatus.DISCARDED) } }
-    override suspend fun clearAll() { items.clear() }
+    suspend fun clearAll() { items.clear() }
 }
 
-class FakeManualUnparsedMessageDao : UnparsedMessageDao {
-    val messages = mutableMapOf<Long, UnparsedMessageEntity>()
-    private var idCounter = 1L
-
-    override fun getAllUnparsedMessages(): Flow<List<UnparsedMessageEntity>> = flowOf(messages.values.toList())
-    override suspend fun getAllUnparsedMessagesSync(): List<UnparsedMessageEntity> = messages.values.toList()
-    override suspend fun getUnparsedMessageById(id: Long): UnparsedMessageEntity? = messages[id]
-    override suspend fun findByBodyHash(bodyHash: String): UnparsedMessageEntity? = messages.values.find { it.bodyHash == bodyHash }
-    override suspend fun insertUnparsedMessage(message: UnparsedMessageEntity): Long {
-        val id = if (message.id > 0) message.id else idCounter++
-        messages[id] = message.copy(id = id)
-        return id
-    }
-    override suspend fun deleteUnparsedMessage(message: UnparsedMessageEntity) { messages.remove(message.id) }
-    override suspend fun deleteUnparsedMessageById(id: Long) { messages.remove(id) }
-    override suspend fun getUnparsedCount(): Int = messages.size
-    override suspend fun clearAll() { messages.clear() }
-}
+class FakeManualUnparsedMessageDao : FakeBaseUnparsedMessageDao()
 
 class FakeManualScanHistoryDao : ScanHistoryDao {
     val history = mutableMapOf<Long, ScanHistoryEntity>()
@@ -934,22 +917,39 @@ class FakeManualScanHistoryDao : ScanHistoryDao {
 
     override fun getAllScanHistory(): Flow<List<ScanHistoryEntity>> = flowOf(history.values.toList())
     override suspend fun getAllScanHistorySync(): List<ScanHistoryEntity> = history.values.toList()
+    override suspend fun getScanHistoryById(id: Long): ScanHistoryEntity? = history[id]
     override suspend fun insertScanHistory(entry: ScanHistoryEntity): Long {
         val id = if (entry.id > 0) entry.id else idCounter++
         history[id] = entry.copy(id = id)
         return id
     }
     override suspend fun updateScanHistory(entry: ScanHistoryEntity) { history[entry.id] = entry }
+    override suspend fun deleteScanHistory(scan: ScanHistoryEntity) { history.remove(scan.id) }
     override suspend fun clearAll() { history.clear() }
 }
 
 class FakeManualProcessedMessageDao : ProcessedMessageDao {
     val hashes = mutableSetOf<String>()
+    val messages = mutableMapOf<String, ProcessedMessageEntity>()
 
-    override suspend fun hasMessageHash(bodyHash: String): Boolean = hashes.contains(bodyHash)
-    override suspend fun insertProcessedMessage(message: ProcessedMessageEntity): Long {
+    override suspend fun isProcessed(bodyHash: String): Boolean = hashes.contains(bodyHash)
+    override suspend fun getByBodyHash(bodyHash: String): ProcessedMessageEntity? = messages[bodyHash]
+    override suspend fun getAllProcessedMessagesSync(): List<ProcessedMessageEntity> = messages.values.toList()
+    override suspend fun insertProcessed(message: ProcessedMessageEntity) {
         hashes.add(message.bodyHash)
+        messages[message.bodyHash] = message
+    }
+    override suspend fun insertProcessedMessages(messages: List<ProcessedMessageEntity>) {
+        messages.forEach { insertProcessed(it) }
+    }
+    override suspend fun clearAll() {
+        hashes.clear()
+        messages.clear()
+    }
+
+    suspend fun hasMessageHash(bodyHash: String): Boolean = isProcessed(bodyHash)
+    suspend fun insertProcessedMessage(message: ProcessedMessageEntity): Long {
+        insertProcessed(message)
         return hashes.size.toLong()
     }
-    override suspend fun clearAll() { hashes.clear() }
 }

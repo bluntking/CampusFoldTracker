@@ -374,104 +374,9 @@ class FakeProcessedMessageDao : ProcessedMessageDao {
     override suspend fun clearAll() { set.clear() }
 }
 
-class FakeUnparsedMessageDao : UnparsedMessageDao {
-    val list = mutableListOf<UnparsedMessageEntity>()
-    override fun getAllUnparsedMessages(): Flow<List<UnparsedMessageEntity>> = flowOf(list)
-    override suspend fun getById(id: Long): UnparsedMessageEntity? = list.find { it.id == id }
-    override suspend fun getByBodyHash(hash: String): UnparsedMessageEntity? = list.find { it.bodyHash == hash }
-    override suspend fun insertMessage(message: UnparsedMessageEntity): Long {
-        val newId = (list.size + 1).toLong()
-        list.add(message.copy(id = newId))
-        return newId
-    }
-    override suspend fun insertMessages(messages: List<UnparsedMessageEntity>): List<Long> = messages.map { insertMessage(it) }
-    override suspend fun purgeOlderThan(cutoffTimestamp: Long): Int = 0
-    override suspend fun deleteMessage(message: UnparsedMessageEntity) { list.remove(message) }
-    override suspend fun deleteById(id: Long) { list.removeIf { it.id == id } }
-}
+class FakeUnparsedMessageDao : FakeBaseUnparsedMessageDao()
 
-class FakeTransactionDao : TransactionDao {
-    val transactions = mutableMapOf<Long, TransactionEntity>()
-    private var idCounter = 1L
-
-    override fun getAllTransactions(): Flow<List<TransactionEntity>> = flowOf(transactions.values.toList())
-    override suspend fun getAllTransactionsSync(): List<TransactionEntity> = transactions.values.toList()
-    override suspend fun getRecentTransactionsSync(limit: Int): List<TransactionEntity> = transactions.values.takeLast(limit)
-    override fun getTransactionById(id: Long): Flow<TransactionEntity?> = flowOf(transactions[id])
-    override suspend fun getTransactionByIdSync(id: Long): TransactionEntity? = transactions[id]
-    override fun getTransactionWithSplits(id: Long): Flow<TransactionWithSplits?> = flowOf(null)
-    override fun getAllTransactionsWithSplits(): Flow<List<TransactionWithSplits>> = flowOf(emptyList())
-
-    override suspend fun findByUpiRef(upiRef: String): TransactionEntity? =
-        transactions.values.find { it.upiRef == upiRef }
-
-    override suspend fun findByReference(reference: String): TransactionEntity? =
-        transactions.values.find { it.reference == reference }
-
-    override suspend fun findByRawMessageHash(hash: String): TransactionEntity? =
-        transactions.values.find { it.rawMessageHash == hash }
-
-    override suspend fun findPotentialDuplicate(amountPaise: Long, paymentMode: String, minTime: Long, maxTime: Long): TransactionEntity? =
-        transactions.values.find { it.amountPaise == amountPaise && it.paymentMode == paymentMode && it.timestamp in minTime..maxTime }
-
-    override suspend fun findDuplicatesByAccountAmountTime(
-        accountId: Long?,
-        paymentMode: String,
-        amountPaise: Long,
-        minTime: Long,
-        maxTime: Long
-    ): List<TransactionEntity> = transactions.values.filter {
-        (it.accountId == accountId || (accountId == null && it.paymentMode == paymentMode)) &&
-                it.amountPaise == amountPaise && it.timestamp in minTime..maxTime
-    }
-
-    override suspend fun insertTransaction(transaction: TransactionEntity): Long {
-        val id = if (transaction.id > 0) transaction.id else idCounter++
-        transactions[id] = transaction.copy(id = id)
-        return id
-    }
-
-    override suspend fun insertTransactions(txs: List<TransactionEntity>): List<Long> = txs.map { insertTransaction(it) }
-    override suspend fun restoreTransactions(txs: List<TransactionEntity>): List<Long> = insertTransactions(txs)
-    override suspend fun updateTransaction(transaction: TransactionEntity) { transactions[transaction.id] = transaction }
-    override suspend fun deleteTransaction(transaction: TransactionEntity) { transactions.remove(transaction.id) }
-    override suspend fun deleteTransactionById(id: Long) { transactions.remove(id) }
-    override suspend fun clearAll() { transactions.clear() }
-
-    override suspend fun getTransactionsByAccountId(accountId: Long): List<TransactionEntity> =
-        transactions.values.filter { it.accountId == accountId }
-
-    override suspend fun countTransactionsByAccountId(accountId: Long): Int =
-        transactions.values.count { it.accountId == accountId }
-
-    override suspend fun updateAccountIdForTransactions(oldAccountId: Long, newAccountId: Long) {
-        for ((id, tx) in transactions.entries) {
-            if (tx.accountId == oldAccountId) {
-                transactions[id] = tx.copy(accountId = newAccountId)
-            }
-        }
-    }
-
-    override suspend fun updateAccountIdForTransactionIds(ids: List<Long>, newAccountId: Long) {
-        for (id in ids) {
-            transactions[id]?.let {
-                transactions[id] = it.copy(accountId = newAccountId)
-            }
-        }
-    }
-
-    override suspend fun getDistinctReferencesForAccount(accountId: Long): List<String> =
-        transactions.values.filter { it.accountId == accountId }.mapNotNull { it.reference }.filter { it.isNotBlank() }.distinct()
-
-    override suspend fun getDistinctUpiRefsForAccount(accountId: Long): List<String> =
-        transactions.values.filter { it.accountId == accountId }.mapNotNull { it.upiRef }.filter { it.isNotBlank() }.distinct()
-
-    override fun getTotalMyExpensePaise(): Flow<Long?> = flowOf(0L)
-    override fun getTotalGrossExpensePaise(): Flow<Long?> = flowOf(0L)
-    override fun getTotalIncomePaise(): Flow<Long?> = flowOf(0L)
-    override fun getTotalCcBillPaymentsPaise(): Flow<Long?> = flowOf(0L)
-    override fun getTotalSpentOnPaymentModePaise(mode: String): Flow<Long?> = flowOf(0L)
-}
+class FakeTransactionDao : FakeBaseTransactionDao()
 
 class FakeAccountDao : AccountDao {
     val accounts = mutableMapOf<Long, AccountEntity>()
@@ -542,6 +447,7 @@ class FakeVendorDao : VendorDao {
     override suspend fun updateVendor(vendor: VendorEntity) {}
     override suspend fun deleteVendor(vendor: VendorEntity) { vendors.remove(vendor) }
     override suspend fun deleteVendorById(id: Long) { vendors.removeIf { it.id == id } }
+    override suspend fun updateCategoryIdForVendors(oldCategoryId: Long, newCategoryId: Long?) {}
 }
 
 class FakeCategoryDao : CategoryDao {
@@ -560,6 +466,8 @@ class FakeCategoryDao : CategoryDao {
     override suspend fun deleteCategory(category: CategoryEntity) { categories.remove(category) }
     override suspend fun deleteCategoryById(id: Long) { categories.removeIf { it.id == id } }
     override fun getCategorySpending(): Flow<List<com.campusfold.tracker.data.model.CategorySpending>> = flowOf(emptyList())
+    override fun getCategorySpendingForMonth(startOfMonth: Long, endOfMonth: Long): Flow<List<com.campusfold.tracker.data.model.CategorySpending>> = flowOf(emptyList())
+    override suspend fun getCategorySpendingForMonthSync(startOfMonth: Long, endOfMonth: Long): List<com.campusfold.tracker.data.model.CategorySpending> = emptyList()
     override suspend fun getCategorySpendBetweenSync(start: Long, end: Long): List<com.campusfold.tracker.data.model.CategoryPeriodSpend> = emptyList()
 }
 
@@ -569,6 +477,7 @@ class FakePersonDao : PersonDao {
     override suspend fun getAllPersonsList(): List<PersonEntity> = persons
     override suspend fun getPersonById(id: Long): PersonEntity? = persons.find { it.id == id }
     override fun getPersonsWithBalances(): Flow<List<com.campusfold.tracker.data.model.PersonWithBalance>> = flowOf(emptyList())
+    override suspend fun getPersonWithBalance(personId: Long): com.campusfold.tracker.data.model.PersonWithBalance? = null
     override suspend fun insertPerson(person: PersonEntity): Long { persons.add(person); return persons.size.toLong() }
     override suspend fun insertPersons(list: List<PersonEntity>): List<Long> = list.map { insertPerson(it) }
     override suspend fun updatePerson(person: PersonEntity) {}
@@ -581,6 +490,8 @@ class FakeSplitItemDao : SplitItemDao {
     override fun getSplitsForTransaction(transactionId: Long): Flow<List<SplitItemEntity>> = flowOf(emptyList())
     override suspend fun getSplitsForTransactionSync(transactionId: Long): List<SplitItemEntity> = emptyList()
     override suspend fun getUnsettledSplitsForPersonSync(personId: Long): List<SplitItemEntity> = emptyList()
+    override fun getUnsettledBillsForPerson(personId: Long): Flow<List<com.campusfold.tracker.data.model.UnsettledBillItem>> = flowOf(emptyList())
+    override fun getAllUnsettledBills(): Flow<List<com.campusfold.tracker.data.model.UnsettledBillItem>> = flowOf(emptyList())
     override suspend fun insertSplitItem(splitItem: SplitItemEntity): Long = 1L
     override suspend fun insertSplitItems(splitItems: List<SplitItemEntity>): List<Long> = emptyList()
     override suspend fun updateSplitItem(splitItem: SplitItemEntity) {}
@@ -593,12 +504,16 @@ class FakeSplitItemDao : SplitItemDao {
 class FakePendingSettlementSuggestionDao : PendingSettlementSuggestionDao {
     private val suggestions = mutableListOf<PendingSettlementSuggestionEntity>()
     override fun getPendingSuggestions(): Flow<List<PendingSettlementSuggestionEntity>> = flowOf(suggestions)
+    override suspend fun getAllSuggestionsSync(): List<PendingSettlementSuggestionEntity> = suggestions
     override suspend fun getSuggestionById(id: Long): PendingSettlementSuggestionEntity? = suggestions.find { it.id == id }
     override suspend fun insertSuggestion(suggestion: PendingSettlementSuggestionEntity): Long {
         suggestions.add(suggestion)
         return suggestions.size.toLong()
     }
+    override suspend fun insertSuggestions(suggestions: List<PendingSettlementSuggestionEntity>): List<Long> = suggestions.map { insertSuggestion(it) }
     override suspend fun updateStatus(id: Long, status: SettlementSuggestionStatus) {}
+    override suspend fun deleteSuggestion(suggestion: PendingSettlementSuggestionEntity) { suggestions.remove(suggestion) }
+    override suspend fun deleteSuggestionById(id: Long) { suggestions.removeIf { it.id == id } }
     override suspend fun clearAll() { suggestions.clear() }
 }
 
@@ -617,4 +532,5 @@ class FakeScanHistoryDao : ScanHistoryDao {
         if (idx != -1) history[idx] = scan
     }
     override suspend fun deleteScanHistory(scan: ScanHistoryEntity) { history.remove(scan) }
+    override suspend fun clearAll() { history.clear() }
 }

@@ -288,7 +288,6 @@ class EntityResolverAndRulesTest {
     fun testRuleEngine_ConditionEvaluationAndChaining() {
         val tx = TransactionEntity(
             id = 1L,
-            amount = 750.0,
             amountPaise = 75000L,
             type = TransactionType.EXPENSE,
             rawMerchant = "Swiggy Order 123",
@@ -347,7 +346,6 @@ class EntityResolverAndRulesTest {
     fun testRuleEngine_BlockAction() {
         val tx = TransactionEntity(
             id = 1L,
-            amount = 100.0,
             amountPaise = 10000L,
             type = TransactionType.EXPENSE,
             rawMerchant = "Spam Promotion",
@@ -379,7 +377,6 @@ class EntityResolverAndRulesTest {
         // User manually edited categoryId, so it is in editedFields
         val tx = TransactionEntity(
             id = 1L,
-            amount = 200.0,
             amountPaise = 20000L,
             type = TransactionType.EXPENSE,
             rawMerchant = "Swiggy",

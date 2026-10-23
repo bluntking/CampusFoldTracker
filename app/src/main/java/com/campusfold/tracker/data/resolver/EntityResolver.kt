@@ -39,6 +39,29 @@ interface EntityResolver {
         editedFields: String = "[]",
         batchContext: IngestBatchContext? = null
     ): ResolvedEntities
+
+    suspend fun resolve(
+        bankName: String?,
+        bankKey: String?,
+        accountLast4: String?,
+        instrumentType: String?,
+        merchantRaw: String?,
+        direction: Direction,
+        transactionType: TransactionType
+    ): ResolvedEntities = resolve(
+        bankName = bankName,
+        bankKey = bankKey,
+        accountLast4 = accountLast4,
+        instrumentType = instrumentType,
+        merchantRaw = merchantRaw,
+        direction = direction,
+        transactionType = transactionType,
+        rawMessage = null,
+        amountPaise = 0L,
+        timestamp = System.currentTimeMillis(),
+        editedFields = "[]",
+        batchContext = null
+    )
 }
 
 class DefaultEntityResolver(

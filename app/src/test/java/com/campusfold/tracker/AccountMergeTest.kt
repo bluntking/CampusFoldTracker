@@ -155,7 +155,6 @@ class AccountMergeTest {
             TransactionEntity(
                 id = 1L,
                 accountId = 100L,
-                amount = 50.0,
                 amountPaise = 5000L,
                 type = TransactionType.EXPENSE,
                 rawMerchant = "Shop",
@@ -169,7 +168,6 @@ class AccountMergeTest {
             TransactionEntity(
                 id = 2L,
                 accountId = 200L,
-                amount = 50.0,
                 amountPaise = 5000L,
                 type = TransactionType.EXPENSE,
                 rawMerchant = "Shop",
@@ -460,7 +458,6 @@ class AccountMergeTest {
             TransactionEntity(
                 id = 101L,
                 accountId = 1L,
-                amount = 100.0,
                 amountPaise = 10000L,
                 type = TransactionType.EXPENSE,
                 rawMerchant = "Vendor A",
@@ -473,7 +470,6 @@ class AccountMergeTest {
             TransactionEntity(
                 id = 201L,
                 accountId = 2L,
-                amount = 200.0,
                 amountPaise = 20000L,
                 type = TransactionType.EXPENSE,
                 rawMerchant = "Vendor B",
@@ -486,7 +482,6 @@ class AccountMergeTest {
             TransactionEntity(
                 id = 202L,
                 accountId = 2L,
-                amount = 300.0,
                 amountPaise = 30000L,
                 type = TransactionType.EXPENSE,
                 rawMerchant = "Vendor C",
@@ -567,7 +562,6 @@ class AccountMergeTest {
             TransactionEntity(
                 id = 101L,
                 accountId = 1L,
-                amount = 50.0,
                 amountPaise = 5000L,
                 type = TransactionType.EXPENSE,
                 rawMerchant = "Tx1",
@@ -580,7 +574,6 @@ class AccountMergeTest {
             TransactionEntity(
                 id = 201L,
                 accountId = 2L,
-                amount = 75.0,
                 amountPaise = 7500L,
                 type = TransactionType.EXPENSE,
                 rawMerchant = "Tx2",
@@ -973,89 +966,11 @@ class FakeMergeNotSamePairDao : NotSamePairDao {
     }
 }
 
-class FakeMergeTransactionDao : TransactionDao {
-    val transactions = mutableMapOf<Long, TransactionEntity>()
-    private var idCounter = 1L
-
-    override fun getAllTransactions(): Flow<List<TransactionEntity>> = flowOf(transactions.values.sortedByDescending { it.timestamp })
-    override fun getTransactionsBetween(start: Long, end: Long): Flow<List<TransactionEntity>> =
+class FakeMergeTransactionDao : FakeBaseTransactionDao() {
+    fun getTransactionsBetween(start: Long, end: Long): Flow<List<TransactionEntity>> =
         flowOf(transactions.values.filter { it.timestamp in start..end })
-    override suspend fun getTransactionsBetweenSync(start: Long, end: Long): List<TransactionEntity> =
+    suspend fun getTransactionsBetweenSync(start: Long, end: Long): List<TransactionEntity> =
         transactions.values.filter { it.timestamp in start..end }
-    override fun getTransactionById(id: Long): Flow<TransactionEntity?> = flowOf(transactions[id])
-    override suspend fun getTransactionByIdSync(id: Long): TransactionEntity? = transactions[id]
-    override fun getTransactionWithSplits(id: Long): Flow<TransactionWithSplits?> = flowOf(null)
-    override fun getAllTransactionsWithSplits(): Flow<List<TransactionWithSplits>> = flowOf(emptyList())
-
-    override suspend fun findByUpiRef(upiRef: String): TransactionEntity? =
-        transactions.values.find { it.upiRef == upiRef }
-
-    override suspend fun findByReference(reference: String): TransactionEntity? =
-        transactions.values.find { it.reference == reference }
-
-    override suspend fun findByRawMessageHash(hash: String): TransactionEntity? =
-        transactions.values.find { it.rawMessageHash == hash }
-
-    override suspend fun findPotentialDuplicate(amountPaise: Long, paymentMode: String, minTime: Long, maxTime: Long): TransactionEntity? =
-        transactions.values.find { it.amountPaise == amountPaise && it.paymentMode == paymentMode && it.timestamp in minTime..maxTime }
-
-    override suspend fun findDuplicatesByAccountAmountTime(
-        accountId: Long?,
-        paymentMode: String,
-        amountPaise: Long,
-        minTime: Long,
-        maxTime: Long
-    ): List<TransactionEntity> = transactions.values.filter {
-        (it.accountId == accountId || (accountId == null && it.paymentMode == paymentMode)) &&
-                it.amountPaise == amountPaise && it.timestamp in minTime..maxTime
-    }
-
-    override suspend fun getTransactionsByAccountId(accountId: Long): List<TransactionEntity> =
-        transactions.values.filter { it.accountId == accountId }
-
-    override suspend fun countTransactionsByAccountId(accountId: Long): Int =
-        transactions.values.count { it.accountId == accountId }
-
-    override suspend fun updateAccountIdForTransactions(oldAccountId: Long, newAccountId: Long) {
-        for ((id, tx) in transactions.entries) {
-            if (tx.accountId == oldAccountId) {
-                transactions[id] = tx.copy(accountId = newAccountId)
-            }
-        }
-    }
-
-    override suspend fun updateAccountIdForTransactionIds(ids: List<Long>, newAccountId: Long) {
-        for (id in ids) {
-            transactions[id]?.let {
-                transactions[id] = it.copy(accountId = newAccountId)
-            }
-        }
-    }
-
-    override suspend fun getDistinctReferencesForAccount(accountId: Long): List<String> =
-        transactions.values.filter { it.accountId == accountId }.mapNotNull { it.reference }.filter { it.isNotBlank() }.distinct()
-
-    override suspend fun getDistinctUpiRefsForAccount(accountId: Long): List<String> =
-        transactions.values.filter { it.accountId == accountId }.mapNotNull { it.upiRef }.filter { it.isNotBlank() }.distinct()
-
-    override suspend fun insertTransaction(transaction: TransactionEntity): Long {
-        val id = if (transaction.id > 0) transaction.id else idCounter++
-        transactions[id] = transaction.copy(id = id)
-        return id
-    }
-
-    override suspend fun insertTransactions(txs: List<TransactionEntity>): List<Long> = txs.map { insertTransaction(it) }
-    override suspend fun restoreTransactions(txs: List<TransactionEntity>): List<Long> = insertTransactions(txs)
-    override suspend fun updateTransaction(transaction: TransactionEntity) { transactions[transaction.id] = transaction }
-    override suspend fun deleteTransaction(transaction: TransactionEntity) { transactions.remove(transaction.id) }
-    override suspend fun deleteTransactionById(id: Long) { transactions.remove(id) }
-    override suspend fun clearAll() { transactions.clear() }
-
-    override fun getTotalMyExpensePaise(): Flow<Long?> = flowOf(0L)
-    override fun getTotalGrossExpensePaise(): Flow<Long?> = flowOf(0L)
-    override fun getTotalIncomePaise(): Flow<Long?> = flowOf(0L)
-    override fun getTotalCcBillPaymentsPaise(): Flow<Long?> = flowOf(0L)
-    override fun getTotalSpentOnPaymentModePaise(mode: String): Flow<Long?> = flowOf(0L)
 }
 
 class FakeMergeAiCacheDao : AiCacheDao {
