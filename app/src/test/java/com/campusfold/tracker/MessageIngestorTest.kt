@@ -343,6 +343,7 @@ class FakeAppDatabase : AppDatabase() {
     val splitItemDaoInstance = FakeSplitItemDao()
     val suggestionDaoInstance = FakePendingSettlementSuggestionDao()
     val scanHistoryDaoInstance = FakeScanHistoryDao()
+    val reviewItemDaoInstance = FakeReviewItemDao()
 
     override fun processedMessageDao(): ProcessedMessageDao = processedMessageDaoInstance
     override fun unparsedMessageDao(): UnparsedMessageDao = unparsedMessageDaoInstance
@@ -358,7 +359,7 @@ class FakeAppDatabase : AppDatabase() {
     override fun mergeLogDao(): MergeLogDao = throw NotImplementedError()
     override fun notSamePairDao(): NotSamePairDao = throw NotImplementedError()
     override fun ruleDao(): RuleDao = throw NotImplementedError()
-    override fun reviewItemDao(): ReviewItemDao = throw NotImplementedError()
+    override fun reviewItemDao(): ReviewItemDao = reviewItemDaoInstance
     override fun aiCacheDao(): AiCacheDao = throw NotImplementedError()
     override fun clearAllTables() {}
     override fun createInvalidationTracker(): androidx.room.InvalidationTracker {
@@ -545,4 +546,32 @@ class FakeScanHistoryDao : ScanHistoryDao {
     }
     override suspend fun deleteScanHistory(scan: ScanHistoryEntity) { history.remove(scan) }
     override suspend fun clearAll() { history.clear() }
+}
+
+class FakeReviewItemDao : ReviewItemDao {
+    private val items = mutableListOf<ReviewItemEntity>()
+    override fun getPendingReviewItems(): Flow<List<ReviewItemEntity>> = flowOf(items.filter { it.status == ReviewStatus.PENDING })
+    override fun getAllReviewItems(): Flow<List<ReviewItemEntity>> = flowOf(items)
+    override suspend fun getReviewItemById(id: Long): ReviewItemEntity? = items.find { it.id == id }
+    override suspend fun getAllReviewItemsSync(): List<ReviewItemEntity> = items
+    override suspend fun insertReviewItem(item: ReviewItemEntity): Long {
+        val id = (items.size + 1).toLong()
+        items.add(item.copy(id = id))
+        return id
+    }
+    override suspend fun insertReviewItems(items: List<ReviewItemEntity>): List<Long> = items.map { insertReviewItem(it) }
+    override suspend fun updateReviewItem(item: ReviewItemEntity) {
+        val idx = items.indexOfFirst { it.id == item.id }
+        if (idx != -1) items[idx] = item
+    }
+    override suspend fun updateStatus(id: Long, status: ReviewStatus) {
+        val idx = items.indexOfFirst { it.id == id }
+        if (idx != -1) items[idx] = items[idx].copy(status = status)
+    }
+    override suspend fun discardAllPending() {
+        items.replaceAll { if (it.status == ReviewStatus.PENDING) it.copy(status = ReviewStatus.DISCARDED) else it }
+    }
+    override suspend fun getPendingReviewItemsSync(): List<ReviewItemEntity> = items.filter { it.status == ReviewStatus.PENDING }
+    override suspend fun deleteReviewItem(item: ReviewItemEntity) { items.remove(item) }
+    override suspend fun deleteReviewItemById(id: Long) { items.removeIf { it.id == id } }
 }

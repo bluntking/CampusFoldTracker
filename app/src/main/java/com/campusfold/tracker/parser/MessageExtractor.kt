@@ -73,7 +73,7 @@ object MessageExtractor {
 
     // Balance-only notification patterns
     private val BALANCE_ALERT_PATTERNS = listOf(
-        Regex("""(?:avail(?:able)?\s+bal(?:ance)?|clear\s+balance|bal\s+in\s+a/c|balance\s+(?:is|in)|ledger\s+balance|effective\s+balance|account\s+balance\s+is|avail(?:able)?\s+(?:credit\s+)?limit|outstanding\s+bal(?:ance)?)(?:[^\r\n0-9]*?\bis\b)?[\s:]*(?:INR|Rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
+        Regex("""(?:avail(?:able)?\s+bal(?:ance)?|clear\s+balance|bal\s+in\s+a/c|balance\s+(?:is|in)|ledger\s+balance|effective\s+balance|account\s+balance\s+is|avail(?:able)?\s+(?:credit\s+)?limit|outstanding\s+bal(?:ance)?).*?\b(?:is|:)?[\s:]*(?:INR|Rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
         Regex("""(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)\s+(?:is\s+)?(?:your\s+)?(?:avail(?:able)?\s+bal(?:ance)?)""", RegexOption.IGNORE_CASE)
     )
 
@@ -304,7 +304,7 @@ object MessageExtractor {
 
         val balancePaise = parsedTx.balance?.toDouble()?.let { CurrencyUtils.rupeesToPaise(it) }
         val creditLimitPaise = parsedTx.creditLimit?.toDouble()?.let { CurrencyUtils.rupeesToPaise(it) }
-            ?: Regex("""(?:Avl|Available)\s+limit\s+(?:Rs\.?|INR|₹)?\s*([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE)
+            ?: Regex("""(?:Avl|Available)\s+limit[\s:]*(?:Rs\.?|INR|₹)?\s*([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE)
                 .find(cleanBody)?.groupValues?.getOrNull(1)?.replace(",", "")?.toDoubleOrNull()
                 ?.let { CurrencyUtils.rupeesToPaise(it) }
 

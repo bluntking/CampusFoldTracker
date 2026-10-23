@@ -178,10 +178,8 @@ object RuleEngine {
         for (i in 1 until conditions.size) {
             val cond = conditions[i]
             val condResult = evaluateCondition(transaction, rawSms, account, cond, categoryNameLookup)
-            result = when (cond.logicalOperator) {
-                LogicalOperator.AND -> result && condResult
-                LogicalOperator.OR -> result || condResult
-            }
+            val isOr = conditions[i - 1].logicalOperator == LogicalOperator.OR || cond.logicalOperator == LogicalOperator.OR
+            result = if (isOr) (result || condResult) else (result && condResult)
         }
         return result
     }
