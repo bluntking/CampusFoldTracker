@@ -18,7 +18,7 @@ object CampusSmsParser {
     private val cardDebitMerchantPattern = Regex("""\bat\s+([A-Za-z0-9 &'._-]{2,50}?)\s+on\b""", RegexOption.IGNORE_CASE)
     private val cardDateTimePattern = Regex("""\bon\s+([0-9]{2}-[0-9]{2}-[0-9]{4}\s+[0-9]{2}:[0-9]{2})\b""", RegexOption.IGNORE_CASE)
     private val cardUpiPattern = Regex("""(?:through\s+UPI|UPI)[:\s]+([0-9]{8,18})""", RegexOption.IGNORE_CASE)
-    private val cardLimitPattern = Regex("""(?:Avl|Available)\s+limit\s+Rs\.?\s*([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE)
+    private val cardLimitPattern = Regex("""(?:Avl|Available)\s+limit[\s:]*(?:Rs\.?|INR|₹)?\s*([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE)
 
     // Credit Card Bill Confirmation Rule
     private val cardBillReceivedPattern = Regex(
