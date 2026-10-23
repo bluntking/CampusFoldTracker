@@ -32,9 +32,14 @@ class MessageIngestor(
     private val aiFallbackService: com.campusfold.tracker.ai.AiFallbackService? = null
 ) {
     companion object {
-        fun computeBodyHash(body: String): String {
+        fun computeBodyHash(body: String, timestamp: Long = 0L, sourceId: String? = null): String {
             val digest = MessageDigest.getInstance("SHA-256")
-            val hashBytes = digest.digest(body.trim().toByteArray(StandardCharsets.UTF_8))
+            val payload = if (timestamp != 0L || !sourceId.isNullOrBlank()) {
+                "${body.trim()}|$timestamp|${sourceId ?: ""}"
+            } else {
+                body.trim()
+            }
+            val hashBytes = digest.digest(payload.toByteArray(StandardCharsets.UTF_8))
             return hashBytes.joinToString("") { "%02x".format(it) }
         }
     }
@@ -81,7 +86,7 @@ class MessageIngestor(
         rawMessage: RawMessage,
         batchContext: IngestBatchContext? = null
     ): IngestResult {
-        val bodyHash = computeBodyHash(rawMessage.body)
+        val bodyHash = computeBodyHash(rawMessage.body, rawMessage.timestamp, rawMessage.sourceId)
 
         // 1. Skip if bodyHash already in processed_messages
         if (db.processedMessageDao().isProcessed(bodyHash)) {

@@ -111,7 +111,7 @@ object AxisBankEmailParser {
             combined.contains("icici", ignoreCase = true) -> "ICICI Bank"
             combined.contains("sbi", ignoreCase = true) || combined.contains("state bank", ignoreCase = true) -> "SBI"
             combined.contains("pnb", ignoreCase = true) || combined.contains("punjab national", ignoreCase = true) -> "PNB"
-            else -> "Bank"
+            else -> "Axis Bank"
         }
 
         // 2. Extract Account Tail (e.g. 2003)

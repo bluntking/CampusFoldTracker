@@ -14,7 +14,7 @@ data class ParsedCampusSms(
 object CampusSmsParser {
 
     // ─── Format 1: Credit Card Patterns (Debits & Bill Payment Confirmations) ───
-    private val cardPattern = Regex("""\b(?:([A-Za-z]+)\s+)?(?:Credit\s+Card|CC)\s*(?:no\.?)?\s*(?:XX|[*]+)?([0-9]{4})\b""", RegexOption.IGNORE_CASE)
+    private val cardPattern = Regex("""\b(?:([A-Za-z]+)\s+)?(?:Credit\s+Card|CC)\s*(?:ending(?:\s+(?:with|in))?|no\.?)?\s*(?:XX|[*]+)?([0-9]{3,6})\b""", RegexOption.IGNORE_CASE)
     private val cardDebitMerchantPattern = Regex("""\bat\s+([A-Za-z0-9 &'._-]{2,50}?)\s+on\b""", RegexOption.IGNORE_CASE)
     private val cardDateTimePattern = Regex("""\bon\s+([0-9]{2}-[0-9]{2}-[0-9]{4}\s+[0-9]{2}:[0-9]{2})\b""", RegexOption.IGNORE_CASE)
     private val cardUpiPattern = Regex("""(?:through\s+UPI|UPI)[:\s]+([0-9]{8,18})""", RegexOption.IGNORE_CASE)
@@ -103,10 +103,14 @@ object CampusSmsParser {
 
         if (!isCard) return null
 
-        val detectedCardBank = cardMatch?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
-            ?: detectBankName(body, sender) ?: "Credit Card"
+        val rawBank = cardMatch?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
+        val detectedCardBank = if (rawBank != null && rawBank.length > 1) {
+            detectBankName(rawBank, sender) ?: rawBank
+        } else {
+            detectBankName(body, sender) ?: "Credit Card"
+        }
         val cardLast4 = cardMatch?.groupValues?.getOrNull(2)?.takeIf { it.isNotBlank() }
-            ?: Regex("""\b([0-9]{4})\b""").find(body)?.groupValues?.getOrNull(1)
+            ?: Regex("""\b(?:ending(?:\s+(?:with|in))?|no\.?)\s*(?:XX|[*]+)?([0-9]{3,6})\b""", RegexOption.IGNORE_CASE).find(body)?.groupValues?.getOrNull(1)
 
         val paymentMode = resolveCardPaymentMode(detectedCardBank, cardLast4, knownAccounts)
 

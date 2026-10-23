@@ -73,7 +73,7 @@ object MessageExtractor {
 
     // Balance-only notification patterns
     private val BALANCE_ALERT_PATTERNS = listOf(
-        Regex("""(?:avail(?:able)?\s+bal(?:ance)?|clear\s+balance|bal\s+in\s+a/c|balance\s+(?:is|in)|ledger\s+balance|effective\s+balance|account\s+balance\s+is)[\s:]*(?:INR|Rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
+        Regex("""(?:avail(?:able)?\s+bal(?:ance)?|clear\s+balance|bal\s+in\s+a/c|balance\s+(?:is|in)|ledger\s+balance|effective\s+balance|account\s+balance\s+is|avail(?:able)?\s+(?:credit\s+)?limit|outstanding\s+bal(?:ance)?)(?:[^\r\n0-9]*?\bis\b)?[\s:]*(?:INR|Rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
         Regex("""(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)\s+(?:is\s+)?(?:your\s+)?(?:avail(?:able)?\s+bal(?:ance)?)""", RegexOption.IGNORE_CASE)
     )
 
@@ -98,7 +98,7 @@ object MessageExtractor {
     private val ATM_PATTERN = Regex("""\b(atm\s+withdrawal|withdrawn\s+at\s+atm|cash\s+withdrawal|atm\s+cash|withdrawn\s+from\s+atm)\b""", RegexOption.IGNORE_CASE)
 
     // EMI Payment patterns
-    private val EMI_PATTERN = Regex("""\b(towards\s+emi|loan\s+emi|smartemi\s+debited|debited\s+towards\s+smartemi|emi\s+debited|auto-debited\s+towards\s+emi)\b""", RegexOption.IGNORE_CASE)
+    private val EMI_PATTERN = Regex("""\b(towards\s+(?:smart\s*)?emi|smartemi|loan\s+emi|smartemi\s+debited|debited\s+towards\s+(?:smart\s*)?emi|emi\s+debited|auto-debited\s+towards\s+emi)\b""", RegexOption.IGNORE_CASE)
 
     // Refund / Reversal patterns
     private val REFUND_PATTERN = Regex("""\b(refund|reversal|refunded|reversed|cashback)\b""", RegexOption.IGNORE_CASE)
@@ -144,6 +144,16 @@ object MessageExtractor {
             return ExtractionResult.BalanceOnly(balanceAlert)
         }
 
+        // If email or HTML, try CampusFold Specialized Parsers (AxisBankEmailParser) first
+        val isEmailOrHtml = rawMessage.source == MessageSource.EMAIL || cleanBody.contains("<html>", ignoreCase = true) || rawMessage.sender.contains("@")
+        if (isEmailOrHtml) {
+            val emailTx = tryCampusFoldParsers(rawMessage, knownAccounts)
+            if (emailTx != null) {
+                val adjusted = checkOwnTransfer(emailTx, cleanBody, knownAccounts, recentTransactions)
+                return ExtractionResult.Transaction(adjusted)
+            }
+        }
+
         // Step 3: Attempt PennyWise Bank Parsers
         val pennyWiseTx = tryPennyWiseParser(rawMessage)
         if (pennyWiseTx != null) {
@@ -174,8 +184,9 @@ object MessageExtractor {
     fun classifyIgnored(body: String): String? {
         val lower = body.lowercase()
 
-        // OTPs & verification codes
-        if (OTP_PATTERN.containsMatchIn(body)) {
+        // OTPs & verification codes (ignoring warning disclaimers like "never share OTP")
+        val bodyWithoutDisclaimer = body.replace(Regex("""(?i)\b(?:never|do not|don't)\s+share\s+(?:your\s+|this\s+)?(?:otp|password|pin)[^.\r\n]*"""), "")
+        if (OTP_PATTERN.containsMatchIn(bodyWithoutDisclaimer)) {
             return "OTP / Verification Code"
         }
 
@@ -189,8 +200,9 @@ object MessageExtractor {
             return "Convert to EMI Marketing Offer"
         }
 
-        // Mandate & due reminders (when no money has moved yet)
-        if (!COMPLETED_MONEY_VERBS.containsMatchIn(body)) {
+        // Mandate & due reminders (when no money has moved yet, or future auto-debit)
+        val isFutureDebit = Regex("""\b(?:will be|scheduled to be|set to be)\s+(?:auto-?)?debited\b""", RegexOption.IGNORE_CASE).containsMatchIn(body)
+        if (!COMPLETED_MONEY_VERBS.containsMatchIn(body) || isFutureDebit) {
             for (pattern in MANDATE_REMINDER_PATTERNS) {
                 if (pattern.containsMatchIn(body)) {
                     return "Mandate / Due Date Reminder"
@@ -292,6 +304,9 @@ object MessageExtractor {
 
         val balancePaise = parsedTx.balance?.toDouble()?.let { CurrencyUtils.rupeesToPaise(it) }
         val creditLimitPaise = parsedTx.creditLimit?.toDouble()?.let { CurrencyUtils.rupeesToPaise(it) }
+            ?: Regex("""(?:Avl|Available)\s+limit\s+(?:Rs\.?|INR|₹)?\s*([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE)
+                .find(cleanBody)?.groupValues?.getOrNull(1)?.replace(",", "")?.toDoubleOrNull()
+                ?.let { CurrencyUtils.rupeesToPaise(it) }
 
         // Determine Direction & TransactionType
         val (direction, type) = mapPennyWiseType(parsedTx, cleanBody)

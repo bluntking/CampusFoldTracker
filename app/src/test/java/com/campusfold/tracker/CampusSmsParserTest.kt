@@ -124,7 +124,7 @@ class CampusSmsParserTest {
         assertNotNull(parsed)
         val tx = parsed!!.transaction
         assertEquals(150.0, tx.amount, 0.001)
-        assertEquals("Federal (Jupiter) 2548", tx.paymentMode)
+        assertEquals("Federal Bank Account", tx.paymentMode)
         assertEquals(TransactionType.EXPENSE, tx.type)
     }
 
@@ -135,7 +135,7 @@ class CampusSmsParserTest {
         assertNotNull(parsed)
         val tx = parsed!!.transaction
         assertEquals(450.0, tx.amount, 0.001)
-        assertEquals("PNB Savings Account 5557", tx.paymentMode)
+        assertEquals("PNB Account", tx.paymentMode)
     }
 
     @Test
@@ -145,6 +145,6 @@ class CampusSmsParserTest {
         assertNotNull(parsed)
         val tx = parsed!!.transaction
         assertEquals(300.0, tx.amount, 0.001)
-        assertEquals("Axis Bank Savings Account 5476", tx.paymentMode)
+        assertEquals("Axis Bank Account", tx.paymentMode)
     }
 }

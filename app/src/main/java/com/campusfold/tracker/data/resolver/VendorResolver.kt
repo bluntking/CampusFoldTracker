@@ -27,7 +27,7 @@ object VendorResolver {
             }
         }
 
-        s = s.replace(Regex("[._-]+"), " ").trim()
+        s = s.replace(Regex("[/._-]+"), " ").trim()
         s = s.replace(Regex("\\s+"), " ")
         return if (s.isBlank()) raw.trim() else capitalizeWords(s)
     }

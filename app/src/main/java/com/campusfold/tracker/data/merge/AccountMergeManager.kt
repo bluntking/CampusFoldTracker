@@ -299,8 +299,8 @@ class AccountMergeManager(
             )
         }
 
-        // Case C: Similar names on same bank or same last4
-        if ((sameBankKey || (bothHaveLast4 && sameLast4)) && stringSimilarity(a.displayName, b.displayName) >= 0.70) {
+        // Case C: Similar names on same bank or same last4 (where accounts don't have conflicting last4)
+        if (((sameBankKey && (!bothHaveLast4 || sameLast4)) || (bothHaveLast4 && sameLast4)) && stringSimilarity(a.displayName, b.displayName) >= 0.70) {
             return DuplicatePair(
                 accountA = a,
                 accountB = b,
