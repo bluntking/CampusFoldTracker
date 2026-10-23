@@ -1,162 +1,145 @@
 # CampusFoldTracker 💸
 
-[![Releases](https://img.shields.io/github/v/release/bluntking/CampusFoldTracker?color=00E676&label=Releases&logo=github)](https://github.com/bluntking/CampusFoldTracker/releases)
 [![Direct APK Download](https://img.shields.io/badge/Direct%20APK-Download%20(No%20ZIP)-00E5FF.svg?logo=android)](https://github.com/bluntking/CampusFoldTracker/releases)
 [![Build Android APK](https://github.com/bluntking/CampusFoldTracker/actions/workflows/build-apk.yml/badge.svg)](https://github.com/bluntking/CampusFoldTracker/actions/workflows/build-apk.yml)
 [![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026%2B)-black.svg?style=flat&logo=android)](https://developer.android.com)
-[![Kotlin](https://img.shields.io/badge/Kotlin-1.9.24-7F52FF.svg?style=flat&logo=kotlin)](https://kotlinlang.org)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.3.21-7F52FF.svg?style=flat&logo=kotlin)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-BOM%202024.06.00-4285F4.svg?style=flat&logo=jetpackcompose)](https://developer.android.com/jetpack/compose)
-[![Room](https://img.shields.io/badge/Room%20DB-2.6.1-orange.svg?style=flat)](https://developer.android.com/training/data-storage/room)
-[![MediaPipe](https://img.shields.io/badge/MediaPipe%20GenAI-0.10.14-00C49F.svg?style=flat&logo=google)](https://ai.google.dev/edge/mediapipe/solutions/genai/llm_inference)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Room](https://img.shields.io/badge/Room%20DB-2.8.4-orange.svg?style=flat)](https://developer.android.com/training/data-storage/room)
+[![LiteRT-LM](https://img.shields.io/badge/LiteRT--LM-0.16.1-00C49F.svg?style=flat&logo=google)](https://ai.google.dev)
 
 > ### 📱 [Download Latest APK from GitHub Releases](https://github.com/bluntking/CampusFoldTracker/releases)
-> Direct Android `.apk` downloads (no `.zip` extraction needed). Each new version is automatically published with full commit changelogs and installs in-place over your existing installation without data loss.
+> Direct Android `.apk` downloads (no `.zip` extraction required). Each release is published with structured release notes and installs in-place over your existing installation without data loss.
 
 ---
 
-**CampusFoldTracker** (launcher display: **CampusFold**) is an ultra-fast, 100% offline-first Android expense tracker, split-bill financial matrix, and local AI money coach built natively in Kotlin and Jetpack Compose. Styled in a bespoke **Fold Money OLED dark aesthetic** (`#0A0A0C` background, `#16161A` matte charcoal elevated cards, and neon accent highlights), it is purpose-engineered for Indian campus university life.
+**CampusFoldTracker** (launcher display: **CampusFold**) is a privacy-first, on-device Android expense tracker, multi-account financial ledger, bill-splitting manager, and on-device AI financial coach built natively with Kotlin and Jetpack Compose. Styled in an OLED dark aesthetic (`#0A0A0C` background, `#16161A` matte charcoal cards, and neon cyan, emerald, and purple highlights), it is purpose-engineered for clean, lag-free financial tracking.
 
 ---
 
-## 🚀 Key Highlights & Architectural Pillars
+## 🚀 Core Features
 
-### 1. 📭 Multi-Account SMS & Notification Parsing
-- **Zero Cloud / Bank Credential Risk:** Operates 100% locally on device with no backend servers, no Plaid/Yodlee tokens, and no financial data transmission.
-- **PNB Credit Card 8598:**
-  - Automatically parses debits: captures amount, date/time, UPI Ref, raw merchant, and live Available Credit Limit (`Avl limit Rs. 59396.93`).
-  - **Credit Card Bill Anti-Double-Counting:** Payment credits towards PNB CC 8598 are logged strictly as `CC_BILL_TRANSFER` (internal transfer), avoiding inflating expense or income metrics.
-- **Axis Bank XX2003 (SMS + Notification Listener):**
-  - **SMS Receiver:** Parses debit/credit notifications from AXISBK.
-  - **`GmailNotificationListener` (`NotificationListenerService`):** Strictly filters notifications from `com.google.android.gm` for Axis Bank credit alerts (`INR XX.XX was credited to your A/c` / `UPI/P2A/...`).
-  - Seamlessly captures incoming UPI settlements even when UPI banking app notifications are muted.
-- **Multi-Account Manager:**
-  - Built-in support for PNB CC 8598, Axis Bank XX2003, Federal (Jupiter) 2548, PNB Savings 5557, Axis Savings 5476, and custom accounts with live balance tracking.
+### 1. 📭 Automatic Discovery from SMS & Gmail IMAP
+- **Automatic Account & Transaction Detection:** Discovers accounts, debit/credit transactions, merchant vendors, and categories from incoming financial SMS alerts and manual or scheduled Gmail IMAP synchronizations.
+- **Exact Paise Integer Arithmetic:** All monetary amounts, balances, and shared splits are calculated and stored internally as exact 64-bit integer paise (`amountPaise`, `balancePaise`, `myActualSharePaise`), eliminating floating-point rounding errors and balance drift.
+- **Credit Card Bill Transfer Recognition:** Payments towards credit card accounts are classified as internal transfers (`CC_BILL_TRANSFER`), avoiding artificial inflation of income or expense totals.
 
----
+### 2. 🏦 Multi-Bank Parsing Engine (`:parser-core`)
+- **Extensive Bank Coverage:** Integrates a modular `:parser-core` engine with regex and heuristics inspired by PennyWise AI alongside custom parsers.
+- **Review Queue & Unparsed Messages:** Any transaction SMS or email that fails exact pattern matching is routed to the **Review Queue** or **Unparsed Messages** screen for manual inspection, AI analysis, or 1-tap rule creation.
 
-### 2. 👥 Normalized Bill Splitting & "Paid Friend for My Share"
-- **Zero Balance Drift:** Friend balances are never stored as static figures; net balances are dynamically computed on the fly via Room queries:
-  ```sql
-  SELECT SUM(amountOwed - amountPaidSoFar) FROM split_items WHERE personId = :personId AND isSettled = 0
-  ```
-- **FIFO Settlement Engine:** When a friend pays you back ₹X, the engine automatically covers the oldest unsettled bills first, supports partial payments, and prompts to log overpayment as advance income.
-- **🤝 Paid Friend for My Share:**
-  - When your friend pays for dinner, groceries, or cabs and you UPI them your share, mark the debit transaction with **1 tap** using the *"Paid Friend for My Share"* card.
-  - Automatically formats the merchant name as `"Paid to [Friend] (My Share)"` and assigns your true category (*Food & Dining*, *Travel*, etc.) so your spending analysis reflects real living expenses.
-  - Available in **Transaction Details**, **Manual Add Dialog**, and as a **"Paid Share"** shortcut on every friend card in the Splits tab.
-- **Smart Credit Matching:** Detects incoming UPI payments from friends and prompts 1-tap settlement confirmations.
+### 3. 🤖 On-Device AI Fallback (Isolated Process `:ai`)
+- **Isolated Process Architecture:** Google LiteRT-LM (`0.16.1`) executes inside a separate Android process (`:ai`). If heavy model inference runs out of memory or hits an unmanaged native fault, only the background worker restarts; the main user interface remains responsive and crash-free.
+- **Unstructured Message Parsing:** Extracts structured `{amount, type, merchant, bank, accountLast4}` entities from irregular or non-templated financial notifications.
+- **Context-Aware AI Coach:** An interactive chat assistant powered by on-device models (e.g. Qwen 2.5 1.5B, Gemma 3 1B) injected with live on-device context (monthly true spend, top categories, friend debt totals, and account balances).
+- **Graceful Fallback:** If an AI model is not installed or enabled, the app continues normal operation using standard deterministic parsers and database analytics.
 
----
+### 4. ⚙️ Rules Engine & Learned Associations
+- **Custom Transaction Rules:** Create declarative rules with flexible conditions (`CONTAINS`, `EQUALS`, `STARTS_WITH`, `REGEX`) across transaction fields (`RAW_MERCHANT`, `SMS_BODY`, `ACCOUNT`, `AMOUNT`) to automatically reassign categories, rewrite vendor names, or block noise transactions.
+- **Learned Rules:** System learns category associations as you manually categorize transactions, automatically applying them to future transactions from the same vendor.
 
-### 3. 📊 Dynamic OLED Financial Pulse & Analytics Matrix
-- **True Spend Isolation:** Spend graphs only query `SUM(myActualShare)` for `EXPENSE` items, rigorously excluding friend shares, credit card payments, and income.
-- **Dynamic Month & Week Switcher:**
-  - Switch effortlessly between **Month** and **Week** views with the top segmented controller.
-  - Page backwards/forwards across past months or weeks (`<` `Period Label` `>`), or tap **Filter** to jump to any past period.
-  - The Donut chart, vendor rankings, category progress bars, and budget pacing dynamically re-compute in real time for the selected period.
-- **Comparative Expense Trajectory (WoW & MoM):**
-  - Smooth multi-line area charts comparing your current week/month spending trajectory against the prior period in background grey.
-- **"Where to Control" Intelligent Audits:**
-  - **Burn Rate Warning:** Flags categories whose spending % outpaces elapsed days in the billing cycle.
-  - **High-Frequency Campus Leaks:** Highlights vendors with >5 transactions in the week (e.g. repeated canteen or chai visits).
-  - **Week-over-Week Spike:** Alerts when spending in a category jumps significantly compared to the prior 7 days.
-  - **Proactive Budget Alerts:** Sends instant high-priority notifications when reaching 50%, 70%, 90%, and 100% of category or overall targets.
+### 5. 🔀 Duplicate Account Auto-Merge & Manual Merging
+- **Confidence Scoring:** Automatically identifies duplicate financial accounts (e.g., matching bank identifier and last 4 digits). High-confidence matches are eligible for automatic merging, while ambiguous pairs are surfaced as suggested merges.
+- **Full Undo Support:** Every merge operation records snapshots and moved transaction IDs in Room DB. You can review merge history and reverse any merge with 1 tap.
+- **User Edit Protection:** Accounts with user-customized display names or account types are protected against automated merges.
+- **Manual Account Merge:** Merge any two accounts on demand with custom field selections (surviving name, balance, and account type).
 
----
+### 6. 🛠️ Comprehensive Manual Control & Sticky Edits
+- **Batch Transaction Actions:** Bulk delete transactions, bulk recategorize, or bulk move transactions to another account.
+- **Sticky Edits (`editedFields`):** Tracks manual overrides for categories, vendors, accounts, or descriptions to ensure automated ingestion passes never overwrite user choices.
+- **Undo Delete Stash:** Deleting transactions offers an immediate undo snackbar to restore records without data loss.
+- **Transaction Merging:** Merge duplicate charges (e.g., SMS and email alerts for the same purchase) into a single unified record.
 
-### 4. 📝 Expense Descriptions & Memory Notes
-- Add optional personal notes/descriptions to any expense (e.g., *"Dinner with Rahul at BBQ Nation"*, *"Bought engineering drawing board"*, *"Split hostel groceries"*).
-- Notes are displayed in subtle italic cyan text on transaction feed cards across the **Home** and **Dashboard** tabs.
-- Fully supported in offline JSON backups and Room DB migrations.
+### 7. 🏠 Home Tab, Live Balances & Daily Gauge
+- **Account Balance Cards:** Displays live account balances, balance source indicators (Auto vs Manual), and quick balance overrides.
+- **Quick Metric Filters:** Filter feeds by All, Needs Review, Uncategorized, or High Spend items.
+- **Daily Spending Gauge:** Visualizes real-time daily spending against monthly pacing and previous period averages.
 
----
+### 8. 👥 Bill Splitting & FIFO Debt Settlement
+- **Dynamic Net Balances:** Friend balances are computed dynamically from active Room split items to avoid balance drift.
+- **FIFO Settlement Engine:** Repayments automatically settle the oldest outstanding split items first, with full support for partial payments and advance credits.
+- **"Paid Friend for My Share":** Quickly record a debit when a friend pays for a shared bill and you transfer your share via UPI, correctly attributing the category to your personal spend.
 
-### 5. 🏪 Campus Vendor Alias Normalization
-Decipher cryptic POS merchant names like `Sekar store` or `CHAATTERBOX` instantly:
+### 9. 📊 Budgets & Intelligent Insights
+- **Monthly Targets:** Set overall and per-category monthly spending limits with color-coded progress indicators.
+- **Burn Rate Warnings:** Flags categories where spending pace outpaces elapsed days in the billing cycle.
+- **High-Frequency Leaks:** Highlights recurring micro-transactions across the week.
+- **Week-over-Week Spikes:** Alerts when spending in a category jumps significantly compared to the prior week.
 
-| Raw Bank / UPI Keyword | Friendly Campus Vendor | Default Category |
-| :--- | :--- | :--- |
-| `Sekar store` | **Akka shop** | Chai & Smoke |
-| `KARTHIK` | **Bistro** | Food |
-| `CHAATTERBOX` | **Chaaterbox** | Food |
-| `Mohan` | **Chennai beverage** | Beverages |
-| `HungerBox` | **Hungerbox** | Food |
-| `DD STORE` | **Utility store** | Utilities |
-
-*Fully editable: Add new vendor keywords, edit friendly names, or set custom category rules.*
+### 10. 💾 Local Backup & Restore
+- **Streaming JSON Export & Import:** Export all transactions, accounts, categories, rules, and friends to an open JSON file via Android Storage Access Framework (SAF).
+- **Memory-Efficient Streaming:** Streams data via buffered chunk writing to prevent memory spikes on large databases.
 
 ---
 
-### 6. 🤖 On-Device Local AI Financial Coach (MediaPipe GenAI)
-Inspired by PennyWiseAI, CampusFoldTracker integrates Google's **MediaPipe LLM Inference API** (`tasks-genai:0.10.14`):
-- **Local Neural Inference:** Runs directly on your device CPU/GPU with quantized `.bin` or `.task` models (e.g., Gemma-2B-IT, Qwen-0.5B/1.5B) loaded via Android's Storage Access Framework.
-- **Safe Graceful Fallback:** If no model file is loaded, the app never crashes—it delivers instant database-driven financial insights with clear setup guides.
-- **Database Context Injection:** Live metrics are dynamically injected into the system prompt:
-  - Current month's true spend (`₹`)
-  - Top category spends & campus vendor totals
-  - Pending debts owed by friends
-  - PNB credit card remaining limits
-- **AI Unstructured Fallback:** Automatically parse unrecognized bank SMS or non-standard email alerts into structured `{amount, type, merchant, senderName}` JSON.
+## 📲 Setup Guide
+
+### Step 1: Install the APK
+1. Download the latest `CampusFold-1.0.XX.apk` from [GitHub Releases](https://github.com/bluntking/CampusFoldTracker/releases).
+2. Open the downloaded APK on your Android device to install or update in-place.
+
+### Step 2: Permissions
+During the onboarding flow, CampusFold requests the following permissions:
+- **`READ_SMS` & `RECEIVE_SMS`:** Required to import past financial messages and capture new transaction SMS alerts in real time.
+- **`POST_NOTIFICATIONS`:** (Android 13+) Used to deliver optional budget limit warnings and transaction confirmations.
+- **`INTERNET`:** Used exclusively for secure Gmail IMAP synchronization over SSL and optional AI model downloads.
+- **`WAKE_LOCK`:** Ensures the background SMS receiver safely finishes database ingestion without being killed by device sleep modes.
+
+### Step 3: Connect Gmail (Optional)
+To automatically import transaction receipts and bank credit emails:
+1. Enable **2-Step Verification** on your Google Account.
+2. Go to **Google Account Settings > Security > App Passwords** and generate a 16-character App Password.
+3. In CampusFold, enter your Gmail address and generated App Password.
+4. Passwords are encrypted at rest using the hardware-backed **Android Keystore**.
+
+### Step 4: Configure On-Device AI (Optional)
+1. In the AI Coach or Onboarding screen, review recommended models (e.g. Qwen 2.5 1.5B or Gemma 3 1B).
+2. Download an optimized model directly within the app, or import an existing `.bin` / `.task` file using Android Storage Access Framework.
+3. You can skip this step at any time; all core parsing, rules, budgets, and splitting features work completely without an AI model.
+
+### Step 5: Run Your First Scan
+1. In settings or onboarding, choose your scan window (1, 3, 6 months, or All).
+2. Tap **Scan SMS Inbox** or **Sync Gmail** to automatically discover accounts, vendors, categories, and historical transactions.
 
 ---
 
-### 7. 🛡️ In-Place Updates & Data Safety Engine
-- **Seamless In-Place Updates:**
-  - All GitHub Actions cloud builds are signed with a persistent keystore so new APKs install directly over old versions without uninstalling.
-- **Auto-Incrementing Versioning:**
-  - `versionCode` automatically increments with each cloud build (`GITHUB_RUN_NUMBER + 100`) and the clean launcher name **CampusFold** displays on your home screen.
-- **Safe Non-Destructive Migrations:**
-  - Strict Room database migrations (`MIGRATION_1_2`, `MIGRATION_2_3`), ensuring app updates never wipe user data.
-- **1-Tap Offline JSON Backup & Restore:**
-  - Export all transactions, categories, vendor mappings, accounts, and friends to an open JSON file via Android Storage Access Framework (SAF).
+## 🔒 Privacy & Data Policy
+
+- **On-Device Storage:** All financial records, transactions, account numbers, balances, split items, and custom rules are stored exclusively on your device in a local SQLite Room database.
+- **No Analytics or Remote Tracking:** There are no telemetrySDKs, analytics trackers, advertising IDs, or external reporting servers embedded in the application.
+- **Network Boundaries:** Network access is strictly restricted to two explicit user-initiated operations:
+  1. Direct IMAP SSL connection to `imap.gmail.com:993` when you configure and run Gmail synchronization.
+  2. Downloading quantized AI model weights when you choose to download an on-device model.
+- Financial data is never transmitted to any third-party cloud service or external API.
 
 ---
 
-## 📲 Installation Guide
+## 🏛️ Supported Banks
 
-### Download Latest APK
-1. Visit the [CampusFoldTracker Releases Page](https://github.com/bluntking/CampusFoldTracker/releases).
-2. Download the latest `CampusFold-1.0.XX.apk` directly to your phone (no ZIP unzipping needed!).
-3. Tap the downloaded APK to install or upgrade in-place.
+CampusFold provides broad financial transaction coverage through the integrated `:parser-core` engine (supporting institutions such as Axis Bank, HDFC Bank, ICICI Bank, State Bank of India, Punjab National Bank, Bank of Baroda, Kotak Mahindra, Federal Bank, Canara Bank, Union Bank, Jupiter, Slice, Cred, and many others, along with international bank alert formats).
 
----
-
-### ⚠️ Android 13/14/15 Restricted Settings Permission Bypass
-On Android 13+, Google restricts sideloaded apps from accessing notification listeners by default. Follow these steps to enable SMS & Gmail notification tracking:
-
-```text
-1. Install and launch CampusFoldTracker once.
-2. Open Android Settings > Apps > CampusFold (or CampusFoldTracker).
-3. Tap the three dots (⋮) in the top-right corner.
-4. Select "Allow restricted settings" (Authenticate with Fingerprint/PIN).
-5. Open CampusFoldTracker:
-   - Tap "Grant Permissions" for SMS access.
-   - Tap "Enable Gmail Access" to turn on the Notification Listener for Axis Bank alerts.
-```
+If an incoming SMS or email alert is not recognized by existing patterns, it is automatically saved to the **Review Queue** or **Unparsed Messages** list, allowing you to review it, parse it via Local AI, or define a rule with 1 tap.
 
 ---
 
 ## 🏗️ Tech Stack & Dependencies
 
-- **Language:** Kotlin 1.9.24
-- **UI Toolkit:** Jetpack Compose (BOM `2024.06.00`), Material 3, Material Icons Extended
-- **Database:** Android Room 2.6.1 (with KSP schema exports & SQL migrations)
-- **Local AI:** Google MediaPipe Tasks GenAI `0.10.14` (LLM Inference)
-- **Preferences:** Jetpack DataStore Preferences `1.1.1`
-- **Concurrency:** Kotlin Coroutines & Flow
-- **CI/CD:** GitHub Actions (`build-apk.yml`) with automated Gradle wrapper compilation, test suite execution, and automatic changelog-enabled release publishing.
+- **Language:** Kotlin 2.3.21
+- **Android Gradle Plugin (AGP):** 9.2.1
+- **KSP:** 2.3.9
+- **Target SDK:** 34 | **Compile SDK:** 35 | **Min SDK:** 26 (Android 8.0+)
+- **UI Framework:** Jetpack Compose (BOM `2024.06.00`), Material 3, Material Icons Extended
+- **Architecture & Lifecycle:** AndroidX Lifecycle 2.8.4 (`lifecycle-runtime-compose`, `lifecycle-viewmodel-compose`)
+- **Database:** AndroidX Room 2.8.4 (`room-runtime`, `room-ktx`, `room-compiler`) with KSP schema exports
+- **Concurrency:** Kotlinx Coroutines 1.11.0 (`kotlinx-coroutines-core`, `kotlinx-coroutines-android`)
+- **Preferences:** AndroidX DataStore Preferences 1.1.1
+- **Local AI Engine:** Google LiteRT-LM Android 0.16.1 (`litertlm-android`)
+- **Background Tasks:** AndroidX WorkManager 2.9.1 (`work-runtime-ktx`)
+- **Mail Protocols:** Jakarta / JavaMail for Android 1.6.7 (`android-mail`, `android-activation`)
+- **CI/CD:** GitHub Actions (`build-apk.yml`) with automated Gradle builds, unit tests, and automated GitHub Releases
 
 ---
 
-## 🔒 Security & Keystore Notice
+## 🙏 Credits
 
-- **100% Offline & Private:** No tracking, no analytics, no remote servers. Financial data never leaves your smartphone.
-- **Signing Keystore Notice:**
-  - The repository includes a development signing key (`app/keystore/campusfold.jks`) so GitHub Actions can automatically sign APKs for easy sideloading without manual secret setup.
-  - If you intend to publish this app publicly on the Google Play Store or distribute production releases, do **not** use the public test key. Create a private production keystore and store it securely in GitHub Actions repository secrets or use Google Play App Signing.
-
----
-
-## 📄 License
-Licensed under the [MIT License](LICENSE).
+- **PennyWise AI:** Sincere thanks to [PennyWise AI](https://github.com/pennywise-ai) (licensed under AGPL-3.0) for the multi-bank parsing architecture in `:parser-core` and the declarative transaction rules design.

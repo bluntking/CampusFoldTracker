@@ -117,27 +117,53 @@ jobs:
             git fetch --tags --force 2>/dev/null || true
             PREV_TAG=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 
+            COMMITS=""
+            if [ -n "$PREV_TAG" ]; then
+              COMMITS=$(git log "$PREV_TAG..HEAD" --pretty=format:"- %s (%h)" --no-merges)
+            else
+              COMMITS=$(git log -n 15 --pretty=format:"- %s (%h)" --no-merges)
+            fi
+
+            CHANGELOG_SECTION=""
+            if [ -f "CHANGELOG.md" ]; then
+              CHANGELOG_SECTION=$(awk '
+                /^## \[/ {
+                  if (found) exit
+                  found = 1
+                  next
+                }
+                found { print }
+              ' CHANGELOG.md | sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba')
+            fi
+
             echo "## 🚀 What's New in CampusFold v1.0.${{ github.run_number }}" > release_notes.md
             echo "" >> release_notes.md
-            echo "### 📋 Changelog" >> release_notes.md
-            if [ -n "$PREV_TAG" ]; then
-              echo "Changes since **$PREV_TAG**:" >> release_notes.md
-              git log "$PREV_TAG..HEAD" --pretty=format:"- %s (%h)" --no-merges >> release_notes.md
+
+            if [ -n "$CHANGELOG_SECTION" ]; then
+              echo "$CHANGELOG_SECTION" >> release_notes.md
             else
-              git log -n 15 --pretty=format:"- %s (%h)" --no-merges >> release_notes.md
+              echo "$COMMITS" >> release_notes.md
             fi
-            echo "" >> release_notes.md
+
             echo "" >> release_notes.md
             echo "---" >> release_notes.md
             echo "### 📱 Direct APK Download (No ZIP)" >> release_notes.md
             echo "Download directly to your Android device without unzipping:" >> release_notes.md
             echo "- [CampusFold-1.0.${{ github.run_number }}.apk]($APK_URL)" >> release_notes.md
             echo "- **In-Place Update:** Installs smoothly over your existing installation preserving all local databases and configurations." >> release_notes.md
+            echo "" >> release_notes.md
+
+            if [ -n "$CHANGELOG_SECTION" ] && [ -n "$COMMITS" ]; then
+              echo "<details>" >> release_notes.md
+              echo "<summary><b>Commits</b></summary>" >> release_notes.md
+              echo "" >> release_notes.md
+              echo "$COMMITS" >> release_notes.md
+              echo "</details>" >> release_notes.md
+            fi
 
             gh release create "$TAG" "$APK_FILE" \
               --title "CampusFold v1.0.${{ github.run_number }}" \
               --notes-file release_notes.md \
-              --generate-notes \
               --latest || gh release upload "$TAG" "$APK_FILE" --clobber || true
 
             echo "## 📱 Direct APK Download (No ZIP)" >> $GITHUB_STEP_SUMMARY
