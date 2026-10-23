@@ -586,6 +586,7 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         splits: List<SplitItemEntity> = emptyList()
     ) {
         viewModelScope.launch {
+            val existing = allTransactions.value.find { it.id == id }
             val amountPaiseVal = com.campusfold.tracker.util.CurrencyUtils.rupeesToPaise(amount)
             val updated = (existing ?: TransactionEntity(
                 id = id,
