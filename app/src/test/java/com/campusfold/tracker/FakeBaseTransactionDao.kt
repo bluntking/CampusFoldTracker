@@ -2,7 +2,7 @@ package com.campusfold.tracker
 
 import com.campusfold.tracker.data.dao.TransactionDao
 import com.campusfold.tracker.data.entity.TransactionEntity
-import com.campusfold.tracker.data.entity.TransactionWithSplits
+import com.campusfold.tracker.data.model.TransactionWithSplits
 import com.campusfold.tracker.data.model.VendorSpendingItem
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf

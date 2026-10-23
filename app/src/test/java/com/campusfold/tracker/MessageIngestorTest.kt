@@ -71,7 +71,12 @@ class MessageIngestorTest {
                 instrumentType: String?,
                 merchantRaw: String?,
                 direction: Direction,
-                transactionType: TransactionType
+                transactionType: TransactionType,
+                rawMessage: RawMessage?,
+                amountPaise: Long,
+                timestamp: Long,
+                editedFields: String,
+                batchContext: com.campusfold.tracker.data.ingest.IngestBatchContext?
             ): ResolvedEntities {
                 val acc = when {
                     accountLast4 == "2003" || bankName?.contains("Axis", ignoreCase = true) == true -> testAccountAuto
@@ -495,6 +500,8 @@ class FakeSplitItemDao : SplitItemDao {
     override suspend fun insertSplitItem(splitItem: SplitItemEntity): Long = 1L
     override suspend fun insertSplitItems(splitItems: List<SplitItemEntity>): List<Long> = emptyList()
     override suspend fun updateSplitItem(splitItem: SplitItemEntity) {}
+    override suspend fun deleteSplitItem(split: SplitItemEntity) {}
+    override suspend fun reassignSplits(oldTxId: Long, newTxId: Long) {}
     override suspend fun deleteSplitsForTransaction(transactionId: Long) {}
     override suspend fun clearAll() {}
     override suspend fun recordPayment(splitId: Long, amountPaidPaise: Long) {}

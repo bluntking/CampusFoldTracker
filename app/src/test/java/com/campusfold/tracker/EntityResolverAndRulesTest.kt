@@ -579,6 +579,7 @@ class FakeVendorDaoImpl : VendorDao {
     override suspend fun updateVendor(vendor: VendorEntity) { vendors[vendor.id] = vendor }
     override suspend fun deleteVendor(vendor: VendorEntity) { vendors.remove(vendor.id) }
     override suspend fun deleteVendorById(id: Long) { vendors.remove(id) }
+    override suspend fun updateCategoryIdForVendors(oldCategoryId: Long, newCategoryId: Long?) {}
 }
 
 class FakeCategoryDaoImpl : CategoryDao {
@@ -603,6 +604,11 @@ class FakeCategoryDaoImpl : CategoryDao {
     override suspend fun updateCategory(category: CategoryEntity) { categories[category.id] = category }
     override suspend fun deleteCategory(category: CategoryEntity) { categories.remove(category.id) }
     override suspend fun deleteCategoryById(id: Long) { categories.remove(id) }
+
+    override fun getCategorySpending(): Flow<List<com.campusfold.tracker.data.model.CategorySpending>> = flowOf(emptyList())
+    override fun getCategorySpendingForMonth(startOfMonth: Long, endOfMonth: Long): Flow<List<com.campusfold.tracker.data.model.CategorySpending>> = flowOf(emptyList())
+    override suspend fun getCategorySpendingForMonthSync(startOfMonth: Long, endOfMonth: Long): List<com.campusfold.tracker.data.model.CategorySpending> = emptyList()
+    override suspend fun getCategorySpendBetweenSync(start: Long, end: Long): List<com.campusfold.tracker.data.model.CategoryPeriodSpend> = emptyList()
 }
 
 class FakeRuleDaoImpl : RuleDao {
@@ -656,6 +662,13 @@ class FakeReviewItemDaoImpl : ReviewItemDao {
     }
     override suspend fun deleteReviewItem(item: ReviewItemEntity) { items.remove(item.id) }
     override suspend fun deleteReviewItemById(id: Long) { items.remove(id) }
+    override suspend fun discardAllPending() {
+        items.values.filter { it.status == ReviewStatus.PENDING }.forEach {
+            items[it.id] = it.copy(status = ReviewStatus.DISCARDED)
+        }
+    }
+    override suspend fun getPendingReviewItemsSync(): List<ReviewItemEntity> =
+        items.values.filter { it.status == ReviewStatus.PENDING }
 }
 
 class FakeAiCacheDaoImpl : AiCacheDao {
