@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.campusfold.tracker.data.model.GmailSyncStats
 import com.campusfold.tracker.ui.TransactionViewModel
 import com.campusfold.tracker.ui.theme.*
@@ -46,10 +47,10 @@ fun GmailSyncDialog(
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
 
-    val savedEmail by viewModel.gmailSyncEmail.collectAsState()
-    val savedPassword by viewModel.gmailSyncAppPassword.collectAsState()
-    val isSyncing by viewModel.isGmailSyncing.collectAsState()
-    val syncProgress by viewModel.gmailSyncProgress.collectAsState()
+    val savedEmail by viewModel.gmailSyncEmail.collectAsStateWithLifecycle()
+    val savedPassword by viewModel.gmailSyncAppPassword.collectAsStateWithLifecycle()
+    val isSyncing by viewModel.isGmailSyncing.collectAsStateWithLifecycle()
+    val syncProgress by viewModel.gmailSyncProgress.collectAsStateWithLifecycle()
 
     var emailInput by remember(savedEmail) { mutableStateOf(savedEmail ?: "") }
     var passwordInput by remember(savedPassword) { mutableStateOf(savedPassword ?: "") }

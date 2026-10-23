@@ -1,17 +1,20 @@
 package com.campusfold.tracker.data
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.campusfold.tracker.data.dao.*
 import com.campusfold.tracker.data.entity.*
 import com.campusfold.tracker.data.model.*
 import com.campusfold.tracker.data.pref.AppPreferences
 import com.campusfold.tracker.util.AxisBankEmailParser
 import com.campusfold.tracker.util.BudgetAlertEvaluator
+import com.campusfold.tracker.util.CurrencyUtils
 import com.campusfold.tracker.util.GmailImapClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import java.util.Calendar
 
 class TransactionRepository(
@@ -22,21 +25,98 @@ class TransactionRepository(
 
     private val transactionDao: TransactionDao = db.transactionDao()
     private val categoryDao: CategoryDao = db.categoryDao()
-    private val vendorDao: VendorMappingDao = db.vendorMappingDao()
+    private val vendorDao: VendorDao = db.vendorDao()
     private val personDao: PersonDao = db.personDao()
     private val splitDao: SplitItemDao = db.splitItemDao()
     private val suggestionDao: PendingSettlementSuggestionDao = db.pendingSettlementSuggestionDao()
     private val accountDao: AccountDao = db.accountDao()
+    private val accountAliasDao: AccountAliasDao = db.accountAliasDao()
+    private val mergeLogDao: MergeLogDao = db.mergeLogDao()
+    private val notSamePairDao: NotSamePairDao = db.notSamePairDao()
+    private val ruleDao: RuleDao = db.ruleDao()
+    private val reviewItemDao: ReviewItemDao = db.reviewItemDao()
+    private val unparsedMessageDao: UnparsedMessageDao = db.unparsedMessageDao()
+    private val processedMessageDao: ProcessedMessageDao = db.processedMessageDao()
+    private val aiCacheDao: AiCacheDao = db.aiCacheDao()
+    private val scanHistoryDao: ScanHistoryDao = db.scanHistoryDao()
 
-    // ─── Accounts ─────────────────────────────────────────────────────────────
+    val accountMergeManager = com.campusfold.tracker.data.merge.AccountMergeManager(
+        db = db,
+        accountDao = accountDao,
+        accountAliasDao = accountAliasDao,
+        mergeLogDao = mergeLogDao,
+        notSamePairDao = notSamePairDao,
+        transactionDao = transactionDao,
+        aiFallbackService = com.campusfold.tracker.ai.AiFallbackService(aiCacheDao, appPreferences)
+    )
+
+    // ─── Accounts & Merge Management ──────────────────────────────────────────
     val allAccounts: Flow<List<AccountEntity>> = accountDao.getAllAccounts()
+    val latestAutoMergeLog: Flow<MergeLogEntity?> = mergeLogDao.getLatestActiveAutoMergeLogFlow()
+    val allActiveMergeLogs: Flow<List<MergeLogEntity>> = mergeLogDao.getAllActiveMergeLogs()
 
     suspend fun getAllAccountsList(): List<AccountEntity> = withContext(Dispatchers.IO) {
         accountDao.getAllAccountsSync()
     }
 
+    suspend fun getActiveMergeLogsForAccount(accountId: Long): List<MergeLogEntity> = withContext(Dispatchers.IO) {
+        mergeLogDao.getActiveMergeLogsForAccountSync(accountId)
+    }
+
+    suspend fun runAutoMergePass(): List<MergeLogEntity> = withContext(Dispatchers.IO) {
+        accountMergeManager.runAutoMergePass()
+    }
+
+    suspend fun detectDuplicateAccounts(): Pair<List<com.campusfold.tracker.data.merge.DuplicatePair>, List<com.campusfold.tracker.data.merge.DuplicatePair>> = withContext(Dispatchers.IO) {
+        accountMergeManager.detectDuplicates()
+    }
+
+    suspend fun mergeAccounts(
+        survivingAccountId: Long,
+        mergedAccountId: Long,
+        mode: MergeMode = MergeMode.MANUAL,
+        overrideDisplayName: String? = null,
+        overrideType: AccountType? = null,
+        overrideLast4: String? = null
+    ): Long = withContext(Dispatchers.IO) {
+        accountMergeManager.mergeAccounts(
+            survivingAccountId = survivingAccountId,
+            mergedAccountId = mergedAccountId,
+            mode = mode,
+            overrideDisplayName = overrideDisplayName,
+            overrideType = overrideType,
+            overrideLast4 = overrideLast4
+        )
+    }
+
+    suspend fun undoMerge(mergeLogId: Long): Boolean = withContext(Dispatchers.IO) {
+        accountMergeManager.undoMerge(mergeLogId)
+    }
+
+    suspend fun markPairNotSame(accountIdA: Long, accountIdB: Long) = withContext(Dispatchers.IO) {
+        accountMergeManager.markNotSame(accountIdA, accountIdB)
+    }
+
+    suspend fun countTransactionsForAccount(accountId: Long): Int = withContext(Dispatchers.IO) {
+        transactionDao.countTransactionsByAccountId(accountId)
+    }
+
+    suspend fun getRecentTransactionsList(limit: Int = 20): List<TransactionEntity> = withContext(Dispatchers.IO) {
+        transactionDao.getRecentTransactionsSync(limit)
+    }
+
+    suspend fun updateAccountBalance(accountId: Long, balancePaise: Long, timestamp: Long, source: com.campusfold.tracker.data.entity.BalanceSource = com.campusfold.tracker.data.entity.BalanceSource.AUTO) = withContext(Dispatchers.IO) {
+        accountDao.updateBalance(accountId, balancePaise, timestamp, source)
+    }
+
     suspend fun addAccount(account: AccountEntity): Long = withContext(Dispatchers.IO) {
-        accountDao.insertAccount(account)
+        val id = accountDao.insertAccount(account)
+        try {
+            accountMergeManager.runAutoMergePass()
+        } catch (e: Exception) {
+            android.util.Log.w("TransactionRepository", "Auto-merge duplicate check failed after addAccount: ${e.message}")
+        }
+        id
     }
 
     suspend fun updateAccount(account: AccountEntity) = withContext(Dispatchers.IO) {
@@ -47,10 +127,250 @@ class TransactionRepository(
         accountDao.deleteAccount(account)
     }
 
+    suspend fun deleteAccountWithReassign(accountId: Long, targetAccountId: Long?) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val count = transactionDao.countTransactionsByAccountId(accountId)
+            if (count > 0) {
+                if (targetAccountId != null) {
+                    transactionDao.updateAccountIdForTransactions(accountId, targetAccountId)
+                } else {
+                    transactionDao.unassignAccountForTransactions(accountId)
+                }
+            }
+            if (targetAccountId != null) {
+                accountAliasDao.reassignAliases(accountId, targetAccountId)
+            } else {
+                accountAliasDao.deleteAliasesForAccount(accountId)
+            }
+            accountDao.deleteAccountById(accountId)
+        }
+    }
+
+    suspend fun setAccountArchived(accountId: Long, isArchived: Boolean) = withContext(Dispatchers.IO) {
+        accountDao.setArchived(accountId, isArchived)
+    }
+
+    suspend fun setAccountBalanceManually(accountId: Long, balancePaise: Long) = withContext(Dispatchers.IO) {
+        accountDao.updateBalance(accountId, balancePaise, System.currentTimeMillis(), BalanceSource.MANUAL)
+    }
+
+    suspend fun clearManualBalanceOverride(accountId: Long) = withContext(Dispatchers.IO) {
+        val acc = accountDao.getAccountById(accountId) ?: return@withContext
+        accountDao.updateAccount(acc.copy(balanceSource = BalanceSource.AUTO))
+    }
+
+    // ─── Manual Transaction Control ───────────────────────────────────────────
+    suspend fun bulkDeleteTransactions(ids: List<Long>): List<TransactionEntity> = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val existing = transactionDao.getTransactionsByIdsSync(ids)
+            transactionDao.deleteTransactionsByIds(ids)
+            existing
+        }
+    }
+
+    suspend fun restoreTransactions(transactions: List<TransactionEntity>) = withContext(Dispatchers.IO) {
+        transactionDao.restoreTransactions(transactions)
+    }
+
+    suspend fun bulkRecategorizeTransactions(ids: List<Long>, categoryId: Long?) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            transactionDao.updateCategoryIdForTransactionIds(ids, categoryId)
+            val txs = transactionDao.getTransactionsByIdsSync(ids)
+            for (tx in txs) {
+                val editedSet = parseEditedFields(tx.editedFields).toMutableSet()
+                editedSet.add("categoryId")
+                transactionDao.updateTransaction(tx.copy(editedFields = JSONArray(editedSet.toList()).toString()))
+            }
+        }
+    }
+
+    suspend fun bulkMoveTransactionsToAccount(ids: List<Long>, targetAccountId: Long) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val targetAcc = accountDao.getAccountById(targetAccountId) ?: return@withTransaction
+            transactionDao.updateAccountIdForTransactionIds(ids, targetAccountId)
+            val txs = transactionDao.getTransactionsByIdsSync(ids)
+            for (tx in txs) {
+                val editedSet = parseEditedFields(tx.editedFields).toMutableSet()
+                editedSet.add("accountId")
+                editedSet.add("paymentMode")
+                transactionDao.updateTransaction(
+                    tx.copy(
+                        paymentMode = targetAcc.displayName,
+                        editedFields = JSONArray(editedSet.toList()).toString()
+                    )
+                )
+            }
+        }
+    }
+
+    suspend fun mergeDuplicateTransactions(survivingTxId: Long, duplicateTxId: Long): TransactionEntity = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val survivor = transactionDao.getTransactionByIdSync(survivingTxId)
+                ?: throw IllegalArgumentException("Survivor transaction not found: $survivingTxId")
+            val duplicate = transactionDao.getTransactionByIdSync(duplicateTxId)
+                ?: throw IllegalArgumentException("Duplicate transaction not found: $duplicateTxId")
+
+            // Reassign any splits from duplicate to survivor
+            splitDao.reassignSplits(duplicateTxId, survivingTxId)
+
+            // Combine descriptions
+            val combinedDesc = when {
+                survivor.description.isNullOrBlank() -> duplicate.description
+                duplicate.description.isNullOrBlank() -> survivor.description
+                survivor.description == duplicate.description -> survivor.description
+                else -> "${survivor.description} | ${duplicate.description}"
+            }
+
+            // Combine references
+            val finalRef = if (!survivor.reference.isNullOrBlank()) survivor.reference else duplicate.reference
+            val finalUpi = if (!survivor.upiRef.isNullOrBlank()) survivor.upiRef else duplicate.upiRef
+
+            // Combine sticky edits
+            val survivorEdited = parseEditedFields(survivor.editedFields).toMutableSet()
+            survivorEdited.addAll(parseEditedFields(duplicate.editedFields))
+
+            val updated = survivor.copy(
+                description = combinedDesc,
+                reference = finalRef,
+                upiRef = finalUpi,
+                editedFields = JSONArray(survivorEdited.toList()).toString()
+            )
+            transactionDao.updateTransaction(updated)
+            transactionDao.deleteTransaction(duplicate)
+            updated
+        }
+    }
+
+    // ─── Manual Vendor Control ────────────────────────────────────────────────
+    suspend fun renameVendor(vendorId: Long, newName: String) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val vendor = vendorDao.getVendorById(vendorId) ?: return@withTransaction
+            val oldName = vendor.displayName
+            val edited = parseEditedFields(vendor.editedFields).toMutableSet().apply { add("displayName") }
+            vendorDao.updateVendor(
+                vendor.copy(
+                    displayName = newName.trim(),
+                    normalizedKey = newName.trim().lowercase(java.util.Locale.US),
+                    editedFields = JSONArray(edited.toList()).toString()
+                )
+            )
+            transactionDao.updateVendorNameForTransactions(oldName, newName.trim())
+        }
+    }
+
+    suspend fun reassignVendorCategory(vendorId: Long, newCategoryId: Long?) = withContext(Dispatchers.IO) {
+        val vendor = vendorDao.getVendorById(vendorId) ?: return@withContext
+        val edited = parseEditedFields(vendor.editedFields).toMutableSet().apply { add("categoryId") }
+        vendorDao.updateVendor(
+            vendor.copy(
+                categoryId = newCategoryId,
+                editedFields = JSONArray(edited.toList()).toString()
+            )
+        )
+    }
+
+    suspend fun mergeVendors(survivingVendorId: Long, mergedVendorId: Long, survivingName: String, categoryId: Long?) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val surviving = vendorDao.getVendorById(survivingVendorId) ?: return@withTransaction
+            val merged = vendorDao.getVendorById(mergedVendorId) ?: return@withTransaction
+
+            // Repoint transactions
+            transactionDao.updateVendorNameAndCategoryForTransactions(merged.displayName, survivingName, categoryId)
+            transactionDao.updateVendorNameAndCategoryForTransactions(surviving.displayName, survivingName, categoryId)
+
+            val edited = parseEditedFields(surviving.editedFields).toMutableSet().apply {
+                add("displayName")
+                if (categoryId != null) add("categoryId")
+            }
+
+            vendorDao.updateVendor(
+                surviving.copy(
+                    displayName = survivingName.trim(),
+                    normalizedKey = survivingName.trim().lowercase(java.util.Locale.US),
+                    categoryId = categoryId ?: surviving.categoryId,
+                    editedFields = JSONArray(edited.toList()).toString()
+                )
+            )
+            vendorDao.deleteVendor(merged)
+        }
+    }
+
+    // ─── Manual Category Control ──────────────────────────────────────────────
+    suspend fun deleteCategoryWithReassign(categoryId: Long, targetCategoryId: Long?) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            transactionDao.updateCategoryIdForTransactions(categoryId, targetCategoryId)
+            vendorDao.updateCategoryIdForVendors(categoryId, targetCategoryId)
+            categoryDao.deleteCategoryById(categoryId)
+        }
+    }
+
+    suspend fun mergeCategories(survivingCategoryId: Long, mergedCategoryId: Long) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            transactionDao.updateCategoryIdForTransactions(mergedCategoryId, survivingCategoryId)
+            vendorDao.updateCategoryIdForVendors(mergedCategoryId, survivingCategoryId)
+            categoryDao.deleteCategoryById(mergedCategoryId)
+        }
+    }
+
+    suspend fun setCategoryBudget(categoryId: Long, budgetPaise: Long) = withContext(Dispatchers.IO) {
+        val cat = categoryDao.getCategoryById(categoryId) ?: return@withContext
+        val edited = parseEditedFields(cat.editedFields).toMutableSet().apply { add("budgetPaise") }
+        categoryDao.updateCategory(
+            cat.copy(
+                budgetPaise = if (budgetPaise > 0L) budgetPaise else null,
+                editedFields = JSONArray(edited.toList()).toString()
+            )
+        )
+    }
+
+    // ─── Review Queue Batch Operations ────────────────────────────────────────
+    suspend fun acceptAllHighConfidenceReviewItems(threshold: Float = 0.85f): Int = withContext(Dispatchers.IO) {
+        val pending = reviewItemDao.getPendingReviewItemsSync()
+        var count = 0
+        for (item in pending) {
+            val conf = item.confidence ?: 1.0f
+            if (conf >= threshold || item.origin != ReviewOrigin.AI) {
+                try {
+                    acceptReviewItem(item.id)
+                    count++
+                } catch (_: Exception) {}
+            }
+        }
+        count
+    }
+
+    suspend fun discardAllPendingReviewItems() = withContext(Dispatchers.IO) {
+        reviewItemDao.discardAllPending()
+    }
+
+    // ─── Unparsed Messages & Scan History & Rebuild ───────────────────────────
+    val allUnparsedMessages: Flow<List<UnparsedMessageEntity>> = unparsedMessageDao.getAllUnparsedMessages()
+    val allScanHistory: Flow<List<ScanHistoryEntity>> = scanHistoryDao.getAllScanHistory()
+
+    suspend fun deleteUnparsedMessage(id: Long) = withContext(Dispatchers.IO) {
+        unparsedMessageDao.deleteById(id)
+    }
+
+    suspend fun rebuildFromScratch() = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            transactionDao.clearAll()
+            splitDao.clearAll()
+            suggestionDao.clearAll()
+            processedMessageDao.clearAll()
+            unparsedMessageDao.clearAll()
+            scanHistoryDao.clearAll()
+        }
+        appPreferences.setLastSmsSyncTimestamp(0L)
+        appPreferences.setGmailLastSyncTimestamp(0L)
+        appPreferences.resetGmailUidSyncState()
+    }
+
     suspend fun clearAllTransactionsAndReset() = withContext(Dispatchers.IO) {
-        transactionDao.clearAll()
-        splitDao.clearAll()
-        suggestionDao.clearAll()
+        db.withTransaction {
+            transactionDao.clearAll()
+            splitDao.clearAll()
+            suggestionDao.clearAll()
+        }
     }
 
     // ─── JSON Backup & Restore ────────────────────────────────────────────────
@@ -69,6 +389,10 @@ class TransactionRepository(
     val totalMyExpense: Flow<Double?> = transactionDao.getTotalMyExpense()
     val totalGrossExpense: Flow<Double?> = transactionDao.getTotalGrossExpense()
     val totalIncome: Flow<Double?> = transactionDao.getTotalIncome()
+
+    val totalMyExpensePaise: Flow<Long?> = transactionDao.getTotalMyExpensePaise()
+    val totalGrossExpensePaise: Flow<Long?> = transactionDao.getTotalGrossExpensePaise()
+    val totalIncomePaise: Flow<Long?> = transactionDao.getTotalIncomePaise()
 
     fun getTransactionWithSplits(id: Long): Flow<TransactionWithSplits?> =
         transactionDao.getTransactionWithSplits(id)
@@ -89,30 +413,43 @@ class TransactionRepository(
         categoryDao.deleteCategory(category)
     }
 
-    // ─── Vendor Mappings ──────────────────────────────────────────────────────
-    val allVendorMappings: Flow<List<VendorMappingEntity>> = vendorDao.getAllVendorMappings()
+    // ─── Vendors ──────────────────────────────────────────────────────────────
+    val allVendors: Flow<List<VendorEntity>> = vendorDao.getAllVendors()
+    val allVendorMappings: Flow<List<VendorEntity>> = vendorDao.getAllVendors()
 
-    suspend fun addVendorMapping(mapping: VendorMappingEntity): Long = withContext(Dispatchers.IO) {
-        vendorDao.insertVendorMapping(mapping)
+    suspend fun addVendor(vendor: VendorEntity): Long = withContext(Dispatchers.IO) {
+        vendorDao.insertVendor(vendor)
     }
 
-    suspend fun updateVendorMapping(mapping: VendorMappingEntity) = withContext(Dispatchers.IO) {
-        vendorDao.updateVendorMapping(mapping)
+    suspend fun addVendorMapping(mapping: VendorEntity): Long = withContext(Dispatchers.IO) {
+        vendorDao.insertVendor(mapping)
     }
 
-    suspend fun deleteVendorMapping(mapping: VendorMappingEntity) = withContext(Dispatchers.IO) {
-        vendorDao.deleteVendorMapping(mapping)
+    suspend fun updateVendor(vendor: VendorEntity) = withContext(Dispatchers.IO) {
+        vendorDao.updateVendor(vendor)
+    }
+
+    suspend fun updateVendorMapping(mapping: VendorEntity) = withContext(Dispatchers.IO) {
+        vendorDao.updateVendor(mapping)
+    }
+
+    suspend fun deleteVendor(vendor: VendorEntity) = withContext(Dispatchers.IO) {
+        vendorDao.deleteVendor(vendor)
+    }
+
+    suspend fun deleteVendorMapping(mapping: VendorEntity) = withContext(Dispatchers.IO) {
+        vendorDao.deleteVendor(mapping)
     }
 
     /**
-     * Resolves friendly vendor name and category from raw merchant SMS text
+     * Resolves friendly vendor name and category from raw merchant text.
      */
     suspend fun resolveVendor(rawMerchant: String): Pair<String, Long?> = withContext(Dispatchers.IO) {
-        val mappings = vendorDao.getAllVendorMappingsList()
+        val mappings = vendorDao.getAllVendorsList()
         val rawLower = rawMerchant.lowercase()
         for (m in mappings) {
-            if (rawLower.contains(m.rawSmsKeyword.lowercase())) {
-                return@withContext Pair(m.friendlyName, m.categoryId)
+            if (rawLower.contains(m.normalizedKey.lowercase())) {
+                return@withContext Pair(m.displayName, m.categoryId)
             }
         }
         Pair(rawMerchant, null)
@@ -120,8 +457,6 @@ class TransactionRepository(
 
     /**
      * Uses On-Device Local AI & smart heuristics to automatically categorize transactions.
-     * E.g. "Air India" -> Automatically predicts "Travel", checks if "Travel" exists in DB;
-     * if not, automatically creates the "Travel" category entity, links it, and saves a vendor mapping!
      */
     suspend fun autoCategorizeOrResolve(rawMerchant: String): Pair<String, Long?> = withContext(Dispatchers.IO) {
         if (rawMerchant.isBlank()) return@withContext Pair(rawMerchant, null)
@@ -148,7 +483,6 @@ class TransactionRepository(
         val finalCategoryId: Long = if (matchedCategory != null) {
             matchedCategory.id
         } else {
-            // Automatically create category in DB (e.g. Travel)
             val categoryColor = when (predictedCategoryName.lowercase()) {
                 "travel" -> "#06B6D4" // Cyan
                 "food & dining", "food" -> "#10B981" // Emerald
@@ -162,18 +496,18 @@ class TransactionRepository(
             }
             val newCat = CategoryEntity(
                 name = predictedCategoryName,
-                colorHex = categoryColor,
-                monthlyBudget = 5000.0
+                color = categoryColor,
+                budgetPaise = CurrencyUtils.rupeesToPaise(5000.0)
             )
             categoryDao.insertCategory(newCat)
         }
 
         // 4. Save vendor mapping so future transactions from this vendor are immediately mapped
         try {
-            vendorDao.insertVendorMapping(
-                VendorMappingEntity(
-                    rawSmsKeyword = rawMerchant.trim(),
-                    friendlyName = mappedName,
+            vendorDao.insertVendor(
+                VendorEntity(
+                    displayName = mappedName,
+                    normalizedKey = rawMerchant.trim().lowercase(),
                     categoryId = finalCategoryId
                 )
             )
@@ -220,40 +554,49 @@ class TransactionRepository(
 
     /**
      * Inserts a transaction and optionally any split items, automatically calculating myActualShare.
+     * Wrapped in a Room transaction for atomic consistency.
      */
     suspend fun addTransaction(
         transaction: TransactionEntity,
         splits: List<SplitItemEntity> = emptyList()
     ): Long = withContext(Dispatchers.IO) {
-        val totalSplitOwed = splits.sumOf { it.amountOwed }
-        val adjustedShare = if (transaction.type == TransactionType.EXPENSE) {
-            (transaction.amount - totalSplitOwed).coerceAtLeast(0.0)
-        } else {
-            transaction.amount
-        }
-
-        var txWithCategory = transaction
-        if (txWithCategory.categoryId == null && txWithCategory.type == TransactionType.EXPENSE && txWithCategory.rawMerchant.isNotBlank()) {
-            val (mappedVendor, autoCatId) = autoCategorizeOrResolve(txWithCategory.rawMerchant)
-            if (autoCatId != null) {
-                txWithCategory = txWithCategory.copy(
-                    categoryId = autoCatId,
-                    friendlyVendorName = if (txWithCategory.friendlyVendorName == txWithCategory.rawMerchant) mappedVendor else txWithCategory.friendlyVendorName
-                )
+        var finalizedTx: TransactionEntity? = null
+        val txId = db.withTransaction {
+            val totalSplitOwedPaise = splits.sumOf { it.amountOwedPaise }
+            val adjustedSharePaise = if (transaction.type == TransactionType.EXPENSE) {
+                maxOf(0L, transaction.amountPaise - totalSplitOwedPaise)
+            } else {
+                transaction.amountPaise
             }
+
+            var txWithCategory = transaction
+            if (txWithCategory.categoryId == null && txWithCategory.type == TransactionType.EXPENSE && txWithCategory.rawMerchant.isNotBlank()) {
+                val (mappedVendor, autoCatId) = autoCategorizeOrResolve(txWithCategory.rawMerchant)
+                if (autoCatId != null) {
+                    txWithCategory = txWithCategory.copy(
+                        categoryId = autoCatId,
+                        friendlyVendorName = if (txWithCategory.friendlyVendorName == txWithCategory.rawMerchant) mappedVendor else txWithCategory.friendlyVendorName
+                    )
+                }
+            }
+
+            val readyTx = txWithCategory.copy(myActualSharePaise = adjustedSharePaise)
+            finalizedTx = readyTx
+            val insertedId = transactionDao.insertTransaction(readyTx)
+
+            if (splits.isNotEmpty()) {
+                val splitsWithTxId = splits.map { it.copy(transactionId = insertedId) }
+                splitDao.insertSplitItems(splitsWithTxId)
+            }
+
+            insertedId
         }
 
-        val finalizedTx = txWithCategory.copy(myActualShare = adjustedShare)
-        val txId = transactionDao.insertTransaction(finalizedTx)
-
-        if (splits.isNotEmpty()) {
-            val splitsWithTxId = splits.map { it.copy(transactionId = txId) }
-            splitDao.insertSplitItems(splitsWithTxId)
-        }
-
-        // Evaluate Budget Thresholds (50, 70, 90, 100) if expense
-        if (finalizedTx.type == TransactionType.EXPENSE && context != null) {
-            BudgetAlertEvaluator.evaluateBudgetAlerts(context, db, appPreferences, finalizedTx.categoryId)
+        // Evaluate Budget Thresholds (50, 70, 90, 100) if expense outside transaction block
+        finalizedTx?.let { ft ->
+            if (ft.type == TransactionType.EXPENSE && context != null) {
+                BudgetAlertEvaluator.evaluateBudgetAlerts(context, db, appPreferences, ft.categoryId)
+            }
         }
 
         txId
@@ -265,37 +608,47 @@ class TransactionRepository(
 
     /**
      * Updates transaction details and recalculates splits cleanly.
+     * Wrapped in db.withTransaction.
      */
     suspend fun editTransactionWithSplits(
         updatedTx: TransactionEntity,
         newSplits: List<SplitItemEntity>
     ) = withContext(Dispatchers.IO) {
-        val totalSplitOwed = newSplits.sumOf { it.amountOwed }
-        val adjustedShare = if (updatedTx.type == TransactionType.EXPENSE) {
-            (updatedTx.amount - totalSplitOwed).coerceAtLeast(0.0)
-        } else {
-            updatedTx.amount
-        }
+        var finalizedTx: TransactionEntity? = null
+        db.withTransaction {
+            val totalSplitOwedPaise = newSplits.sumOf { it.amountOwedPaise }
+            val adjustedSharePaise = if (updatedTx.type == TransactionType.EXPENSE) {
+                maxOf(0L, updatedTx.amountPaise - totalSplitOwedPaise)
+            } else {
+                updatedTx.amountPaise
+            }
 
-        val finalizedTx = updatedTx.copy(myActualShare = adjustedShare)
-        transactionDao.updateTransaction(finalizedTx)
+            val readyTx = updatedTx.copy(myActualSharePaise = adjustedSharePaise)
+            finalizedTx = readyTx
 
-        // Replace splits for this transaction
-        splitDao.deleteSplitsForTransaction(updatedTx.id)
-        if (newSplits.isNotEmpty()) {
-            val splitsWithId = newSplits.map { it.copy(transactionId = updatedTx.id) }
-            splitDao.insertSplitItems(splitsWithId)
+            val oldTx = transactionDao.getTransactionByIdSync(updatedTx.id)
+            if (oldTx != null) {
+                createLearnedRuleForEdit(oldTx, readyTx)
+            }
+
+            transactionDao.updateTransaction(readyTx)
+
+            // Replace splits for this transaction
+            splitDao.deleteSplitsForTransaction(updatedTx.id)
+            if (newSplits.isNotEmpty()) {
+                val splitsWithId = newSplits.map { it.copy(transactionId = updatedTx.id) }
+                splitDao.insertSplitItems(splitsWithId)
+            }
         }
 
         // Re-evaluate Budget Thresholds on split adjustment
-        if (finalizedTx.type == TransactionType.EXPENSE && context != null) {
-            BudgetAlertEvaluator.evaluateBudgetAlerts(context, db, appPreferences, finalizedTx.categoryId)
+        finalizedTx?.let { ft ->
+            if (ft.type == TransactionType.EXPENSE && context != null) {
+                BudgetAlertEvaluator.evaluateBudgetAlerts(context, db, appPreferences, ft.categoryId)
+            }
         }
     }
 
-    /**
-     * Deletes a transaction. Cascade in Room automatically deletes all associated split items.
-     */
     suspend fun deleteTransaction(transaction: TransactionEntity) = withContext(Dispatchers.IO) {
         transactionDao.deleteTransaction(transaction)
     }
@@ -304,77 +657,90 @@ class TransactionRepository(
         transactionDao.deleteTransactionById(id)
     }
 
-    // ─── Dynamic Balance & Split Queries ─────────────────────────────────────
-    fun getNetPendingBalanceForPerson(personId: Long): Flow<Double> =
-        splitDao.getNetPendingBalanceForPerson(personId)
+    // ─── Splits & FIFO Settlement ─────────────────────────────────────────────
 
-    fun getUnsettledBillsForPerson(personId: Long): Flow<List<com.campusfold.tracker.data.model.UnsettledBillItem>> =
+    fun getSplitsForTransaction(transactionId: Long): Flow<List<SplitItemEntity>> =
+        splitDao.getSplitsForTransaction(transactionId)
+
+    suspend fun getSplitsForTransactionSync(transactionId: Long): List<SplitItemEntity> = withContext(Dispatchers.IO) {
+        splitDao.getSplitsForTransactionSync(transactionId)
+    }
+
+    fun getUnsettledBillsForPerson(personId: Long): Flow<List<UnsettledBillItem>> =
         splitDao.getUnsettledBillsForPerson(personId)
 
-    val allUnsettledBills: Flow<List<com.campusfold.tracker.data.model.UnsettledBillItem>> =
+    fun getAllUnsettledBills(): Flow<List<UnsettledBillItem>> =
         splitDao.getAllUnsettledBills()
-
-    // ─── FIFO Settlement Engine (Partial, Full & Overpayments) ───────────────
 
     /**
      * Settles amount X for a friend using strict FIFO (oldest split items first).
-     * Handles partial payments (isSettled = false), full settlement (isSettled = true),
-     * and excess overpayment.
+     * Exact integer comparisons on paise: handles partial payments, full settlement, and excess overpayment.
+     * Wrapped in db.withTransaction.
      */
-    suspend fun settleAmountForPerson(personId: Long, amountToSettle: Double): com.campusfold.tracker.data.model.SettlementResult = withContext(Dispatchers.IO) {
-        val person = personDao.getPersonById(personId)
-        val friendName = person?.name ?: "Friend"
+    suspend fun settleAmountForPerson(personId: Long, amountToSettle: Double): SettlementResult {
+        return settleAmountForPersonPaise(personId, CurrencyUtils.rupeesToPaise(amountToSettle))
+    }
 
-        // Fetch unsettled rows ordered by createdAt ASC (FIFO)
-        val unsettledRows = splitDao.getUnsettledSplitsForPersonSync(personId)
-        val totalOwedBefore = unsettledRows.sumOf { it.amountOwed - it.amountPaidSoFar }
+    suspend fun settleAmountForPersonPaise(personId: Long, amountToSettlePaise: Long): SettlementResult = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val person = personDao.getPersonById(personId)
+            val friendName = person?.name ?: "Friend"
 
-        var remainingX = amountToSettle
-        var updatedCount = 0
+            // Fetch unsettled rows ordered by createdAt ASC (FIFO)
+            val unsettledRows = splitDao.getUnsettledSplitsForPersonSync(personId)
+            val totalOwedBeforePaise = unsettledRows.sumOf { it.amountOwedPaise - it.amountPaidSoFarPaise }
 
-        for (row in unsettledRows) {
-            if (remainingX <= 0.0) break
-            val rowRemaining = row.amountOwed - row.amountPaidSoFar
+            var remainingXPaise = amountToSettlePaise
+            var updatedCount = 0
 
-            if (remainingX < rowRemaining) {
-                // Partial settlement
-                val newPaid = row.amountPaidSoFar + remainingX
-                splitDao.updateSplitItem(row.copy(amountPaidSoFar = newPaid, isSettled = false))
-                remainingX = 0.0
-                updatedCount++
-            } else {
-                // Full settlement of this row, carry remainder to next
-                splitDao.updateSplitItem(row.copy(amountPaidSoFar = row.amountOwed, isSettled = true))
-                remainingX -= rowRemaining
-                updatedCount++
+            for (row in unsettledRows) {
+                if (remainingXPaise <= 0L) break
+                val rowRemainingPaise = row.amountOwedPaise - row.amountPaidSoFarPaise
+
+                if (remainingXPaise < rowRemainingPaise) {
+                    // Partial settlement
+                    val newPaid = row.amountPaidSoFarPaise + remainingXPaise
+                    splitDao.updateSplitItem(row.copy(amountPaidSoFarPaise = newPaid, isSettled = false))
+                    remainingXPaise = 0L
+                    updatedCount++
+                } else {
+                    // Full settlement of this row, carry remainder to next
+                    splitDao.updateSplitItem(row.copy(amountPaidSoFarPaise = row.amountOwedPaise, isSettled = true))
+                    remainingXPaise -= rowRemainingPaise
+                    updatedCount++
+                }
             }
+
+            val excessPaise = maxOf(0L, remainingXPaise)
+            val newRemainingOwedPaise = maxOf(0L, totalOwedBeforePaise - amountToSettlePaise)
+            val actuallySettledPaise = minOf(amountToSettlePaise, totalOwedBeforePaise)
+
+            SettlementResult(
+                friendName = friendName,
+                settledAmountPaise = actuallySettledPaise,
+                remainingOwedPaise = newRemainingOwedPaise,
+                excessAmountPaise = excessPaise,
+                updatedSplitCount = updatedCount
+            )
         }
+    }
 
-        val excess = if (remainingX > 0.0) remainingX else 0.0
-        val newRemainingOwed = (totalOwedBefore - amountToSettle).coerceAtLeast(0.0)
-        val actuallySettled = minOf(amountToSettle, totalOwedBefore)
-
-        com.campusfold.tracker.data.model.SettlementResult(
-            friendName = friendName,
-            settledAmount = actuallySettled,
-            remainingOwed = newRemainingOwed,
-            excessAmount = excess,
-            updatedSplitCount = updatedCount
-        )
+    suspend fun recordSplitPayment(splitId: Long, paymentAmountPaise: Long) = withContext(Dispatchers.IO) {
+        splitDao.recordPayment(splitId, paymentAmountPaise)
     }
 
     suspend fun recordSplitPayment(splitId: Long, paymentAmount: Double) = withContext(Dispatchers.IO) {
-        splitDao.recordPayment(splitId, paymentAmount)
+        recordSplitPayment(splitId, CurrencyUtils.rupeesToPaise(paymentAmount))
     }
 
     suspend fun markSplitSettled(splitId: Long, isSettled: Boolean) = withContext(Dispatchers.IO) {
         splitDao.markSettled(splitId, isSettled)
     }
 
-    suspend fun logOverpaymentAsIncome(excessAmount: Double, friendName: String): Long = withContext(Dispatchers.IO) {
+    suspend fun logOverpaymentAsAdvanceIncome(friendName: String, excessAmountPaise: Long) = withContext(Dispatchers.IO) {
+        if (excessAmountPaise <= 0L) return@withContext
         val tx = TransactionEntity(
-            amount = excessAmount,
-            myActualShare = excessAmount,
+            amountPaise = excessAmountPaise,
             type = TransactionType.INCOME,
             paymentMode = "Cash/Manual",
             rawMerchant = "Advance from $friendName",
@@ -396,61 +762,280 @@ class TransactionRepository(
      * 1-Tap 'Confirm & Save Alias' button logic:
      * Settles the balance via FIFO, saves the detected SMS name to exactSmsAliases for future auto-settlement,
      * marks suggestion CONFIRMED, and updates transaction to SPLIT_SETTLEMENT.
+     * Wrapped in db.withTransaction.
      */
-    suspend fun confirmAndSaveAlias(suggestionId: Long): com.campusfold.tracker.data.model.SettlementResult? = withContext(Dispatchers.IO) {
-        val suggestion = suggestionDao.getSuggestionById(suggestionId) ?: return@withContext null
-        val person = personDao.getPersonById(suggestion.suggestedPersonId) ?: return@withContext null
+    suspend fun confirmAndSaveAlias(suggestionId: Long): SettlementResult? = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val suggestion = suggestionDao.getSuggestionById(suggestionId) ?: return@withTransaction null
+            val person = personDao.getPersonById(suggestion.suggestedPersonId) ?: return@withTransaction null
 
-        // 1. Run FIFO settlement
-        val result = settleAmountForPerson(person.id, suggestion.amount)
+            // 1. Run FIFO settlement
+            val result = settleAmountForPersonPaise(person.id, suggestion.amountPaise)
 
-        // 2. Add detectedSenderName to exactSmsAliases for future auto-settlement
-        val existingAliases = person.exactSmsAliases.split(",")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .toMutableList()
+            // 2. Add detectedSenderName to exactSmsAliases for future auto-settlement
+            val existingAliases = person.exactSmsAliases.split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .toMutableList()
 
-        if (!existingAliases.any { it.equals(suggestion.detectedSenderName.trim(), ignoreCase = true) }) {
-            existingAliases.add(suggestion.detectedSenderName.trim())
-            val updatedString = existingAliases.joinToString(", ")
-            personDao.updatePerson(person.copy(exactSmsAliases = updatedString))
-        }
-
-        // 3. Mark suggestion CONFIRMED
-        suggestionDao.updateStatus(suggestionId, SettlementSuggestionStatus.CONFIRMED)
-
-        // 4. Update transaction type to SPLIT_SETTLEMENT if transaction exists
-        suggestion.transactionId?.let { txId ->
-            val tx = transactionDao.getTransactionByIdSync(txId)
-            if (tx != null) {
-                transactionDao.updateTransaction(
-                    tx.copy(
-                        type = TransactionType.SPLIT_SETTLEMENT,
-                        friendlyVendorName = "Settlement from ${person.name}"
-                    )
-                )
+            if (!existingAliases.any { it.equals(suggestion.detectedSenderName.trim(), ignoreCase = true) }) {
+                existingAliases.add(suggestion.detectedSenderName.trim())
+                val updatedString = existingAliases.joinToString(", ")
+                personDao.updatePerson(person.copy(exactSmsAliases = updatedString))
             }
-        }
 
-        result
+            // 3. Mark suggestion CONFIRMED
+            suggestionDao.updateStatus(suggestionId, SettlementSuggestionStatus.CONFIRMED)
+
+            // 4. Update transaction type to SPLIT_SETTLEMENT if transaction exists
+            suggestion.transactionId?.let { txId ->
+                val tx = transactionDao.getTransactionByIdSync(txId)
+                if (tx != null) {
+                    transactionDao.updateTransaction(
+                        tx.copy(
+                            type = TransactionType.SPLIT_SETTLEMENT,
+                            friendlyVendorName = "Settlement from ${person.name}"
+                        )
+                    )
+                }
+            }
+
+            result
+        }
     }
 
     suspend fun dismissSettlementSuggestion(suggestionId: Long) = withContext(Dispatchers.IO) {
         suggestionDao.updateStatus(suggestionId, SettlementSuggestionStatus.DISMISSED)
     }
 
+    // ─── Review Queue API ─────────────────────────────────────────────────────
+    val pendingReviewItems: Flow<List<ReviewItemEntity>> = reviewItemDao.getPendingReviewItems()
+    val allReviewItems: Flow<List<ReviewItemEntity>> = reviewItemDao.getAllReviewItems()
+
+    suspend fun getPendingReviewItemsList(): List<ReviewItemEntity> = withContext(Dispatchers.IO) {
+        reviewItemDao.getAllReviewItemsSync().filter { it.status == ReviewStatus.PENDING }
+    }
+
+    suspend fun acceptReviewItem(reviewItemId: Long, editedPayloadJson: String? = null) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val item = reviewItemDao.getReviewItemById(reviewItemId) ?: return@withTransaction
+            val payloadStr = editedPayloadJson ?: item.payloadJson
+            val json = try { org.json.JSONObject(payloadStr) } catch (_: Exception) { null }
+
+            if (json != null) {
+                val type = json.optString("type", "")
+                if (type == "CATEGORY_PREDICTION") {
+                    val vendorName = json.optString("vendor", "")
+                    val catName = json.optString("predictedCategory", "")
+                    if (vendorName.isNotBlank() && catName.isNotBlank()) {
+                        val cat = categoryDao.getCategoryByName(catName) ?: run {
+                            val newCat = CategoryEntity(name = catName, color = "#10B981", budgetPaise = null)
+                            val id = categoryDao.insertCategory(newCat)
+                            newCat.copy(id = id)
+                        }
+                        vendorDao.insertVendor(
+                            VendorEntity(
+                                displayName = vendorName,
+                                normalizedKey = vendorName.lowercase(java.util.Locale.US),
+                                categoryId = cat.id
+                            )
+                        )
+                    }
+                }
+            }
+
+            reviewItemDao.updateStatus(reviewItemId, ReviewStatus.ACCEPTED)
+        }
+    }
+
+    suspend fun editReviewItem(reviewItemId: Long, newPayloadJson: String) = withContext(Dispatchers.IO) {
+        val item = reviewItemDao.getReviewItemById(reviewItemId) ?: return@withContext
+        reviewItemDao.updateReviewItem(item.copy(payloadJson = newPayloadJson))
+    }
+
+    suspend fun discardReviewItem(reviewItemId: Long) = withContext(Dispatchers.IO) {
+        reviewItemDao.updateStatus(reviewItemId, ReviewStatus.DISCARDED)
+    }
+
+    // ─── Rules Management & Learned Rules ─────────────────────────────────────
+    val allRules: Flow<List<RuleEntity>> = ruleDao.getAllRules()
+
+    suspend fun getAllRulesList(): List<RuleEntity> = withContext(Dispatchers.IO) {
+        ruleDao.getAllRulesSync()
+    }
+
+    suspend fun addRule(rule: RuleEntity): Long = withContext(Dispatchers.IO) {
+        ruleDao.insertRule(rule)
+    }
+
+    suspend fun updateRule(rule: RuleEntity) = withContext(Dispatchers.IO) {
+        ruleDao.updateRule(rule)
+    }
+
+    suspend fun deleteRule(rule: RuleEntity) = withContext(Dispatchers.IO) {
+        ruleDao.deleteRule(rule)
+    }
+
+    suspend fun deleteRuleById(id: Long) = withContext(Dispatchers.IO) {
+        ruleDao.deleteRuleById(id)
+    }
+
+    suspend fun toggleRuleEnabled(ruleId: Long, enabled: Boolean) = withContext(Dispatchers.IO) {
+        val rule = ruleDao.getRuleById(ruleId) ?: return@withContext
+        ruleDao.updateRule(rule.copy(enabled = enabled))
+    }
+
+    /**
+     * Checks if a transaction edit (category change, vendor rename, or account fix)
+     * warrants creating a LEARNED rule, and inserts it.
+     */
+    suspend fun createLearnedRuleForEdit(oldTx: TransactionEntity, newTx: TransactionEntity): Long? = withContext(Dispatchers.IO) {
+        var createdRuleId: Long? = null
+
+        // Case 1: Category Changed
+        if (oldTx.categoryId != newTx.categoryId && newTx.categoryId != null) {
+            val cat = categoryDao.getCategoryById(newTx.categoryId!!)
+            val merchant = newTx.friendlyVendorName.ifBlank { newTx.rawMerchant }
+            if (cat != null && merchant.isNotBlank()) {
+                val conditions = listOf(
+                    com.campusfold.tracker.rules.RuleCondition(
+                        field = com.campusfold.tracker.rules.TransactionField.MERCHANT,
+                        operator = com.campusfold.tracker.rules.ConditionOperator.EQUALS,
+                        value = merchant
+                    )
+                )
+                val actions = listOf(
+                    com.campusfold.tracker.rules.RuleAction(
+                        field = com.campusfold.tracker.rules.TransactionField.CATEGORY,
+                        actionType = com.campusfold.tracker.rules.ActionType.SET,
+                        value = cat.name
+                    )
+                )
+                val rule = RuleEntity(
+                    conditionsJson = com.campusfold.tracker.rules.RuleEngine.serializeConditions(conditions),
+                    actionsJson = com.campusfold.tracker.rules.RuleEngine.serializeActions(actions),
+                    priority = 10,
+                    enabled = true,
+                    source = RuleSource.LEARNED
+                )
+                createdRuleId = ruleDao.insertRule(rule)
+            }
+        }
+        // Case 2: Vendor Renamed
+        else if (oldTx.friendlyVendorName != newTx.friendlyVendorName && newTx.friendlyVendorName.isNotBlank()) {
+            val raw = newTx.rawMerchant.ifBlank { oldTx.friendlyVendorName }
+            val conditions = listOf(
+                com.campusfold.tracker.rules.RuleCondition(
+                    field = com.campusfold.tracker.rules.TransactionField.MERCHANT,
+                    operator = com.campusfold.tracker.rules.ConditionOperator.EQUALS,
+                    value = raw
+                )
+            )
+            val actions = listOf(
+                com.campusfold.tracker.rules.RuleAction(
+                    field = com.campusfold.tracker.rules.TransactionField.MERCHANT,
+                    actionType = com.campusfold.tracker.rules.ActionType.SET,
+                    value = newTx.friendlyVendorName
+                )
+            )
+            val rule = RuleEntity(
+                conditionsJson = com.campusfold.tracker.rules.RuleEngine.serializeConditions(conditions),
+                actionsJson = com.campusfold.tracker.rules.RuleEngine.serializeActions(actions),
+                priority = 10,
+                enabled = true,
+                source = RuleSource.LEARNED
+            )
+            createdRuleId = ruleDao.insertRule(rule)
+        }
+        // Case 3: Account Fixed
+        else if (oldTx.accountId != newTx.accountId && newTx.accountId != null) {
+            val newAcc = accountDao.getAccountById(newTx.accountId!!)
+            if (newAcc != null && !oldTx.rawSms.isNullOrBlank()) {
+                val conditions = listOf(
+                    com.campusfold.tracker.rules.RuleCondition(
+                        field = com.campusfold.tracker.rules.TransactionField.SMS_TEXT,
+                        operator = com.campusfold.tracker.rules.ConditionOperator.CONTAINS,
+                        value = newAcc.last4
+                    )
+                )
+                val actions = listOf(
+                    com.campusfold.tracker.rules.RuleAction(
+                        field = com.campusfold.tracker.rules.TransactionField.BANK_NAME,
+                        actionType = com.campusfold.tracker.rules.ActionType.SET,
+                        value = newAcc.displayName
+                    )
+                )
+                val rule = RuleEntity(
+                    conditionsJson = com.campusfold.tracker.rules.RuleEngine.serializeConditions(conditions),
+                    actionsJson = com.campusfold.tracker.rules.RuleEngine.serializeActions(actions),
+                    priority = 10,
+                    enabled = true,
+                    source = RuleSource.LEARNED
+                )
+                createdRuleId = ruleDao.insertRule(rule)
+            }
+        }
+
+        createdRuleId
+    }
+
+    /**
+     * Applies a rule to past matching transactions, respecting user-edited fields.
+     */
+    suspend fun applyRuleToPastTransactions(ruleId: Long): Int = withContext(Dispatchers.IO) {
+        val rule = ruleDao.getRuleById(ruleId) ?: return@withContext 0
+        val allTx = transactionDao.getAllTransactionsSync()
+        val allCats = categoryDao.getAllCategoriesList().associate { it.name.lowercase(java.util.Locale.US) to it.id }
+        var updatedCount = 0
+
+        db.withTransaction {
+            for (tx in allTx) {
+                val res = com.campusfold.tracker.rules.RuleEngine.evaluateRules(
+                    transaction = tx,
+                    rawSms = tx.rawSms,
+                    account = null,
+                    rules = listOf(rule)
+                )
+                if (res.appliedRuleIds.contains(ruleId)) {
+                    var modified = res.modifiedTransaction
+                    if (res.targetCategoryName != null) {
+                        val catId = allCats[res.targetCategoryName.lowercase(java.util.Locale.US)]
+                        if (catId != null) {
+                            modified = modified.copy(categoryId = catId)
+                        }
+                    }
+                    if (modified != tx) {
+                        transactionDao.updateTransaction(modified)
+                        updatedCount++
+                    }
+                }
+            }
+        }
+        updatedCount
+    }
+
     // ─── Preferences & Budgets ───────────────────────────────────────────────
-    val latestPnbCreditLimit: Flow<Double> = appPreferences.latestPnbCreditLimit
     val lastSmsSyncTimestamp: Flow<Long> = appPreferences.lastSmsSyncTimestamp
     val overallMonthlyBudget: Flow<Double> = appPreferences.overallMonthlyBudget
+    val hasCompletedOnboarding: Flow<Boolean> = appPreferences.hasCompletedOnboarding
+    val userName: Flow<String> = appPreferences.userName
+    val hideBalances: Flow<Boolean> = appPreferences.hideBalances
+    val themeMode: Flow<String> = appPreferences.themeMode
+    val dynamicColor: Flow<Boolean> = appPreferences.dynamicColor
+    val amoledMode: Flow<Boolean> = appPreferences.amoledMode
 
-    suspend fun setPnbCreditLimit(limit: Double) = appPreferences.setPnbCreditLimit(limit)
     suspend fun setLastSmsSyncTimestamp(timestamp: Long) = appPreferences.setLastSmsSyncTimestamp(timestamp)
     suspend fun setOverallMonthlyBudget(budget: Double) = appPreferences.setOverallMonthlyBudget(budget)
+    suspend fun setCompletedOnboarding(completed: Boolean) = appPreferences.setCompletedOnboarding(completed)
+    suspend fun setUserName(name: String) = appPreferences.setUserName(name)
+    suspend fun setHideBalances(hide: Boolean) = appPreferences.setHideBalances(hide)
+    suspend fun setThemeMode(mode: String) = appPreferences.setThemeMode(mode)
+    suspend fun setDynamicColor(enabled: Boolean) = appPreferences.setDynamicColor(enabled)
+    suspend fun setAmoledMode(enabled: Boolean) = appPreferences.setAmoledMode(enabled)
 
     suspend fun updateCategoryBudget(categoryId: Long, budget: Double) = withContext(Dispatchers.IO) {
         val cat = categoryDao.getCategoryById(categoryId) ?: return@withContext
-        categoryDao.updateCategory(cat.copy(monthlyBudget = budget))
+        categoryDao.updateCategory(cat.copy(budgetPaise = if (budget > 0) CurrencyUtils.rupeesToPaise(budget) else null))
         context?.let { ctx ->
             BudgetAlertEvaluator.evaluateBudgetAlerts(ctx, db, appPreferences, categoryId)
         }
@@ -471,6 +1056,11 @@ class TransactionRepository(
     fun getCurrentMonthTotalTrueSpend(): Flow<Double> {
         val (start, end) = BudgetAlertEvaluator.getMonthTimeBounds()
         return transactionDao.getMonthTotalMyExpenseFlow(start, end).map { it ?: 0.0 }
+    }
+
+    fun getCurrentMonthTotalTrueSpendPaise(): Flow<Long> {
+        val (start, end) = BudgetAlertEvaluator.getMonthTimeBounds()
+        return transactionDao.getMonthTotalMyExpenseFlowPaise(start, end).map { it ?: 0L }
     }
 
     // ─── 'Where to Control' Actionable Insights ──────────────────────────────
@@ -553,10 +1143,23 @@ class TransactionRepository(
         spikes.maxByOrNull { it.increaseAmount }
     }
 
-    /**
-     * Fallback safe-guard to ensure pre-seeded categories & mappings exist even if DB already existed.
-     */
-    // ─── Direct Gmail IMAP Sync for Axis Bank ────────────────────────────────
+    // ─── Direct Gmail IMAP Sync for Any Bank ────────────────────────────────
+
+    fun enqueueGmailSyncWorker(context: Context, startDateMillis: Long? = null): java.util.UUID {
+        val input = androidx.work.workDataOf(
+            com.campusfold.tracker.worker.GmailScanWorker.KEY_START_DATE to (startDateMillis ?: 0L)
+        )
+        val request = androidx.work.OneTimeWorkRequestBuilder<com.campusfold.tracker.worker.GmailScanWorker>()
+            .setInputData(input)
+            .addTag(com.campusfold.tracker.worker.GmailScanWorker.TAG)
+            .build()
+        androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
+            com.campusfold.tracker.worker.GmailScanWorker.WORK_NAME,
+            androidx.work.ExistingWorkPolicy.KEEP,
+            request
+        )
+        return request.id
+    }
 
     suspend fun syncAxisFromGmail(
         emailAddress: String,
@@ -564,140 +1167,75 @@ class TransactionRepository(
         startDateMillis: Long? = null,
         onProgress: ((current: Int, total: Int) -> Unit)? = null
     ): GmailSyncStats = withContext(Dispatchers.IO) {
-        val rawEmails = GmailImapClient.fetchAxisBankEmails(
+        val fetched = GmailImapClient.fetchBankEmails(
             emailAddress = emailAddress,
             appPassword = appPassword,
+            appPreferences = appPreferences,
             startDateMillis = startDateMillis,
             onProgress = onProgress
         )
 
-        val knownAccounts = accountDao.getAllAccountsSync()
-        val allPersons = personDao.getAllPersonsList()
+        val aiFallbackService = com.campusfold.tracker.ai.AiFallbackService(aiCacheDao, appPreferences)
+        val resolver = com.campusfold.tracker.data.resolver.DefaultEntityResolver(
+            accountDao = accountDao,
+            accountAliasDao = accountAliasDao,
+            vendorDao = vendorDao,
+            categoryDao = categoryDao,
+            ruleDao = ruleDao,
+            reviewItemDao = reviewItemDao,
+            aiFallbackService = aiFallbackService,
+            appPreferences = appPreferences
+        )
+        val ingestor = com.campusfold.tracker.data.ingest.MessageIngestor(
+            db = db,
+            entityResolver = resolver,
+            repository = this@TransactionRepository,
+            context = context,
+            appPreferences = appPreferences,
+            aiFallbackService = aiFallbackService
+        )
+
+        val rawMessages = fetched.map { emailItem ->
+            com.campusfold.tracker.parser.model.RawMessage(
+                source = com.campusfold.tracker.parser.model.MessageSource.EMAIL,
+                sender = emailItem.sender,
+                body = emailItem.body,
+                timestamp = emailItem.dateMillis,
+                sourceId = emailItem.uid.toString()
+            )
+        }
 
         var importedDebits = 0
         var importedCredits = 0
-        var autoSettledCredits = 0
-        var pendingSuggestionsCreated = 0
         var skippedDuplicates = 0
-        var maxEmailTimestamp = 0L
 
-        for (email in rawEmails) {
-            val parsed = AxisBankEmailParser.parse(
-                subject = email.subject,
-                body = email.body,
-                emailTimestamp = email.dateMillis,
-                accounts = knownAccounts
-            ) ?: continue
-
-            val tx = parsed.transaction
-            if (tx.timestamp > maxEmailTimestamp) {
-                maxEmailTimestamp = tx.timestamp
-            }
-
-            // Deduplication check: via upiRef or recent amount + paymentMode match
-            val upiRef = tx.upiRef
-            if (upiRef != null) {
-                if (transactionDao.findByUpiRef(upiRef) != null) {
+        val results = ingestor.ingestBatch(rawMessages)
+        for (res in results) {
+            when (res) {
+                is com.campusfold.tracker.data.ingest.IngestResult.Imported -> {
+                    val tx = transactionDao.getTransactionByIdSync(res.transactionId)
+                    if (tx?.type == TransactionType.INCOME) importedCredits++ else importedDebits++
+                }
+                is com.campusfold.tracker.data.ingest.IngestResult.Enriched,
+                is com.campusfold.tracker.data.ingest.IngestResult.SkippedAlreadyProcessed -> {
                     skippedDuplicates++
-                    continue
                 }
-            } else {
-                val existing = transactionDao.findPotentialDuplicate(
-                    amount = tx.amount,
-                    paymentMode = tx.paymentMode,
-                    minTime = tx.timestamp - 60_000,
-                    maxTime = tx.timestamp + 60_000
-                )
-                if (existing != null) {
-                    skippedDuplicates++
-                    continue
-                }
-            }
-
-            if (parsed.isCredit) {
-                // CREDIT (Income / Settlement)
-                val senderClean = parsed.senderOrMerchant.trim()
-                var settled = false
-                var suggestionCreated = false
-
-                if (senderClean.isNotBlank()) {
-                    // Check Case A: Exact alias match with person who has pending balance
-                    for (person in allPersons) {
-                        val pending = splitDao.getNetPendingBalanceForPersonSync(person.id)
-                        if (pending <= 0.0) continue
-
-                        val aliases = person.exactSmsAliases.split(",")
-                            .map { it.trim().lowercase() }
-                            .filter { it.isNotEmpty() }
-
-                        if (aliases.any { it.equals(senderClean, ignoreCase = true) }) {
-                            val creditTx = tx.copy(
-                                type = TransactionType.SPLIT_SETTLEMENT,
-                                friendlyVendorName = "Settlement from ${person.name} (Axis Gmail)"
-                            )
-                            addTransaction(creditTx)
-                            settleAmountForPerson(person.id, tx.amount)
-                            autoSettledCredits++
-                            settled = true
-                            break
-                        }
-                    }
-
-                    // Check Case B: Substring / partial name match
-                    if (!settled) {
-                        for (person in allPersons) {
-                            val pending = splitDao.getNetPendingBalanceForPersonSync(person.id)
-                            if (pending <= 0.0) continue
-
-                            val nameClean = person.name.trim().lowercase()
-                            val senderLower = senderClean.lowercase()
-                            val isPartialMatch = senderLower.contains(nameClean) || nameClean.contains(senderLower)
-
-                            if (isPartialMatch) {
-                                val txId = addTransaction(tx)
-                                suggestionDao.insertSuggestion(
-                                    PendingSettlementSuggestionEntity(
-                                        transactionId = txId,
-                                        amount = tx.amount,
-                                        suggestedPersonId = person.id,
-                                        detectedSenderName = senderClean,
-                                        status = SettlementSuggestionStatus.PENDING
-                                    )
-                                )
-                                pendingSuggestionsCreated++
-                                suggestionCreated = true
-                                break
-                            }
-                        }
-                    }
-                }
-
-                if (!settled && !suggestionCreated) {
-                    addTransaction(tx)
-                }
-                importedCredits++
-            } else {
-                // DEBIT (Expense)
-                val (resolvedFriendlyName, resolvedCategoryId) = resolveVendor(parsed.senderOrMerchant)
-                val expenseTx = tx.copy(
-                    friendlyVendorName = resolvedFriendlyName,
-                    categoryId = resolvedCategoryId ?: tx.categoryId
-                )
-                addTransaction(expenseTx)
-                importedDebits++
+                else -> {}
             }
         }
 
-        if (maxEmailTimestamp > 0L) {
-            appPreferences.setGmailLastSyncTimestamp(maxEmailTimestamp)
-        }
+        appPreferences.setGmailLastSyncTimestamp(System.currentTimeMillis())
+
+        try {
+            accountMergeManager.runAutoMergePass()
+        } catch (_: Exception) {}
 
         GmailSyncStats(
-            totalFound = rawEmails.size,
+            totalFound = fetched.size,
             importedDebits = importedDebits,
             importedCredits = importedCredits,
-            autoSettledCredits = autoSettledCredits,
-            pendingSuggestionsCreated = pendingSuggestionsCreated,
+            autoSettledCredits = 0,
+            pendingSuggestionsCreated = 0,
             skippedDuplicates = skippedDuplicates
         )
     }
@@ -707,97 +1245,98 @@ class TransactionRepository(
      * Reduces the user's out-of-pocket share (myActualShare) on the expense,
      * marks the income as a SPLIT_SETTLEMENT so it doesn't inflate gross personal income,
      * and updates any corresponding split records on the expense.
+     * Uses exact integer arithmetic on paise. Wrapped in db.withTransaction.
      */
     suspend fun linkIncomeToExpense(
         incomeTransactionId: Long,
         expenseTransactionId: Long,
         customOffsetAmount: Double? = null
     ) = withContext(Dispatchers.IO) {
-        val incomeTx = transactionDao.getTransactionByIdSync(incomeTransactionId) ?: return@withContext
-        val expenseTx = transactionDao.getTransactionByIdSync(expenseTransactionId) ?: return@withContext
+        val offsetPaise = customOffsetAmount?.let { CurrencyUtils.rupeesToPaise(it) }
+        linkIncomeToExpensePaise(incomeTransactionId, expenseTransactionId, offsetPaise)
+    }
 
-        val offset = customOffsetAmount ?: incomeTx.amount
-        val newMyShare = (expenseTx.myActualShare - offset).coerceAtLeast(0.0)
+    suspend fun linkIncomeToExpensePaise(
+        incomeTransactionId: Long,
+        expenseTransactionId: Long,
+        customOffsetAmountPaise: Long? = null
+    ) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val incomeTx = transactionDao.getTransactionByIdSync(incomeTransactionId) ?: return@withTransaction
+            val expenseTx = transactionDao.getTransactionByIdSync(expenseTransactionId) ?: return@withTransaction
 
-        // 1. Update expense with reduced true personal spend
-        transactionDao.updateTransaction(
-            expenseTx.copy(myActualShare = newMyShare)
-        )
+            val offsetPaise = customOffsetAmountPaise ?: incomeTx.amountPaise
+            val newMySharePaise = maxOf(0L, expenseTx.myActualSharePaise - offsetPaise)
 
-        // 2. Mark income as SPLIT_SETTLEMENT
-        val expenseLabel = if (expenseTx.friendlyVendorName.isNotBlank()) {
-            expenseTx.friendlyVendorName
-        } else {
-            expenseTx.rawMerchant.ifBlank { "Expense #${expenseTx.id}" }
-        }
-        transactionDao.updateTransaction(
-            incomeTx.copy(
-                type = TransactionType.SPLIT_SETTLEMENT,
-                friendlyVendorName = "Reimbursement for $expenseLabel"
+            // 1. Update expense with reduced true personal spend
+            transactionDao.updateTransaction(
+                expenseTx.copy(myActualSharePaise = newMySharePaise)
             )
-        )
 
-        // 3. Settle any split items attached to this expense
-        val splits = splitDao.getSplitsForTransactionSync(expenseTransactionId)
-        if (splits.isNotEmpty()) {
-            var remaining = offset
-            for (split in splits) {
-                if (remaining <= 0) break
-                val unpaid = (split.amountOwed - split.amountPaidSoFar).coerceAtLeast(0.0)
-                if (unpaid > 0) {
-                    val paying = minOf(remaining, unpaid)
-                    val newPaid = split.amountPaidSoFar + paying
-                    val isSettled = newPaid >= split.amountOwed - 0.01
-                    splitDao.updateSplitItem(
-                        split.copy(
-                            amountPaidSoFar = newPaid,
-                            isSettled = isSettled
+            // 2. Mark income as SPLIT_SETTLEMENT
+            val expenseLabel = if (expenseTx.friendlyVendorName.isNotBlank()) {
+                expenseTx.friendlyVendorName
+            } else {
+                expenseTx.rawMerchant.ifBlank { "Expense #${expenseTx.id}" }
+            }
+            transactionDao.updateTransaction(
+                incomeTx.copy(
+                    type = TransactionType.SPLIT_SETTLEMENT,
+                    friendlyVendorName = "Reimbursement for $expenseLabel"
+                )
+            )
+
+            // 3. Settle any split items attached to this expense
+            val splits = splitDao.getSplitsForTransactionSync(expenseTransactionId)
+            if (splits.isNotEmpty()) {
+                var remainingPaise = offsetPaise
+                for (split in splits) {
+                    if (remainingPaise <= 0L) break
+                    val unpaidPaise = maxOf(0L, split.amountOwedPaise - split.amountPaidSoFarPaise)
+                    if (unpaidPaise > 0L) {
+                        val paying = minOf(remainingPaise, unpaidPaise)
+                        val newPaid = split.amountPaidSoFarPaise + paying
+                        val isSettled = newPaid >= split.amountOwedPaise // Exact integer comparison
+                        splitDao.updateSplitItem(
+                            split.copy(
+                                amountPaidSoFarPaise = newPaid,
+                                isSettled = isSettled
+                            )
                         )
-                    )
-                    remaining -= paying
+                        remainingPaise -= paying
+                    }
                 }
             }
         }
     }
 
+    /**
+     * Batch inserts a list of transactions wrapped in db.withTransaction.
+     */
+    suspend fun batchInsertTransactions(transactions: List<TransactionEntity>): List<Long> = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            transactionDao.insertTransactions(transactions)
+        }
+    }
+
+    /**
+     * Fresh install starts completely empty.
+     */
     suspend fun ensurePreseededData() = withContext(Dispatchers.IO) {
-        val existingCategories = categoryDao.getAllCategoriesList()
-        if (existingCategories.isEmpty()) {
-            val defaults = listOf(
-                CategoryEntity(1, "Food", "#10B981", 5000.0),
-                CategoryEntity(2, "Chai & Smoke", "#F59E0B", 2000.0),
-                CategoryEntity(3, "Beverages", "#06B6D4", 1500.0),
-                CategoryEntity(4, "Lifestyle", "#8B5CF6", 3000.0),
-                CategoryEntity(5, "Utilities", "#3B82F6", 1500.0),
-                CategoryEntity(6, "Clothing", "#EC4899", 2500.0)
-            )
-            categoryDao.insertCategories(defaults)
-        }
+        // No-op: fresh install starts completely empty - no pre-seeded personal or test data
+    }
 
-        val existingMappings = vendorDao.getAllVendorMappingsList()
-        if (existingMappings.isEmpty()) {
-            val defaultMappings = listOf(
-                VendorMappingEntity(1, "Sekar store", "Akka shop", 2),
-                VendorMappingEntity(2, "KARTHIK", "Bistro", 1),
-                VendorMappingEntity(3, "CHAATTERBOX", "Chaaterbox", 1),
-                VendorMappingEntity(4, "Mohan", "Chennai beverage", 3),
-                VendorMappingEntity(5, "HungerBox", "Hungerbox", 1),
-                VendorMappingEntity(6, "DD STORE", "Utility store", 5)
-            )
-            vendorDao.insertVendorMappings(defaultMappings)
-        }
-
-        val existingAccounts = accountDao.getAllAccountsSync()
-        if (existingAccounts.isEmpty()) {
-            val defaultAccounts = listOf(
-                com.campusfold.tracker.data.entity.AccountEntity(1, "PNB Credit Card 8598", "PNB", "CREDIT_CARD", "8598", 59396.93, "#F43F5E"),
-                com.campusfold.tracker.data.entity.AccountEntity(2, "Axis Bank XX2003", "Axis Bank", "SAVINGS", "2003", 0.0, "#8B5CF6"),
-                com.campusfold.tracker.data.entity.AccountEntity(3, "Federal (Jupiter) 2548", "Federal Bank", "SAVINGS", "2548", 0.0, "#F59E0B"),
-                com.campusfold.tracker.data.entity.AccountEntity(4, "PNB Savings Account 5557", "PNB", "SAVINGS", "5557", 0.0, "#06B6D4"),
-                com.campusfold.tracker.data.entity.AccountEntity(5, "Axis Bank Savings Account 5476", "Axis Bank", "SAVINGS", "5476", 0.0, "#3B82F6"),
-                com.campusfold.tracker.data.entity.AccountEntity(6, "Axis Bank Credit Card", "Axis Bank", "CREDIT_CARD", "Axis CC", 0.0, "#EC4899")
-            )
-            accountDao.insertAccounts(defaultAccounts)
+    companion object {
+        fun parseEditedFields(jsonStr: String): Set<String> {
+            if (jsonStr.isBlank() || jsonStr == "[]") return emptySet()
+            return try {
+                val arr = JSONArray(jsonStr)
+                val set = mutableSetOf<String>()
+                for (i in 0 until arr.length()) set.add(arr.getString(i))
+                set
+            } catch (_: Exception) {
+                emptySet()
+            }
         }
     }
 }

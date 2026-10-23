@@ -105,23 +105,33 @@ object AxisBankEmailParser {
             return null
         }
 
+        val detectedBank = when {
+            combined.contains("axis", ignoreCase = true) -> "Axis Bank"
+            combined.contains("hdfc", ignoreCase = true) -> "HDFC Bank"
+            combined.contains("icici", ignoreCase = true) -> "ICICI Bank"
+            combined.contains("sbi", ignoreCase = true) || combined.contains("state bank", ignoreCase = true) -> "SBI"
+            combined.contains("pnb", ignoreCase = true) || combined.contains("punjab national", ignoreCase = true) -> "PNB"
+            else -> "Bank"
+        }
+
         // 2. Extract Account Tail (e.g. 2003)
-        var accountTail = "2003"
+        var accountTail: String? = null
         val accM = ACCOUNT_NUMBER_PATTERN.matcher(cleanBody)
         if (accM.find()) {
-            accountTail = accM.group(1) ?: "2003"
+            accountTail = accM.group(1)
         } else {
             val accSubM = ACCOUNT_SUBJECT_PATTERN.matcher(combined)
             if (accSubM.find()) {
-                accountTail = accSubM.group(1) ?: "2003"
+                accountTail = accSubM.group(1)
             }
         }
 
         // Match against database accounts
         val matchedAccount = accounts.find {
-            it.last4.isNotBlank() && accountTail.endsWith(it.last4)
+            accountTail != null && it.last4.isNotBlank() && accountTail.endsWith(it.last4)
         }
-        val paymentMode = matchedAccount?.name ?: "Axis Bank XX$accountTail"
+        val paymentMode = matchedAccount?.displayName ?: matchedAccount?.name
+            ?: if (accountTail != null) "$detectedBank XX$accountTail" else "$detectedBank Account"
         val categoryId: Long? = null
 
         // 3. Extract UPI Info (Ref & Merchant / Sender)
@@ -166,7 +176,7 @@ object AxisBankEmailParser {
         }
 
         if (rawMerchant.isNullOrBlank()) {
-            rawMerchant = if (isDebit) "Axis Bank Debit" else "Axis Bank Credit"
+            rawMerchant = if (isDebit) "$detectedBank Debit" else "$detectedBank Credit"
         }
 
         // 4. Parse Date & Time

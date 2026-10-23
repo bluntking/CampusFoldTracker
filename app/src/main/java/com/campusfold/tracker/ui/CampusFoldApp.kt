@@ -23,19 +23,23 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextAlign
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.campusfold.tracker.data.entity.*
+import com.campusfold.tracker.ui.components.FloatingPillBottomBar
 import com.campusfold.tracker.ui.screens.AccountsScreen
 import com.campusfold.tracker.ui.screens.AnalyticsScreen
-import com.campusfold.tracker.ui.screens.DashboardScreen
 import com.campusfold.tracker.ui.screens.HomeScreen
 import com.campusfold.tracker.ui.screens.SplitsScreen
 import com.campusfold.tracker.ui.screens.VendorsCategoriesScreen
+import com.campusfold.tracker.ui.screens.onboarding.OnboardingScreen
+import com.campusfold.tracker.ui.sheets.AiCoachSheet
+import com.campusfold.tracker.ui.sheets.SyncFromDateDialog
 import com.campusfold.tracker.ui.theme.*
 
 enum class AppNavScreen {
-    DASHBOARD,
-    TRANSACTIONS,
+    HOME,
     ANALYTICS,
+    AI_COACH,
     SPLITS,
     RULES
 }
@@ -47,197 +51,60 @@ fun CampusFoldApp(
     hasSmsPermission: Boolean,
     onRequestPermissions: () -> Unit
 ) {
-    var currentScreen by remember { mutableStateOf(AppNavScreen.DASHBOARD) }
+    val hasCompletedOnboarding by viewModel.hasCompletedOnboarding.collectAsStateWithLifecycle()
+
+    // ── Onboarding Gate ────────────────────────────────────────────────────────
+    if (!hasCompletedOnboarding) {
+        OnboardingScreen(
+            viewModel = viewModel,
+            onOnboardingComplete = {
+                // Setting completed state enters main app
+            }
+        )
+        return
+    }
+
+    // ── Main App Shell ────────────────────────────────────────────────────────
+    var currentScreen by remember { mutableStateOf(AppNavScreen.HOME) }
     var highlightTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
     var showManageAccountsSheet by remember { mutableStateOf(false) }
+    var showSyncFromDateDialog by remember { mutableStateOf(false) }
 
-    val categories by viewModel.categories.collectAsState()
-    val statusMessage by viewModel.statusMessage.collectAsState()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(statusMessage) {
-        statusMessage?.let {
-            snackbarHostState.showSnackbar(it)
+        statusMessage?.let { msg ->
+            if (msg.contains("Deleted", ignoreCase = true)) {
+                val res = snackbarHostState.showSnackbar(
+                    message = msg,
+                    actionLabel = "Undo",
+                    duration = SnackbarDuration.Short
+                )
+                if (res == SnackbarResult.ActionPerformed) {
+                    viewModel.undoLastDelete()
+                }
+            } else {
+                snackbarHostState.showSnackbar(msg)
+            }
             viewModel.clearStatusMessage()
         }
     }
 
     Scaffold(
-        containerColor = OledBlack,
-        bottomBar = {
-            NavigationBar(
-                containerColor = MatteCharcoal,
-                modifier = Modifier
-                    .border(1.dp, BorderCharcoal, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                    .height(68.dp)
-            ) {
-                // 1. Dashboard Tab
-                NavigationBarItem(
-                    selected = currentScreen == AppNavScreen.DASHBOARD,
-                    onClick = { currentScreen = AppNavScreen.DASHBOARD },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.GridView,
-                            contentDescription = "Dashboard",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    },
-                    label = {
-                        Text(
-                            text = "Dashboard",
-                            fontSize = 11.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            softWrap = false,
-                            fontWeight = if (currentScreen == AppNavScreen.DASHBOARD) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = NeonEmerald,
-                        selectedTextColor = NeonEmerald,
-                        unselectedIconColor = TextSecondary,
-                        unselectedTextColor = TextSecondary,
-                        indicatorColor = NeonEmerald.copy(alpha = 0.15f)
-                    )
-                )
-
-                // 2. Transactions Tab
-                NavigationBarItem(
-                    selected = currentScreen == AppNavScreen.TRANSACTIONS,
-                    onClick = {
-                        highlightTransaction = null
-                        currentScreen = AppNavScreen.TRANSACTIONS
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.ReceiptLong,
-                            contentDescription = "Transactions",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    },
-                    label = {
-                        Text(
-                            text = "Transactions",
-                            fontSize = 10.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            softWrap = false,
-                            fontWeight = if (currentScreen == AppNavScreen.TRANSACTIONS) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = NeonCyan,
-                        selectedTextColor = NeonCyan,
-                        unselectedIconColor = TextSecondary,
-                        unselectedTextColor = TextSecondary,
-                        indicatorColor = NeonCyan.copy(alpha = 0.15f)
-                    )
-                )
-
-                // 3. Analytics Tab
-                NavigationBarItem(
-                    selected = currentScreen == AppNavScreen.ANALYTICS,
-                    onClick = { currentScreen = AppNavScreen.ANALYTICS },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.PieChart,
-                            contentDescription = "Analytics & Budgets",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    },
-                    label = {
-                        Text(
-                            text = "Analytics",
-                            fontSize = 11.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            softWrap = false,
-                            fontWeight = if (currentScreen == AppNavScreen.ANALYTICS) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = NeonPurple,
-                        selectedTextColor = NeonPurple,
-                        unselectedIconColor = TextSecondary,
-                        unselectedTextColor = TextSecondary,
-                        indicatorColor = NeonPurple.copy(alpha = 0.15f)
-                    )
-                )
-
-                // 4. Splits Tab
-                NavigationBarItem(
-                    selected = currentScreen == AppNavScreen.SPLITS,
-                    onClick = { currentScreen = AppNavScreen.SPLITS },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Group,
-                            contentDescription = "Splits & Friends",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    },
-                    label = {
-                        Text(
-                            text = "Splits",
-                            fontSize = 11.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            softWrap = false,
-                            fontWeight = if (currentScreen == AppNavScreen.SPLITS) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = NeonAmber,
-                        selectedTextColor = NeonAmber,
-                        unselectedIconColor = TextSecondary,
-                        unselectedTextColor = TextSecondary,
-                        indicatorColor = NeonAmber.copy(alpha = 0.15f)
-                    )
-                )
-
-                // 5. Rules Tab
-                NavigationBarItem(
-                    selected = currentScreen == AppNavScreen.RULES,
-                    onClick = { currentScreen = AppNavScreen.RULES },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Store,
-                            contentDescription = "Rules & Budgets",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    },
-                    label = {
-                        Text(
-                            text = "Rules",
-                            fontSize = 11.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            softWrap = false,
-                            fontWeight = if (currentScreen == AppNavScreen.RULES) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Color(0xFF8AB4F8),
-                        selectedTextColor = Color(0xFF8AB4F8),
-                        unselectedIconColor = TextSecondary,
-                        unselectedTextColor = TextSecondary,
-                        indicatorColor = Color(0xFF8AB4F8).copy(alpha = 0.15f)
-                    )
-                )
-            }
-        },
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = {
             SnackbarHost(snackbarHostState) { data ->
                 Snackbar(
-                    containerColor = CardElevated,
-                    contentColor = TextPrimary,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.border(1.dp, BorderCharcoal, RoundedCornerShape(10.dp))
-                ) {
-                    Text(data.visuals.message, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                }
+                    snackbarData = data,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    actionColor = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(12.dp)
+                )
             }
         }
     ) { paddingValues ->
@@ -249,36 +116,26 @@ fun CampusFoldApp(
             AnimatedContent(
                 targetState = currentScreen,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(130)) togetherWith
-                    fadeOut(animationSpec = tween(100))
+                    fadeIn(animationSpec = tween(140)) togetherWith
+                            fadeOut(animationSpec = tween(100))
                 },
                 label = "ScreenSwitch"
             ) { targetScreen ->
                 when (targetScreen) {
-                    AppNavScreen.DASHBOARD -> {
-                        DashboardScreen(
-                            viewModel = viewModel,
-                            onNavigateToTransactions = {
-                                highlightTransaction = null
-                                currentScreen = AppNavScreen.TRANSACTIONS
-                            },
-                            onOpenTransaction = { tx ->
-                                highlightTransaction = tx
-                                currentScreen = AppNavScreen.TRANSACTIONS
-                            },
-                            onManageAccounts = { showManageAccountsSheet = true },
-                            onOpenAddTransaction = { showAddDialog = true }
-                        )
-                    }
-                    AppNavScreen.TRANSACTIONS -> {
+                    AppNavScreen.HOME -> {
                         HomeScreen(
                             viewModel = viewModel,
                             hasSmsPermission = hasSmsPermission,
                             onRequestPermissions = onRequestPermissions,
                             onOpenAddTransaction = { showAddDialog = true },
+                            onManageAccounts = { showManageAccountsSheet = true },
+                            onNavigateToSplits = { currentScreen = AppNavScreen.SPLITS },
+                            onNavigateToAnalytics = { currentScreen = AppNavScreen.ANALYTICS },
+                            onNavigateToRules = { currentScreen = AppNavScreen.RULES },
                             initialSelectedTransaction = highlightTransaction
                         )
                     }
+
                     AppNavScreen.ANALYTICS -> {
                         AnalyticsScreen(
                             viewModel = viewModel,
@@ -296,36 +153,69 @@ fun CampusFoldApp(
                                     viewModel.filterByVendor(filterValue)
                                 }
                                 highlightTransaction = null
-                                currentScreen = AppNavScreen.TRANSACTIONS
+                                currentScreen = AppNavScreen.HOME
                             }
                         )
                     }
+
+                    AppNavScreen.AI_COACH -> {
+                        AiCoachSheet(
+                            viewModel = viewModel,
+                            onDismiss = { currentScreen = AppNavScreen.HOME }
+                        )
+                    }
+
                     AppNavScreen.SPLITS -> {
                         SplitsScreen(viewModel = viewModel)
                     }
+
                     AppNavScreen.RULES -> {
                         VendorsCategoriesScreen(viewModel = viewModel)
                     }
                 }
             }
+
+            // Floating Pill-Shaped Bottom Navigation Bar
+            FloatingPillBottomBar(
+                currentScreen = currentScreen,
+                onNavigate = { screen ->
+                    highlightTransaction = null
+                    currentScreen = screen
+                },
+                onAddTransaction = { showAddDialog = true },
+                onSyncNow = { showSyncFromDateDialog = true },
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
     }
 
-    // Manage Accounts Bottom Sheet (opened from Dashboard "Manage >")
+    // Manage Accounts Bottom Sheet
     if (showManageAccountsSheet) {
         ModalBottomSheet(
             onDismissRequest = { showManageAccountsSheet = false },
-            containerColor = CardElevated,
-            dragHandle = { BottomSheetDefaults.DragHandle(color = BorderCharcoal) }
+            containerColor = MaterialTheme.colorScheme.surface,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = MaterialTheme.colorScheme.outlineVariant) }
         ) {
             AccountsScreen(viewModel = viewModel)
         }
     }
 
+    // Sync From Date Dialog
+    if (showSyncFromDateDialog) {
+        SyncFromDateDialog(
+            isScanning = false,
+            onDismiss = { showSyncFromDateDialog = false },
+            onConfirmSync = { fromMillis ->
+                viewModel.scanSmsFromDate(fromMillis)
+                showSyncFromDateDialog = false
+            }
+        )
+    }
+
     // Manual Add Transaction Dialog
     if (showAddDialog) {
-        val accountsList by viewModel.accounts.collectAsState()
-        val allPersonsList by viewModel.allPersons.collectAsState()
+        val accountsList by viewModel.accounts.collectAsStateWithLifecycle()
+        val allPersonsList by viewModel.allPersons.collectAsStateWithLifecycle()
         AddManualTransactionDialog(
             categories = categories,
             accounts = accountsList,
@@ -353,18 +243,15 @@ fun AddManualTransactionDialog(
     var descriptionText by remember { mutableStateOf("") }
     var selectedCategoryId by remember { mutableStateOf(categories.firstOrNull()?.id) }
     var selectedType by remember { mutableStateOf(TransactionType.EXPENSE) }
-    var paymentMode by remember { mutableStateOf(accounts.firstOrNull()?.name ?: "PNB CC 8598") }
+    var paymentMode by remember { mutableStateOf(accounts.firstOrNull()?.name ?: "Cash / Bank") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = MatteCharcoal,
         title = {
             Text(
-                text = "LOG TRANSACTION",
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                color = TextPrimary
+                text = "Log Transaction",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
             )
         },
         text = {
@@ -382,47 +269,17 @@ fun AddManualTransactionDialog(
                     FilterChip(
                         selected = selectedType == TransactionType.EXPENSE,
                         onClick = { selectedType = TransactionType.EXPENSE },
-                        label = { Text("Expense", fontSize = 11.sp, maxLines = 1) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = PillBgExpense,
-                            selectedLabelColor = PillTextExpense
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = selectedType == TransactionType.EXPENSE,
-                            selectedBorderColor = PillTextExpense,
-                            borderColor = BorderCharcoal
-                        )
+                        label = { Text("Expense", fontSize = 11.sp, maxLines = 1) }
                     )
                     FilterChip(
                         selected = selectedType == TransactionType.INCOME,
                         onClick = { selectedType = TransactionType.INCOME },
-                        label = { Text("Income", fontSize = 11.sp, maxLines = 1) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = PillBgIncome,
-                            selectedLabelColor = PillTextIncome
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = selectedType == TransactionType.INCOME,
-                            selectedBorderColor = PillTextIncome,
-                            borderColor = BorderCharcoal
-                        )
+                        label = { Text("Income", fontSize = 11.sp, maxLines = 1) }
                     )
                     FilterChip(
                         selected = selectedType == TransactionType.CC_BILL_TRANSFER,
                         onClick = { selectedType = TransactionType.CC_BILL_TRANSFER },
-                        label = { Text("CC Bill", fontSize = 11.sp, maxLines = 1) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = PillBgCcBill,
-                            selectedLabelColor = PillTextCcBill
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = selectedType == TransactionType.CC_BILL_TRANSFER,
-                            selectedBorderColor = PillTextCcBill,
-                            borderColor = BorderCharcoal
-                        )
+                        label = { Text("CC Bill", fontSize = 11.sp, maxLines = 1) }
                     )
                 }
 
@@ -430,42 +287,28 @@ fun AddManualTransactionDialog(
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it },
-                    label = { Text("Amount (₹)", color = TextSecondary) },
+                    label = { Text("Amount (₹)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = TextPrimary
-                    ),
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        focusedBorderColor = NeonEmerald,
-                        unfocusedBorderColor = BorderCharcoal
-                    )
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 // Vendor
                 OutlinedTextField(
                     value = vendorName,
                     onValueChange = { vendorName = it },
-                    label = { Text("Store / Merchant Name", color = TextSecondary) },
+                    label = { Text("Store / Merchant Name") },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        focusedBorderColor = NeonEmerald,
-                        unfocusedBorderColor = BorderCharcoal
-                    )
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 // Paid Friend for My Share Quick Helper
                 if (selectedType == TransactionType.EXPENSE && allPersons.isNotEmpty()) {
-                    Text("Friend paid for you? Tap friend to set share:", fontSize = 10.sp, color = NeonAmber, fontFamily = FontFamily.Monospace)
+                    Text(
+                        text = "Friend paid for you? Tap friend to set share:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -481,11 +324,7 @@ fun AddManualTransactionDialog(
                                         descriptionText = "My share paid to ${friend.name}"
                                     }
                                 },
-                                label = { Text(friend.name, fontSize = 11.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = NeonAmber.copy(alpha = 0.2f),
-                                    selectedLabelColor = NeonAmber
-                                )
+                                label = { Text(friend.name, fontSize = 11.sp) }
                             )
                         }
                     }
@@ -495,21 +334,15 @@ fun AddManualTransactionDialog(
                 OutlinedTextField(
                     value = descriptionText,
                     onValueChange = { descriptionText = it },
-                    label = { Text("Note / Description (Optional)", color = TextSecondary) },
-                    placeholder = { Text("e.g. Dinner with Rahul, lab manuals, hostel groceries", color = TextMuted, fontSize = 11.sp) },
+                    label = { Text("Note / Description (Optional)") },
+                    placeholder = { Text("e.g. Dinner with Rahul, groceries", fontSize = 11.sp) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        focusedBorderColor = NeonEmerald,
-                        unfocusedBorderColor = BorderCharcoal
-                    )
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 // Account selector chips
                 if (accounts.isNotEmpty()) {
-                    Text("Select Account:", fontSize = 11.sp, color = TextMuted)
+                    Text("Select Account:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -517,11 +350,11 @@ fun AddManualTransactionDialog(
                     ) {
                         accounts.forEach { acc ->
                             FilterChip(
-                                selected = paymentMode == acc.name,
-                                onClick = { paymentMode = acc.name },
+                                selected = paymentMode == acc.displayName.ifEmpty { acc.bankName },
+                                onClick = { paymentMode = acc.displayName.ifEmpty { acc.bankName } },
                                 label = {
                                     Text(
-                                        text = acc.name,
+                                        text = acc.displayName.ifEmpty { acc.bankName },
                                         fontSize = 11.sp,
                                         maxLines = 1
                                     )
@@ -531,24 +364,9 @@ fun AddManualTransactionDialog(
                     }
                 }
 
-                // Payment Mode Override
-                OutlinedTextField(
-                    value = paymentMode,
-                    onValueChange = { paymentMode = it },
-                    label = { Text("Payment Mode", color = TextSecondary) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        focusedBorderColor = NeonEmerald,
-                        unfocusedBorderColor = BorderCharcoal
-                    )
-                )
-
                 // Category chips
                 if (categories.isNotEmpty()) {
-                    Text("Category:", fontSize = 11.sp, color = TextMuted)
+                    Text("Category:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -586,7 +404,6 @@ fun AddManualTransactionDialog(
                         )
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack),
                 shape = RoundedCornerShape(8.dp)
             ) {
                 Text("Log Transaction", fontWeight = FontWeight.Bold)
@@ -594,7 +411,7 @@ fun AddManualTransactionDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = TextSecondary)
+                Text("Cancel")
             }
         }
     )

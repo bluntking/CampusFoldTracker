@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.campusfold.tracker.data.pref.AppPreferences
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,37 +15,13 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 sealed class AiModelStatus {
     object NotLoaded : AiModelStatus()
     data class Loading(val message: String, val progressPercent: Int = 0) : AiModelStatus()
     data class Ready(val modelName: String, val modelPath: String) : AiModelStatus()
+    data class Stopped(val reason: String) : AiModelStatus()
     data class Error(val message: String) : AiModelStatus()
-}
-
-enum class QwenModelVariant(
-    val displayName: String,
-    val fileName: String,
-    val url: String,
-    val minValidSizeBytes: Long
-) {
-    QWEN_0_5B(
-        displayName = "Qwen 2.5 (0.5B)",
-        fileName = "Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
-        url = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
-        minValidSizeBytes = 500L * 1024 * 1024
-    ),
-    QWEN_1_5B(
-        displayName = "Qwen 2.5 (1.5B)",
-        fileName = "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
-        url = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
-        minValidSizeBytes = 1500L * 1024 * 1024
-    )
 }
 
 data class ChatMessage(
@@ -64,10 +39,9 @@ data class ParsedAiTransaction(
 )
 
 /**
- * Local On-Device AI Manager powered by Google MediaPipe LLM Inference (PennyWiseAI style).
- * Allows loading Gemma-2B, Qwen-0.5B/1.5B, or any .bin / .task model file locally.
- * Injects Room DB context (true spend, campus vendors, friends owed) into prompts.
- * Falls back safely when no model file is loaded so the app never crashes.
+ * Local On-Device AI Manager powered by LiteRT-LM.
+ * Operates on an isolated background process (:ai) so native engine crashes never kill the app.
+ * Adheres to strict Crash-Loop Guard, safety RAM checks, and resumable SHA-256 verified downloads.
  */
 object LocalAiManager {
 
@@ -77,11 +51,8 @@ object LocalAiManager {
     private const val KEY_MODEL_NAME = "saved_model_name"
     private const val KEY_UNSTRUCTURED_FALLBACK = "unstructured_ai_fallback_enabled"
 
-    const val QWEN_MODEL_URL = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task"
-    const val QWEN_MODEL_FILENAME = "Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task"
-
-    private var llmInference: LlmInference? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var remoteEngine: RemoteAiEngine? = null
 
     private val _modelStatus = MutableStateFlow<AiModelStatus>(AiModelStatus.NotLoaded)
     val modelStatus: StateFlow<AiModelStatus> = _modelStatus.asStateFlow()
@@ -90,7 +61,7 @@ object LocalAiManager {
         listOf(
             ChatMessage(
                 sender = "AI",
-                content = "👋 Hey Sahil! I'm your on-device CampusFold AI Coach. Ask me anything about your monthly spend, campus leaks at Akka shop or Bistro, or friend balances. Tap 'Select LLM Model' or 1-Tap 'Download Qwen 2.5' to load local weights."
+                content = "👋 Hey there! I'm your on-device CampusFold AI Coach. Ask me anything about your monthly spend, campus leaks, or friend balances. Download an on-device model to activate neural inference."
             )
         )
     )
@@ -102,24 +73,113 @@ object LocalAiManager {
     private val _isAiFallbackEnabled = MutableStateFlow(true)
     val isAiFallbackEnabled: StateFlow<Boolean> = _isAiFallbackEnabled.asStateFlow()
 
-    fun init(context: Context) {
-        val appContext = context.applicationContext
-        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        _isAiFallbackEnabled.value = prefs.getBoolean(KEY_UNSTRUCTURED_FALLBACK, true)
+    private var applicationContext: Context? = null
 
-        scope.launch {
-            // First check DataStore for saved model path, then fallback to SharedPreferences
-            val dataStore = AppPreferences(appContext)
-            var savedPath = dataStore.getSavedAiModelPathSync()
-            if (savedPath.isNullOrBlank()) {
-                savedPath = prefs.getString(KEY_MODEL_PATH, null)
-            }
-            val savedName = prefs.getString(KEY_MODEL_NAME, null)
-
-            if (!savedPath.isNullOrBlank() && File(savedPath).exists()) {
-                loadModelFromPath(appContext, savedPath, savedName ?: File(savedPath).name)
+    /**
+     * Lazily binds to isolated AI service on demand (e.g. when opening AI Coach).
+     */
+    fun ensureEngineBound() {
+        val app = applicationContext
+        if (remoteEngine == null && app != null) {
+            val engine = RemoteAiEngine(app)
+            remoteEngine = engine
+            scope.launch {
+                engine.state.collect { aiState ->
+                    _modelStatus.value = when (aiState) {
+                        is AiState.NotLoaded -> AiModelStatus.NotLoaded
+                        is AiState.Loading -> AiModelStatus.Loading(aiState.message, aiState.progressPercent)
+                        is AiState.Ready -> AiModelStatus.Ready(aiState.modelName, aiState.modelPath)
+                        is AiState.Stopped -> AiModelStatus.Stopped(aiState.reason)
+                        is AiState.Error -> AiModelStatus.Error(aiState.message)
+                    }
+                }
             }
         }
+        remoteEngine?.bindService()
+    }
+
+    /**
+     * Startup initialization:
+     * 1. Installs uncaught exception handler and initializes diagnostics.
+     * 2. Executes gated one-time cleanup (clearing legacy model paths once, never touching Room).
+     * 3. Checks for previous crash-loop (quarantines file if previous load crashed mid-flight).
+     * 4. DOES NOT auto-load model weights (lazy load on first AI use).
+     */
+    fun init(context: Context) {
+        val app = context.applicationContext
+        applicationContext = app
+
+        // 1. Diagnostics & Uncaught Exception Handler
+        AiDiagnostics.init(app)
+
+        val prefs = app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        _isAiFallbackEnabled.value = prefs.getBoolean(KEY_UNSTRUCTURED_FALLBACK, true)
+
+        // Initialize isolated process engine bridge
+        if (remoteEngine == null) {
+            val engine = RemoteAiEngine(app)
+            remoteEngine = engine
+
+            scope.launch {
+                engine.state.collect { aiState ->
+                    _modelStatus.value = when (aiState) {
+                        is AiState.NotLoaded -> AiModelStatus.NotLoaded
+                        is AiState.Loading -> AiModelStatus.Loading(aiState.message, aiState.progressPercent)
+                        is AiState.Ready -> AiModelStatus.Ready(aiState.modelName, aiState.modelPath)
+                        is AiState.Stopped -> AiModelStatus.Stopped(aiState.reason)
+                        is AiState.Error -> AiModelStatus.Error(aiState.message)
+                    }
+                }
+            }
+        }
+
+        scope.launch {
+            val dataStore = AppPreferences(app)
+
+            // 2. Gated one-time cleanup
+            CrashLoopGuard.performOneTimeCleanupIfNeeded(app, dataStore)
+
+            // 3. Check crash loop from prior run
+            val quarantine = CrashLoopGuard.checkCrashLoopAndQuarantine(app)
+            if (quarantine != null) {
+                _modelStatus.value = AiModelStatus.Error(
+                    "Model crashed during previous load and was quarantined to prevent crash-loop. File: ${File(quarantine.originalPath).name}"
+                )
+            }
+        }
+    }
+
+    /**
+     * Lazy model loader: loads saved model only when first required by the user or an AI task.
+     */
+    suspend fun ensureEngineLoaded(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val app = context.applicationContext
+        if (_modelStatus.value is AiModelStatus.Ready) return@withContext true
+
+        val prefs = app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val dataStore = AppPreferences(app)
+
+        var savedPath = dataStore.getSavedAiModelPathSync()
+        if (savedPath.isNullOrBlank()) {
+            savedPath = prefs.getString(KEY_MODEL_PATH, null)
+        }
+        val savedName = prefs.getString(KEY_MODEL_NAME, null)
+
+        if (savedPath.isNullOrBlank() || !File(savedPath).exists()) {
+            return@withContext false
+        }
+
+        // Safety RAM check
+        val mem = AiModelCatalog.getMemoryInfo(app)
+        if (mem.lowMemory || mem.availMem < 1_200L * 1024L * 1024L) {
+            val err = "Available RAM too low (${mem.availMem / (1024 * 1024)} MB). Skipping lazy load."
+            Log.w(TAG, err)
+            AiDiagnostics.recordEvent("RAM_CHECK", "Lazy load skipped due to low memory", err)
+            return@withContext false
+        }
+
+        loadModelFromPath(app, savedPath, savedName ?: File(savedPath).name)
+        _modelStatus.value is AiModelStatus.Ready
     }
 
     fun setAiFallbackEnabled(context: Context, enabled: Boolean) {
@@ -131,8 +191,7 @@ object LocalAiManager {
     }
 
     /**
-     * Copies selected model file from Storage Access Framework (SAF) URI into internal storage
-     * and initializes MediaPipe LlmInference on Dispatchers.IO.
+     * Imports a local .litertlm or model file from Storage Access Framework (SAF) URI.
      */
     suspend fun loadModelFromUri(context: Context, uri: Uri, displayName: String) = withContext(Dispatchers.IO) {
         try {
@@ -143,14 +202,12 @@ object LocalAiManager {
             val cleanName = displayName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
             val destinationFile = File(modelsDir, cleanName)
 
-            // Determine content size if possible
             val totalBytes = try {
                 appContext.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
             } catch (e: Exception) {
                 -1L
             }
 
-            // If file already exists and is non-empty, use directly
             if (!destinationFile.exists() || destinationFile.length() == 0L || (totalBytes > 0 && destinationFile.length() != totalBytes)) {
                 _modelStatus.value = AiModelStatus.Loading("Copying model to app storage...", 1)
                 appContext.contentResolver.openInputStream(uri)?.use { input ->
@@ -174,170 +231,111 @@ object LocalAiManager {
                 }
             }
 
-            // Save path in DataStore & SharedPreferences
-            AppPreferences(appContext).setSavedAiModelPath(destinationFile.absolutePath)
-            appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_MODEL_PATH, destinationFile.absolutePath)
-                .putString(KEY_MODEL_NAME, displayName)
-                .apply()
-
             loadModelFromPath(appContext, destinationFile.absolutePath, displayName)
 
         } catch (e: Exception) {
             Log.e(TAG, "Error importing model from URI", e)
-            _modelStatus.value = AiModelStatus.Error("Failed to load model: ${e.localizedMessage}")
+            _modelStatus.value = AiModelStatus.Error("Failed to import model: ${e.localizedMessage}")
         }
     }
 
     /**
-     * 1-Tap Download Qwen 2.5 (0.5B - 547MB or 1.5B - 1.6GB) directly from HuggingFace to context.filesDir.
-     * Follows HTTP 302 redirects properly and tracks download progress.
+     * Downloads an AI model from Hugging Face with resumable Range header, SHA-256 verification,
+     * and RAM checks.
      */
-    suspend fun downloadQwenModel(
-        context: Context,
-        variant: QwenModelVariant = QwenModelVariant.QWEN_0_5B
-    ) = withContext(Dispatchers.IO) {
+    suspend fun downloadModel(context: Context, model: AiModelInfo) = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
-        val modelsDir = File(appContext.filesDir, "llm_models").apply { mkdirs() }
-        val targetFile = File(modelsDir, variant.fileName)
-        val tempFile = File(modelsDir, "${variant.fileName}.tmp")
 
-        // If file already exists and has valid size, initialize directly
-        if (targetFile.exists() && targetFile.length() > variant.minValidSizeBytes) {
-            Log.i(TAG, "${variant.displayName} model already downloaded (${targetFile.length()} bytes). Initializing...")
-            AppPreferences(appContext).setSavedAiModelPath(targetFile.absolutePath)
-            loadModelFromPath(appContext, targetFile.absolutePath, variant.displayName)
+        // Pre-download RAM verification
+        val ramError = AiModelCatalog.checkRamForLoad(appContext, model)
+        if (ramError != null) {
+            _modelStatus.value = AiModelStatus.Error(ramError)
             return@withContext
         }
 
-        try {
-            _modelStatus.value = AiModelStatus.Loading("Connecting to Hugging Face for ${variant.displayName}...", 0)
+        _modelStatus.value = AiModelStatus.Loading("Preparing download for ${model.displayName}...", 0)
 
-            var currentUrl = variant.url
-            var connection: HttpURLConnection
-            var redirectCount = 0
+        val result = ModelDownloader.downloadModel(appContext, model) { progress, downloaded, total ->
+            val dlMb = downloaded / (1024 * 1024)
+            val totMb = if (total > 0) "${total / (1024 * 1024)}MB" else "unknown"
+            _modelStatus.value = AiModelStatus.Loading("Downloading ${model.displayName} ($dlMb MB / $totMb)...", progress)
+        }
 
-            // Follow redirects manually (HF returns 302 to CDN)
-            while (true) {
-                val urlObj = URL(currentUrl)
-                connection = urlObj.openConnection() as HttpURLConnection
-                connection.instanceFollowRedirects = true
-                connection.connectTimeout = 30000
-                connection.readTimeout = 60000
-                connection.setRequestProperty("User-Agent", "CampusFoldTracker-Android")
-                connection.connect()
-
-                val code = connection.responseCode
-                if (code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_MOVED_TEMP || code == 307 || code == 308) {
-                    val newLocation = connection.getHeaderField("Location")
-                    connection.disconnect()
-                    if (newLocation.isNullOrBlank() || redirectCount++ > 5) {
-                        throw Exception("Too many redirects or missing Location header")
-                    }
-                    currentUrl = newLocation
-                } else if (code == HttpURLConnection.HTTP_OK) {
-                    break
-                } else {
-                    throw Exception("Server returned HTTP $code")
-                }
-            }
-
-            val totalBytes = connection.contentLengthLong
-            Log.i(TAG, "Downloading ${variant.displayName} total size: $totalBytes bytes")
-
-            var downloadedBytes = 0L
-            connection.inputStream.use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var bytesRead: Int
-                    var lastReportTime = System.currentTimeMillis()
-
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        downloadedBytes += bytesRead
-
-                        val now = System.currentTimeMillis()
-                        if (now - lastReportTime > 250) {
-                            lastReportTime = now
-                            val progress = if (totalBytes > 0) {
-                                ((downloadedBytes.toDouble() / totalBytes.toDouble()) * 100).toInt().coerceIn(0, 99)
-                            } else 0
-                            val mbDownloaded = downloadedBytes / (1024 * 1024)
-                            val totalMb = if (totalBytes > 0) "${totalBytes / (1024 * 1024)}MB" else "calculating..."
-                            _modelStatus.value = AiModelStatus.Loading("Downloading ${variant.displayName} ($mbDownloaded MB / $totalMb)...", progress)
-                        }
-                    }
-                    output.flush()
-                }
-            }
-            connection.disconnect()
-
-            if (tempFile.exists() && tempFile.length() > 0) {
-                if (targetFile.exists()) targetFile.delete()
-                tempFile.renameTo(targetFile)
-            } else {
-                throw Exception("Downloaded file is empty")
-            }
-
-            // Save in DataStore & SharedPreferences
-            AppPreferences(appContext).setSavedAiModelPath(targetFile.absolutePath)
-            appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_MODEL_PATH, targetFile.absolutePath)
-                .putString(KEY_MODEL_NAME, variant.displayName)
-                .apply()
-
-            loadModelFromPath(appContext, targetFile.absolutePath, variant.displayName)
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error downloading ${variant.displayName}", e)
-            if (tempFile.exists()) tempFile.delete()
-            _modelStatus.value = AiModelStatus.Error("Download failed: ${e.localizedMessage}")
+        result.onSuccess { targetFile ->
+            loadModelFromPath(appContext, targetFile.absolutePath, model.displayName)
+        }.onFailure { err ->
+            _modelStatus.value = AiModelStatus.Error(err.localizedMessage ?: "Download failed")
         }
     }
 
     /**
-     * Initializes MediaPipe LlmInference strictly on Dispatchers.IO (never on Main UI thread).
+     * Loads model file into isolated process engine (:ai) with crash-loop guard protection.
      */
     suspend fun loadModelFromPath(context: Context, path: String, modelName: String) = withContext(Dispatchers.IO) {
-        _modelStatus.value = AiModelStatus.Loading("Initializing MediaPipe inference engine...", 90)
-        try {
-            val file = File(path)
-            if (!file.exists()) {
-                _modelStatus.value = AiModelStatus.Error("Model file does not exist at $path")
-                return@withContext
-            }
+        val app = context.applicationContext
+        val file = File(path)
+        if (!file.exists()) {
+            _modelStatus.value = AiModelStatus.Error("Model file does not exist at $path")
+            return@withContext
+        }
 
-            // Close existing instance if any
-            try {
-                llmInference?.close()
-            } catch (ignored: Exception) {}
+        // Safety RAM check
+        val mem = AiModelCatalog.getMemoryInfo(app)
+        if (mem.lowMemory) {
+            val err = "Cannot load model: device is in low-memory state."
+            _modelStatus.value = AiModelStatus.Error(err)
+            return@withContext
+        }
 
-            val options = LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(path)
-                .setMaxTokens(1024)
-                .setTemperature(0.7f)
-                .setTopK(40)
-                .build()
+        // 1. Crash-Loop Guard: write load_in_progress BEFORE touching native engine
+        CrashLoopGuard.markLoadStarted(app, path)
 
-            llmInference = LlmInference.createFromOptions(context.applicationContext, options)
+        _modelStatus.value = AiModelStatus.Loading("Loading $modelName into isolated AI engine...", 80)
 
+        val engine = remoteEngine ?: RemoteAiEngine(app).also { remoteEngine = it }
+        val loadResult = engine.loadModel(path, modelName)
+
+        if (loadResult.isSuccess) {
+            // 2. Crash-Loop Guard: ONLY save path after successful load
+            CrashLoopGuard.markLoadSuccess(app, AppPreferences(app), path, modelName)
             _modelStatus.value = AiModelStatus.Ready(modelName, path)
+            Log.i(TAG, "Model loaded and verified ready: $modelName ($path)")
+        } else {
+            val err = loadResult.exceptionOrNull()?.message ?: "Failed to initialize LiteRT-LM engine"
+            CrashLoopGuard.markLoadFailed(app, path, err)
+            _modelStatus.value = AiModelStatus.Error(err)
+            Log.e(TAG, "Model load failed: $err")
+        }
+    }
 
-            // Save in DataStore & SharedPreferences
-            AppPreferences(context.applicationContext).setSavedAiModelPath(path)
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_MODEL_PATH, path)
-                .putString(KEY_MODEL_NAME, modelName)
-                .apply()
+    /**
+     * Retry loading after an engine stop or unexpected crash.
+     */
+    suspend fun retry(context: Context) = withContext(Dispatchers.IO) {
+        val engine = remoteEngine ?: return@withContext
+        _modelStatus.value = AiModelStatus.Loading("Restarting AI engine...", 10)
+        val result = engine.retry()
+        if (result.isFailure) {
+            _modelStatus.value = AiModelStatus.Error("Retry failed: ${result.exceptionOrNull()?.message}")
+        }
+    }
 
-            Log.i(TAG, "MediaPipe LLM loaded successfully on Dispatchers.IO from $path ($modelName)")
-
+    /**
+     * Runs a safe, non-blocking test inference prompt using CrashLoopGuard to confirm
+     * the native engine is functional without crashing or running out of memory.
+     */
+    suspend fun runInferenceTest(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val engine = remoteEngine ?: return@withContext false
+        val currentStatus = _modelStatus.value
+        if (currentStatus !is AiModelStatus.Ready) {
+            return@withContext false
+        }
+        return@withContext try {
+            val result = engine.complete("Hello, test!")
+            result.isSuccess
         } catch (e: Throwable) {
-            Log.e(TAG, "Error creating LlmInference instance on Dispatchers.IO", e)
-            _modelStatus.value = AiModelStatus.Error("Failed to initialize MediaPipe engine: ${e.message}")
+            Log.w(TAG, "Inference test failed: ${e.message}")
+            false
         }
     }
 
@@ -349,7 +347,7 @@ object LocalAiManager {
         currentMonthSpend: Double,
         categoryBreakdown: List<Pair<String, Double>>,
         topVendors: List<Pair<String, Double>>,
-        pnbCreditLimit: Double,
+        creditLimit: Double,
         unsettledFriends: List<Pair<String, Double>>
     ) = withContext(Dispatchers.IO) {
         if (userQuery.isBlank()) return@withContext
@@ -364,7 +362,7 @@ object LocalAiManager {
                 appendLine("You are CampusFold AI, an intelligent on-device personal financial coach for a campus student.")
                 appendLine("Analyze this live financial snapshot:")
                 appendLine("- Current Month True Personal Spend: ₹${currentMonthSpend.toInt()} (excluding friend split shares & CC transfers)")
-                appendLine("- Available PNB Credit Card 8598 Limit: ₹${pnbCreditLimit.toInt()}")
+                appendLine("- Available Credit Card Limit: ₹${creditLimit.toInt()}")
                 appendLine("- Category Spending:")
                 if (categoryBreakdown.isEmpty()) {
                     appendLine("  (No categorized spends yet)")
@@ -394,15 +392,15 @@ object LocalAiManager {
                 appendLine("Give a concise, direct, helpful, campus-focused response (under 120 words).")
             }
 
-            val responseText: String = if (llmInference != null && _modelStatus.value is AiModelStatus.Ready) {
-                try {
-                    llmInference!!.generateResponse(systemContextPrompt)
-                } catch (e: Exception) {
+            val engine = remoteEngine
+            val responseText: String = if (engine != null && _modelStatus.value is AiModelStatus.Ready) {
+                val completionResult = engine.complete(systemContextPrompt, maxTokens = 512, timeoutMs = 45_000L)
+                completionResult.getOrElse { e ->
                     Log.w(TAG, "Inference error, using smart fallback", e)
-                    generateRuleBasedFallback(userQuery, currentMonthSpend, categoryBreakdown, topVendors, pnbCreditLimit, unsettledFriends)
+                    generateRuleBasedFallback(userQuery, currentMonthSpend, categoryBreakdown, topVendors, creditLimit, unsettledFriends)
                 }
             } else {
-                generateRuleBasedFallback(userQuery, currentMonthSpend, categoryBreakdown, topVendors, pnbCreditLimit, unsettledFriends)
+                generateRuleBasedFallback(userQuery, currentMonthSpend, categoryBreakdown, topVendors, creditLimit, unsettledFriends)
             }
 
             val aiMsg = ChatMessage(sender = "AI", content = responseText)
@@ -418,14 +416,14 @@ object LocalAiManager {
     }
 
     /**
-     * Fallback that provides smart data analysis even when a 2GB model is not yet loaded on device.
+     * Fallback that provides smart data analysis even when local weights are not loaded.
      */
     private fun generateRuleBasedFallback(
         query: String,
         spend: Double,
         categories: List<Pair<String, Double>>,
         vendors: List<Pair<String, Double>>,
-        pnbLimit: Double,
+        creditLimit: Double,
         friends: List<Pair<String, Double>>
     ): String {
         val qLower = query.lowercase()
@@ -441,7 +439,7 @@ object LocalAiManager {
                 val topVendor = vendors.maxByOrNull { it.second }
                 "${prefixNotice}Your highest expense category is **${topCat?.first ?: "Food"}** at ₹${topCat?.second?.toInt() ?: 0}. " +
                         if (topVendor != null) "Your biggest campus leak is at **${topVendor.first}** (₹${topVendor.second.toInt()}). Try setting a weekly spending cap there!"
-                        else "Keep track of frequent small spends at Akka shop or Bistro."
+                        else "Keep track of frequent small spends at campus stores or cafes."
             }
             qLower.contains("owe") || qLower.contains("friend") || qLower.contains("split") || qLower.contains("balance") -> {
                 if (friends.isEmpty()) {
@@ -452,15 +450,15 @@ object LocalAiManager {
                             "**${biggestDebtor?.first}** has the largest unsettled portion of ₹${biggestDebtor?.second?.toInt()}. Tap the Splits tab to send a reminder!"
                 }
             }
-            qLower.contains("afford") || qLower.contains("bistro") || qLower.contains("dinner") || qLower.contains("limit") -> {
-                "${prefixNotice}Your current monthly spend is ₹${spend.toInt()} and your PNB CC 8598 available limit is ₹${pnbLimit.toInt()}. " +
-                        if (spend > 15000) "You're spending at a fast pace this month—opt for a budget meal at Akka shop!"
-                        else "You have room in your budget for dinner at Bistro. Just make sure to split the bill with friends if dining together!"
+            qLower.contains("afford") || qLower.contains("dinner") || qLower.contains("limit") -> {
+                "${prefixNotice}Your current monthly spend is ₹${spend.toInt()} and your credit card available limit is ₹${creditLimit.toInt()}. " +
+                        if (spend > 15000) "You're spending at a fast pace this month—opt for a budget meal!"
+                        else "You have room in your budget for dinner out. Just make sure to split the bill with friends if dining together!"
             }
             else -> {
                 val topCat = categories.maxByOrNull { it.second }
                 "${prefixNotice}Here is your financial pulse: True personal spend is **₹${spend.toInt()}**, with **${topCat?.first ?: "Food"}** being your top category. " +
-                        "Friends owe you **₹${totalFriendsOwed.toInt()}**, and available PNB credit limit is **₹${pnbLimit.toInt()}**. Load a local Gemma-2B .task model to unlock deep neural insights!"
+                        "Friends owe you **₹${totalFriendsOwed.toInt()}**, and available credit limit is **₹${creditLimit.toInt()}**. Download a local Qwen 2.5 model to unlock deep neural insights!"
             }
         }
     }
@@ -469,7 +467,8 @@ object LocalAiManager {
      * AI Unstructured Fallback: Parses arbitrary SMS or notification text failing regex into structured transaction data.
      */
     suspend fun parseUnstructuredMessage(rawText: String): ParsedAiTransaction? = withContext(Dispatchers.IO) {
-        if (!_isAiFallbackEnabled.value || llmInference == null || _modelStatus.value !is AiModelStatus.Ready) {
+        val engine = remoteEngine ?: return@withContext null
+        if (!_isAiFallbackEnabled.value || _modelStatus.value !is AiModelStatus.Ready) {
             return@withContext null
         }
 
@@ -487,7 +486,9 @@ object LocalAiManager {
                 }
             """.trimIndent()
 
-            val result = llmInference!!.generateResponse(extractionPrompt).trim()
+            val result = engine.complete(extractionPrompt, maxTokens = 256, timeoutMs = 20_000L).getOrNull()?.trim()
+                ?: return@withContext null
+
             val cleanJson = result.substringAfter("{").substringBeforeLast("}")
             val jsonObject = JSONObject("{$cleanJson}")
 
@@ -511,9 +512,24 @@ object LocalAiManager {
     }
 
     /**
+     * Executes raw prompt completion with the loaded LiteRT engine.
+     */
+    suspend fun completePrompt(prompt: String, maxTokens: Int = 256, timeoutMs: Long = 15_000L): String? = withContext(Dispatchers.IO) {
+        val engine = remoteEngine ?: return@withContext null
+        if (_modelStatus.value !is AiModelStatus.Ready) {
+            return@withContext null
+        }
+        try {
+            engine.complete(prompt, maxTokens = maxTokens, timeoutMs = timeoutMs).getOrNull()?.trim()
+        } catch (e: Exception) {
+            Log.w(TAG, "AI prompt completion failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
      * Intelligent on-device AI categorization.
-     * Uses loaded MediaPipe LLM if available, or fast local knowledge heuristics.
-     * E.g. "Air India" -> "Travel"
+     * Uses fast local knowledge heuristics first, then queries the isolated LiteRT engine if loaded.
      */
     suspend fun predictCategoryForMerchant(
         merchantName: String,
@@ -528,8 +544,9 @@ object LocalAiManager {
             return@withContext heuristicCategory
         }
 
-        // 2. If MediaPipe LLM is loaded and ready, query the on-device LLM
-        if (llmInference != null && _modelStatus.value is AiModelStatus.Ready) {
+        // 2. Query isolated LiteRT LLM if loaded
+        val engine = remoteEngine
+        if (engine != null && _modelStatus.value is AiModelStatus.Ready) {
             try {
                 val catListStr = if (existingCategories.isNotEmpty()) {
                     existingCategories.joinToString(", ")
@@ -542,8 +559,8 @@ object LocalAiManager {
                     If it is an airline, flight, cab, train, hotel booking, metro, or fuel, reply 'Travel'.
                     Reply ONLY with the single category name, no extra words or punctuation:
                 """.trimIndent()
-                val response = llmInference!!.generateResponse(prompt).trim()
-                val clean = response.lines().firstOrNull()?.trim()?.replace("[^a-zA-Z &]".toRegex(), "") ?: ""
+                val response = engine.complete(prompt, maxTokens = 30, timeoutMs = 10_000L).getOrNull()?.trim()
+                val clean = response?.lines()?.firstOrNull()?.trim()?.replace("[^a-zA-Z &]".toRegex(), "") ?: ""
                 if (clean.isNotBlank() && clean.length < 30) {
                     return@withContext clean
                 }
@@ -606,7 +623,7 @@ object LocalAiManager {
         _chatMessages.value = listOf(
             ChatMessage(
                 sender = "AI",
-                content = "Chat cleared. Ask me anything about your campus finances, or tap 'Select LLM Model' to load a new model!"
+                content = "Chat cleared. Ask me anything about your campus finances, or select an AI model to load weights!"
             )
         )
     }

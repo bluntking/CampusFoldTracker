@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -21,21 +22,19 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.campusfold.tracker.ui.theme.BorderCharcoal
-import com.campusfold.tracker.ui.theme.MatteCharcoal
-import com.campusfold.tracker.ui.theme.TextPrimary
+import com.campusfold.tracker.ui.theme.*
 import java.text.NumberFormat
 import java.util.Locale
 
 /**
- * Fold Money Signature Matte Charcoal Card with 1dp border.
+ * Signature Rounded Card with subtle border, adapting seamlessly to Material 3 themes.
  */
 @Composable
 fun FoldCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 16.dp,
-    containerColor: Color = MatteCharcoal,
-    borderColor: Color = BorderCharcoal,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+    borderColor: Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -50,7 +49,7 @@ fun FoldCard(
 }
 
 /**
- * High-contrast status pill for Fold Money dark aesthetic.
+ * High-contrast status pill for Fold Money design system.
  */
 @Composable
 fun StatusPill(
@@ -94,7 +93,7 @@ fun StatusPill(
 }
 
 /**
- * Bold Monospace Currency Text (Fold Money Typography).
+ * Bold Monospace Currency Text.
  */
 @Composable
 fun MonospaceCurrencyText(
@@ -102,7 +101,7 @@ fun MonospaceCurrencyText(
     modifier: Modifier = Modifier,
     prefix: String = "₹",
     fontSize: TextUnit = 16.sp,
-    color: Color = TextPrimary,
+    color: Color = MaterialTheme.colorScheme.onSurface,
     fontWeight: FontWeight = FontWeight.Bold
 ) {
     val formatter = NumberFormat.getNumberInstance(Locale("en", "IN")).apply {

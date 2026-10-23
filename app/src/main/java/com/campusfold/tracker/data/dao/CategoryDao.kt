@@ -40,13 +40,13 @@ interface CategoryDao {
         SELECT 
             c.id AS categoryId,
             c.name AS categoryName,
-            c.colorHex AS colorHex,
-            c.monthlyBudget AS monthlyBudget,
-            COALESCE(SUM(t.myActualShare), 0.0) AS totalSpent
+            c.color AS color,
+            c.budgetPaise AS budgetPaise,
+            COALESCE(SUM(t.myActualSharePaise), 0) AS totalSpentPaise
         FROM categories c
         LEFT JOIN transactions t ON c.id = t.categoryId AND t.type = 'EXPENSE'
         GROUP BY c.id
-        ORDER BY totalSpent DESC
+        ORDER BY totalSpentPaise DESC
     """)
     fun getCategorySpending(): Flow<List<CategorySpending>>
 
@@ -54,13 +54,13 @@ interface CategoryDao {
         SELECT 
             c.id AS categoryId,
             c.name AS categoryName,
-            c.colorHex AS colorHex,
-            c.monthlyBudget AS monthlyBudget,
-            COALESCE(SUM(t.myActualShare), 0.0) AS totalSpent
+            c.color AS color,
+            c.budgetPaise AS budgetPaise,
+            COALESCE(SUM(t.myActualSharePaise), 0) AS totalSpentPaise
         FROM categories c
         LEFT JOIN transactions t ON c.id = t.categoryId AND t.type = 'EXPENSE' AND t.timestamp >= :startOfMonth AND t.timestamp <= :endOfMonth
         GROUP BY c.id
-        ORDER BY totalSpent DESC
+        ORDER BY totalSpentPaise DESC
     """)
     fun getCategorySpendingForMonth(startOfMonth: Long, endOfMonth: Long): Flow<List<CategorySpending>>
 
@@ -68,13 +68,13 @@ interface CategoryDao {
         SELECT 
             c.id AS categoryId,
             c.name AS categoryName,
-            c.colorHex AS colorHex,
-            c.monthlyBudget AS monthlyBudget,
-            COALESCE(SUM(t.myActualShare), 0.0) AS totalSpent
+            c.color AS color,
+            c.budgetPaise AS budgetPaise,
+            COALESCE(SUM(t.myActualSharePaise), 0) AS totalSpentPaise
         FROM categories c
         LEFT JOIN transactions t ON c.id = t.categoryId AND t.type = 'EXPENSE' AND t.timestamp >= :startOfMonth AND t.timestamp <= :endOfMonth
         GROUP BY c.id
-        ORDER BY totalSpent DESC
+        ORDER BY totalSpentPaise DESC
     """)
     suspend fun getCategorySpendingForMonthSync(startOfMonth: Long, endOfMonth: Long): List<CategorySpending>
 
@@ -82,8 +82,8 @@ interface CategoryDao {
         SELECT 
             c.id AS categoryId,
             c.name AS categoryName,
-            c.colorHex AS colorHex,
-            COALESCE(SUM(t.myActualShare), 0.0) AS totalSpent
+            c.color AS color,
+            COALESCE(SUM(t.myActualSharePaise), 0) AS totalSpentPaise
         FROM categories c
         LEFT JOIN transactions t ON c.id = t.categoryId AND t.type = 'EXPENSE' AND t.timestamp >= :start AND t.timestamp < :end
         GROUP BY c.id

@@ -28,6 +28,7 @@ import com.campusfold.tracker.data.entity.PersonEntity
 import com.campusfold.tracker.data.entity.TransactionType
 import com.campusfold.tracker.data.model.PersonWithBalance
 import com.campusfold.tracker.data.model.UnsettledBillItem
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.campusfold.tracker.ui.TransactionViewModel
 import com.campusfold.tracker.ui.components.FoldCard
 import com.campusfold.tracker.ui.components.MonospaceCurrencyText
@@ -39,13 +40,13 @@ import java.util.Locale
 
 @Composable
 fun SplitsScreen(viewModel: TransactionViewModel) {
-    val personsWithBalances by viewModel.personsWithBalances.collectAsState()
-    val allUnsettledBills by viewModel.allUnsettledBills.collectAsState()
-    val pendingSuggestions by viewModel.pendingSuggestions.collectAsState()
-    val unallocatedCredits by viewModel.unallocatedHiddenSenderCredits.collectAsState()
+    val personsWithBalances by viewModel.personsWithBalances.collectAsStateWithLifecycle()
+    val allUnsettledBills by viewModel.allUnsettledBills.collectAsStateWithLifecycle()
+    val pendingSuggestions by viewModel.pendingSuggestions.collectAsStateWithLifecycle()
+    val unallocatedCredits by viewModel.unallocatedHiddenSenderCredits.collectAsStateWithLifecycle()
 
     val totalOwedToMe = personsWithBalances.sumOf { it.totalOwedToMe }
-    val categories by viewModel.categories.collectAsState()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
 
     // Dialog states
     var showAddFriendDialog by remember { mutableStateOf(false) }

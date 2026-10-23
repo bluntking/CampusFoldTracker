@@ -26,6 +26,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.campusfold.tracker.data.entity.*
+import com.campusfold.tracker.util.CurrencyUtils
+import org.json.JSONArray
 import com.campusfold.tracker.ui.components.FoldCard
 import com.campusfold.tracker.ui.components.MonospaceCurrencyText
 import com.campusfold.tracker.ui.components.StatusPill
@@ -39,6 +41,7 @@ import java.util.Locale
 fun TransactionDetailBottomSheet(
     transaction: TransactionEntity,
     categories: List<CategoryEntity>,
+    accounts: List<AccountEntity> = emptyList(),
     vendorMappings: List<VendorMappingEntity>,
     allPersons: List<PersonEntity>,
     allTransactions: List<TransactionEntity> = emptyList(),
@@ -47,6 +50,7 @@ fun TransactionDetailBottomSheet(
     onSaveTransaction: (updatedTx: TransactionEntity, splits: List<SplitItemEntity>) -> Unit,
     onToggleCcBill: () -> Unit,
     onLinkIncomeToExpense: ((incomeId: Long, expenseId: Long, offsetAmount: Double) -> Unit)? = null,
+    onMergeWithDuplicate: ((targetId: Long, duplicateId: Long) -> Unit)? = null,
     onSaveVendorMapping: (rawKeyword: String, friendlyName: String, categoryId: Long?) -> Unit,
     onAddPersonInline: (name: String, aliases: String) -> Unit = { _, _ -> },
     onDeletePersonInline: (PersonEntity) -> Unit = {},
@@ -56,15 +60,29 @@ fun TransactionDetailBottomSheet(
 
     // Link Income <-> Expense state
     var showLinkIncomeExpenseDialog by remember { mutableStateOf(false) }
+    var showMergeDuplicateDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    // Edited fields tracking
+    val editedFieldsSet = remember(transaction.editedFields) {
+        val set = mutableSetOf<String>()
+        try {
+            val arr = JSONArray(transaction.editedFields)
+            for (i in 0 until arr.length()) set.add(arr.getString(i))
+        } catch (_: Exception) {}
+        set
+    }
 
     // Form states
     var amountText by remember { mutableStateOf(transaction.amount.toString()) }
     var friendlyVendor by remember { mutableStateOf(transaction.friendlyVendorName) }
     var descriptionText by remember { mutableStateOf(transaction.description ?: "") }
     var selectedCategoryId by remember { mutableStateOf(transaction.categoryId) }
+    var selectedAccountId by remember { mutableStateOf(transaction.accountId) }
     var selectedType by remember { mutableStateOf(transaction.type) }
     var paymentMode by remember { mutableStateOf(transaction.paymentMode) }
     var showPaidFriendSection by remember { mutableStateOf(false) }
+    var showAccountDropdown by remember { mutableStateOf(false) }
 
     // Split state
     var showSplitSection by remember { mutableStateOf(false) }
@@ -143,6 +161,10 @@ fun TransactionDetailBottomSheet(
                         TransactionType.CC_BILL_TRANSFER -> "CC BILL"
                         TransactionType.INCOME -> "INCOME"
                         TransactionType.SPLIT_SETTLEMENT -> "SETTLEMENT"
+                        TransactionType.OWN_TRANSFER -> "SELF TRANSFER"
+                        TransactionType.REFUND -> "REFUND"
+                        TransactionType.ATM -> "ATM"
+                        TransactionType.EMI -> "EMI"
                         TransactionType.EXPENSE -> "EXPENSE"
                     },
                     bgColor = when (selectedType) {
@@ -285,6 +307,49 @@ fun TransactionDetailBottomSheet(
                 }
             }
 
+            // Mark as Duplicate & Merge Card
+            if (onMergeWithDuplicate != null && allTransactions.size > 1) {
+                Spacer(modifier = Modifier.height(10.dp))
+                FoldCard(
+                    containerColor = InputBg,
+                    borderColor = NeonCyan.copy(alpha = 0.4f),
+                    onClick = { showMergeDuplicateDialog = true }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CallMerge,
+                            contentDescription = null,
+                            tint = NeonCyan
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Mark as Duplicate & Merge",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "Merge this into another transaction. Notes, links and splits combine.",
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
             // Paid Friend for My Share Card
             if (selectedType == TransactionType.EXPENSE) {
                 Spacer(modifier = Modifier.height(10.dp))
@@ -418,63 +483,81 @@ fun TransactionDetailBottomSheet(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Amount field
-            OutlinedTextField(
-                value = amountText,
-                onValueChange = { amountText = it },
-                label = { Text("Amount (₹)", color = TextSecondary) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                textStyle = androidx.compose.ui.text.TextStyle(
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = TextPrimary
-                ),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NeonEmerald,
-                    unfocusedBorderColor = BorderCharcoal,
-                    focusedContainerColor = InputBg,
-                    unfocusedContainerColor = InputBg
-                ),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Amount (₹)", color = TextSecondary, fontSize = 12.sp)
+                    EditedBadge("amount", editedFieldsSet)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = amountText,
+                    onValueChange = { amountText = it },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = TextPrimary
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = NeonEmerald,
+                        unfocusedBorderColor = BorderCharcoal,
+                        focusedContainerColor = InputBg,
+                        unfocusedContainerColor = InputBg
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.height(10.dp))
 
             // Vendor Name field
-            OutlinedTextField(
-                value = friendlyVendor,
-                onValueChange = { friendlyVendor = it },
-                label = { Text("Campus Friendly Vendor Name", color = TextSecondary) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NeonEmerald,
-                    unfocusedBorderColor = BorderCharcoal,
-                    focusedContainerColor = InputBg,
-                    unfocusedContainerColor = InputBg
-                ),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Campus Friendly Vendor Name", color = TextSecondary, fontSize = 12.sp)
+                    EditedBadge("friendlyVendorName", editedFieldsSet)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = friendlyVendor,
+                    onValueChange = { friendlyVendor = it },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = NeonEmerald,
+                        unfocusedBorderColor = BorderCharcoal,
+                        focusedContainerColor = InputBg,
+                        unfocusedContainerColor = InputBg
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.height(10.dp))
 
             // Note / Description field
-            OutlinedTextField(
-                value = descriptionText,
-                onValueChange = { descriptionText = it },
-                label = { Text("Note / Why did you spend this? (Optional)", color = TextSecondary) },
-                placeholder = { Text("e.g. Dinner with Rahul at BBQ Nation, hostel groceries", color = TextMuted, fontSize = 12.sp) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NeonEmerald,
-                    unfocusedBorderColor = BorderCharcoal,
-                    focusedContainerColor = InputBg,
-                    unfocusedContainerColor = InputBg
-                ),
-                minLines = 2,
-                maxLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Note / Why did you spend this? (Optional)", color = TextSecondary, fontSize = 12.sp)
+                    EditedBadge("description", editedFieldsSet)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = descriptionText,
+                    onValueChange = { descriptionText = it },
+                    placeholder = { Text("e.g. Dinner with Rahul at BBQ Nation, hostel groceries", color = TextMuted, fontSize = 12.sp) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = NeonEmerald,
+                        unfocusedBorderColor = BorderCharcoal,
+                        focusedContainerColor = InputBg,
+                        unfocusedContainerColor = InputBg
+                    ),
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
 
             // Save as Vendor Mapping for future SMS
             if (!isAlreadyMapped && transaction.rawMerchant.isNotBlank()) {
@@ -511,14 +594,148 @@ fun TransactionDetailBottomSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // Account Picker
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "ACCOUNT",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMuted
+                )
+                EditedBadge("accountId", editedFieldsSet)
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+
+            val currentAccount = accounts.find { it.id == selectedAccountId }
+            val accountLabel = currentAccount?.let { "${it.name} (${it.bankName})" } ?: if (paymentMode.isNotBlank()) paymentMode else "Unassigned / Cash"
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(InputBg)
+                    .border(1.dp, BorderCharcoal, RoundedCornerShape(10.dp))
+                    .clickable { showAccountDropdown = true }
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.AccountBalance,
+                            contentDescription = null,
+                            tint = NeonCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = accountLabel,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextPrimary
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = TextSecondary
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showAccountDropdown,
+                    onDismissRequest = { showAccountDropdown = false },
+                    modifier = Modifier.background(MatteCharcoal)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Unassigned / Cash", color = TextSecondary) },
+                        onClick = {
+                            selectedAccountId = null
+                            paymentMode = "Cash/Manual"
+                            showAccountDropdown = false
+                        }
+                    )
+                    accounts.forEach { acc ->
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(acc.name, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    Text("${acc.bankName} • ${acc.accountType}", fontSize = 10.sp, color = TextMuted)
+                                }
+                            },
+                            onClick = {
+                                selectedAccountId = acc.id
+                                paymentMode = acc.name
+                                showAccountDropdown = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Transaction Type Picker
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "TRANSACTION TYPE",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMuted
+                )
+                EditedBadge("type", editedFieldsSet)
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val types = listOf(
+                    TransactionType.EXPENSE to "Expense",
+                    TransactionType.INCOME to "Income",
+                    TransactionType.OWN_TRANSFER to "Own Transfer",
+                    TransactionType.CC_BILL_TRANSFER to "CC Bill",
+                    TransactionType.SPLIT_SETTLEMENT to "Settlement"
+                )
+                items(types) { (type, label) ->
+                    val isSelected = selectedType == type
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) NeonCyan.copy(alpha = 0.2f) else InputBg)
+                            .border(
+                                1.dp,
+                                if (isSelected) NeonCyan else BorderCharcoal,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable { selectedType = type }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) NeonCyan else TextSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Category Picker
-            Text(
-                text = "CATEGORY",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextMuted
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "CATEGORY",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMuted
+                )
+                EditedBadge("categoryId", editedFieldsSet)
+            }
             Spacer(modifier = Modifier.height(6.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(categories) { cat ->
@@ -835,7 +1052,7 @@ fun TransactionDetailBottomSheet(
             ) {
                 // Delete
                 OutlinedButton(
-                    onClick = onDelete,
+                    onClick = { showDeleteConfirmDialog = true },
                     colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = NeonCrimson
                     ),
@@ -854,13 +1071,33 @@ fun TransactionDetailBottomSheet(
                 Button(
                     onClick = {
                         val finalAmount = amountText.toDoubleOrNull() ?: transaction.amount
+                        val finalAmountPaise = CurrencyUtils.rupeesToPaise(finalAmount)
+                        val editedSet = mutableSetOf<String>()
+                        try {
+                            val arr = JSONArray(transaction.editedFields)
+                            for (i in 0 until arr.length()) editedSet.add(arr.getString(i))
+                        } catch (_: Exception) {}
+
+                        if (finalAmountPaise != transaction.amountPaise) editedSet.add("amount")
+                        if (friendlyVendor.trim() != transaction.friendlyVendorName) editedSet.add("friendlyVendorName")
+                        if (selectedCategoryId != transaction.categoryId) editedSet.add("categoryId")
+                        if (selectedAccountId != transaction.accountId) {
+                            editedSet.add("accountId")
+                            editedSet.add("paymentMode")
+                        }
+                        if (selectedType != transaction.type) editedSet.add("type")
+                        if (paymentMode != transaction.paymentMode) editedSet.add("paymentMode")
+                        if (descriptionText.trim().ifBlank { null } != transaction.description) editedSet.add("description")
+
                         val updated = transaction.copy(
-                            amount = finalAmount,
+                            amountPaise = finalAmountPaise,
                             friendlyVendorName = friendlyVendor.trim(),
                             categoryId = selectedCategoryId,
+                            accountId = selectedAccountId,
                             type = selectedType,
                             paymentMode = paymentMode,
-                            description = descriptionText.trim().ifBlank { null }
+                            description = descriptionText.trim().ifBlank { null },
+                            editedFields = JSONArray(editedSet.toList()).toString()
                         )
                         onSaveTransaction(updated, splitList.toList())
                         onDismiss()
@@ -880,9 +1117,65 @@ fun TransactionDetailBottomSheet(
         }
     }
 
+    // Delete Confirmation Dialog
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            containerColor = MatteCharcoal,
+            title = {
+                Text(
+                    text = "Delete Transaction?",
+                    fontWeight = FontWeight.Bold,
+                    color = NeonCrimson
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to delete this transaction of ₹${currentAmount}? You can undo this action right after deleting.",
+                    color = TextPrimary,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirmDialog = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NeonCrimson,
+                        contentColor = TextPrimary
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Delete", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
+    }
+
+    // Merge Duplicate Transaction Dialog
+    if (showMergeDuplicateDialog && onMergeWithDuplicate != null) {
+        MergeDuplicateTransactionDialog(
+            currentTransaction = transaction,
+            allTransactions = allTransactions,
+            onDismiss = { showMergeDuplicateDialog = false },
+            onConfirmMerge = { targetId ->
+                onMergeWithDuplicate(targetId, transaction.id)
+                showMergeDuplicateDialog = false
+                onDismiss()
+            }
+        )
+    }
+
     if (showFullSplitSheet) {
         SplitExpenseSheet(
-            transaction = transaction.copy(amount = currentAmount),
+            transaction = transaction.copy(amountPaise = CurrencyUtils.rupeesToPaise(currentAmount)),
             allPersons = allPersons,
             onDismiss = { showFullSplitSheet = false },
             onSaveSplits = { newSplits ->
@@ -1190,4 +1483,231 @@ fun LinkIncomeExpenseDialog(
             }
         }
     )
+}
+
+@Composable
+private fun EditedBadge(field: String, editedSet: Set<String>) {
+    if (editedSet.contains(field)) {
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "✎ Edited",
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            color = NeonAmber
+        )
+    }
+}
+
+@Composable
+fun MergeDuplicateTransactionDialog(
+    currentTransaction: TransactionEntity,
+    allTransactions: List<TransactionEntity>,
+    onDismiss: () -> Unit,
+    onConfirmMerge: (targetId: Long) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val candidates = remember(allTransactions, searchQuery) {
+        allTransactions.filter { tx ->
+            tx.id != currentTransaction.id &&
+            (searchQuery.isBlank() ||
+                tx.friendlyVendorName.contains(searchQuery, ignoreCase = true) ||
+                tx.rawMerchant.contains(searchQuery, ignoreCase = true) ||
+                tx.amount.toString().contains(searchQuery) ||
+                (tx.description ?: "").contains(searchQuery, ignoreCase = true))
+        }.sortedByDescending { it.timestamp }
+    }
+
+    var selectedCandidate by remember { mutableStateOf<TransactionEntity?>(candidates.firstOrNull()) }
+    var showConfirmMergeDialog by remember { mutableStateOf(false) }
+    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MatteCharcoal,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.CallMerge,
+                    contentDescription = null,
+                    tint = NeonCyan,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Merge with Duplicate",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = TextPrimary
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Select the surviving transaction. The current transaction (₹${currentTransaction.amount.toInt()} • ${currentTransaction.friendlyVendorName}) will be merged into it, combining descriptions and splits.",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+
+                // Search field
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search by vendor, note or amount...", fontSize = 11.sp, color = TextMuted) },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = InputBg,
+                        unfocusedContainerColor = InputBg,
+                        focusedBorderColor = NeonCyan,
+                        unfocusedBorderColor = BorderCharcoal
+                    )
+                )
+
+                Text(
+                    text = "CANDIDATE TRANSACTIONS (${candidates.size})",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMuted
+                )
+
+                if (candidates.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No matching transactions found.",
+                            fontSize = 12.sp,
+                            color = TextMuted
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        candidates.take(30).forEach { candidate ->
+                            val isSelected = selectedCandidate?.id == candidate.id
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) InputBg else MatteCharcoal)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) NeonCyan else BorderCharcoal,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { selectedCandidate = candidate }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = candidate.friendlyVendorName.ifBlank { candidate.rawMerchant },
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "${dateFormat.format(Date(candidate.timestamp))} • ${candidate.paymentMode}",
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = TextMuted
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    MonospaceCurrencyText(
+                                        amount = candidate.amount,
+                                        fontSize = 12.sp,
+                                        color = NeonCyan
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (selectedCandidate != null) {
+                        showConfirmMergeDialog = true
+                    }
+                },
+                enabled = selectedCandidate != null,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NeonCyan,
+                    contentColor = OledBlack
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("Select & Merge", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        }
+    )
+
+    if (showConfirmMergeDialog && selectedCandidate != null) {
+        val target = selectedCandidate!!
+        AlertDialog(
+            onDismissRequest = { showConfirmMergeDialog = false },
+            containerColor = MatteCharcoal,
+            title = {
+                Text("Confirm Duplicate Merge", fontWeight = FontWeight.Bold, color = NeonCyan)
+            },
+            text = {
+                Text(
+                    "Merge current transaction into '${target.friendlyVendorName}' (₹${target.amount})?\n\nNotes and split bills will be reassigned to the surviving transaction, and the duplicate will be deleted.",
+                    fontSize = 13.sp,
+                    color = TextPrimary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirmMergeDialog = false
+                        onConfirmMerge(target.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = OledBlack)
+                ) {
+                    Text("Confirm Merge", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmMergeDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
+    }
 }

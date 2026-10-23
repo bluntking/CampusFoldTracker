@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Telephony hardware optional for broader device compatibility -->
     <uses-feature
@@ -13,7 +14,9 @@
         android:required="false" />
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="${appName}"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -41,16 +44,11 @@
             </intent-filter>
         </receiver>
 
-        <!-- Gmail Notification Listener Service for Axis Bank credits -->
+        <!-- Isolated AI Engine Service running in a separate process (:ai) -->
         <service
-            android:name=".service.GmailNotificationListener"
-            android:label="CampusFold Axis Gmail Listener"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
+            android:name=".ai.AiService"
+            android:process=":ai"
+            android:exported="false" />
 
     </application>
 

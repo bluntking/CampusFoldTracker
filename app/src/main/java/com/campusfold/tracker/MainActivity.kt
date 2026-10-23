@@ -8,12 +8,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.campusfold.tracker.ui.CampusFoldApp
 import com.campusfold.tracker.ui.TransactionViewModel
 import com.campusfold.tracker.ui.theme.CampusFoldTrackerTheme
@@ -31,17 +34,31 @@ class MainActivity : ComponentActivity() {
         val smsGranted = permissions[Manifest.permission.READ_SMS] == true ||
                 ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
         hasSmsPermissionState.value = smsGranted
-        // Do not auto-scan inbox on permission grant to respect fresh start.
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        com.campusfold.tracker.ai.LocalAiManager.init(this)
         NotificationHelper.createNotificationChannel(this)
         updatePermissionStatus()
 
         setContent {
-            CampusFoldTrackerTheme {
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val dynamicColor by viewModel.dynamicColor.collectAsStateWithLifecycle()
+            val amoledMode by viewModel.amoledMode.collectAsStateWithLifecycle()
+
+            val isDark = when (themeMode) {
+                "DARK" -> true
+                "LIGHT" -> false
+                else -> isSystemInDarkTheme()
+            }
+
+            CampusFoldTrackerTheme(
+                darkTheme = isDark,
+                dynamicColor = dynamicColor,
+                isAmoledMode = amoledMode
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -53,11 +70,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-        }
-
-        // Auto-request if not yet granted
-        if (!hasSmsPermissionState.value) {
-            requestRequiredPermissions()
         }
     }
 

@@ -2,8 +2,10 @@ package com.campusfold.tracker.data.entity
 
 import androidx.room.Entity
 import androidx.room.ForeignKey
+import androidx.room.Ignore
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.campusfold.tracker.util.CurrencyUtils
 
 enum class SettlementSuggestionStatus {
     PENDING,
@@ -41,6 +43,26 @@ data class PendingSettlementSuggestionEntity(
     val transactionId: Long? = null,
     val suggestedPersonId: Long,
     val detectedSenderName: String,
-    val amount: Double,
+    val amountPaise: Long,
     val status: SettlementSuggestionStatus = SettlementSuggestionStatus.PENDING
-)
+) {
+    // Backward-compatibility accessor
+    val amount: Double get() = amountPaise / 100.0
+
+    @Ignore
+    constructor(
+        id: Long = 0,
+        transactionId: Long? = null,
+        suggestedPersonId: Long,
+        detectedSenderName: String,
+        amount: Double,
+        status: SettlementSuggestionStatus = SettlementSuggestionStatus.PENDING
+    ) : this(
+        id = id,
+        transactionId = transactionId,
+        suggestedPersonId = suggestedPersonId,
+        detectedSenderName = detectedSenderName,
+        amountPaise = CurrencyUtils.rupeesToPaise(amount),
+        status = status
+    )
+}

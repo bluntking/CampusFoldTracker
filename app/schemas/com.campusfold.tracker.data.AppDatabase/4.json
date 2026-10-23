@@ -1,0 +1,611 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 4,
+    "identityHash": "b7e28a4914c62f39229ad5ce3b44b67f",
+    "entities": [
+      {
+        "tableName": "categories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `color` TEXT NOT NULL, `budgetPaise` INTEGER, `editedFields` TEXT NOT NULL)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "name", "columnName": "name", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "color", "columnName": "color", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "budgetPaise", "columnName": "budgetPaise", "affinity": "INTEGER", "notNull": false },
+          { "fieldPath": "editedFields", "columnName": "editedFields", "affinity": "TEXT", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "vendors",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `displayName` TEXT NOT NULL, `normalizedKey` TEXT NOT NULL, `categoryId` INTEGER, `editedFields` TEXT NOT NULL, FOREIGN KEY(`categoryId`) REFERENCES `categories`(`id`) ON UPDATE CASCADE ON DELETE SET_NULL)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "displayName", "columnName": "displayName", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "normalizedKey", "columnName": "normalizedKey", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "categoryId", "columnName": "categoryId", "affinity": "INTEGER", "notNull": false },
+          { "fieldPath": "editedFields", "columnName": "editedFields", "affinity": "TEXT", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [
+          {
+            "name": "index_vendors_normalizedKey",
+            "unique": true,
+            "columnNames": ["normalizedKey"],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_vendors_normalizedKey` ON `${TABLE_NAME}` (`normalizedKey`)"
+          },
+          {
+            "name": "index_vendors_categoryId",
+            "unique": false,
+            "columnNames": ["categoryId"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_vendors_categoryId` ON `${TABLE_NAME}` (`categoryId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "categories",
+            "onDelete": "SET_NULL",
+            "onUpdate": "CASCADE",
+            "columns": ["categoryId"],
+            "referencedColumns": ["id"]
+          }
+        ]
+      },
+      {
+        "tableName": "transactions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `amountPaise` INTEGER NOT NULL, `myActualSharePaise` INTEGER NOT NULL, `type` TEXT NOT NULL, `paymentMode` TEXT NOT NULL, `rawMerchant` TEXT NOT NULL, `friendlyVendorName` TEXT NOT NULL, `categoryId` INTEGER, `timestamp` INTEGER NOT NULL, `upiRef` TEXT, `rawSms` TEXT, `description` TEXT, `accountId` INTEGER, `reference` TEXT, `source` TEXT NOT NULL, `confidence` REAL NOT NULL, `rawMessageHash` TEXT, `editedFields` TEXT NOT NULL, FOREIGN KEY(`categoryId`) REFERENCES `categories`(`id`) ON UPDATE CASCADE ON DELETE SET_NULL, FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE CASCADE ON DELETE SET_NULL)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "amountPaise", "columnName": "amountPaise", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "myActualSharePaise", "columnName": "myActualSharePaise", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "type", "columnName": "type", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "paymentMode", "columnName": "paymentMode", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "rawMerchant", "columnName": "rawMerchant", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "friendlyVendorName", "columnName": "friendlyVendorName", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "categoryId", "columnName": "categoryId", "affinity": "INTEGER", "notNull": false },
+          { "fieldPath": "timestamp", "columnName": "timestamp", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "upiRef", "columnName": "upiRef", "affinity": "TEXT", "notNull": false },
+          { "fieldPath": "rawSms", "columnName": "rawSms", "affinity": "TEXT", "notNull": false },
+          { "fieldPath": "description", "columnName": "description", "affinity": "TEXT", "notNull": false },
+          { "fieldPath": "accountId", "columnName": "accountId", "affinity": "INTEGER", "notNull": false },
+          { "fieldPath": "reference", "columnName": "reference", "affinity": "TEXT", "notNull": false },
+          { "fieldPath": "source", "columnName": "source", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "confidence", "columnName": "confidence", "affinity": "REAL", "notNull": true },
+          { "fieldPath": "rawMessageHash", "columnName": "rawMessageHash", "affinity": "TEXT", "notNull": false },
+          { "fieldPath": "editedFields", "columnName": "editedFields", "affinity": "TEXT", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [
+          {
+            "name": "index_transactions_upiRef",
+            "unique": true,
+            "columnNames": ["upiRef"],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_transactions_upiRef` ON `${TABLE_NAME}` (`upiRef`)"
+          },
+          {
+            "name": "index_transactions_reference",
+            "unique": true,
+            "columnNames": ["reference"],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_transactions_reference` ON `${TABLE_NAME}` (`reference`)"
+          },
+          {
+            "name": "index_transactions_categoryId",
+            "unique": false,
+            "columnNames": ["categoryId"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transactions_categoryId` ON `${TABLE_NAME}` (`categoryId`)"
+          },
+          {
+            "name": "index_transactions_accountId",
+            "unique": false,
+            "columnNames": ["accountId"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transactions_accountId` ON `${TABLE_NAME}` (`accountId`)"
+          },
+          {
+            "name": "index_transactions_timestamp",
+            "unique": false,
+            "columnNames": ["timestamp"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transactions_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "categories",
+            "onDelete": "SET_NULL",
+            "onUpdate": "CASCADE",
+            "columns": ["categoryId"],
+            "referencedColumns": ["id"]
+          },
+          {
+            "table": "accounts",
+            "onDelete": "SET_NULL",
+            "onUpdate": "CASCADE",
+            "columns": ["accountId"],
+            "referencedColumns": ["id"]
+          }
+        ]
+      },
+      {
+        "tableName": "persons",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `exactSmsAliases` TEXT NOT NULL)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "name", "columnName": "name", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "exactSmsAliases", "columnName": "exactSmsAliases", "affinity": "TEXT", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "split_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `transactionId` INTEGER NOT NULL, `personId` INTEGER NOT NULL, `amountOwedPaise` INTEGER NOT NULL, `amountPaidSoFarPaise` INTEGER NOT NULL, `isSettled` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) ON UPDATE CASCADE ON DELETE CASCADE, FOREIGN KEY(`personId`) REFERENCES `persons`(`id`) ON UPDATE CASCADE ON DELETE CASCADE)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "transactionId", "columnName": "transactionId", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "personId", "columnName": "personId", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "amountOwedPaise", "columnName": "amountOwedPaise", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "amountPaidSoFarPaise", "columnName": "amountPaidSoFarPaise", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "isSettled", "columnName": "isSettled", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "createdAt", "columnName": "createdAt", "affinity": "INTEGER", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [
+          {
+            "name": "index_split_items_transactionId",
+            "unique": false,
+            "columnNames": ["transactionId"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_split_items_transactionId` ON `${TABLE_NAME}` (`transactionId`)"
+          },
+          {
+            "name": "index_split_items_personId",
+            "unique": false,
+            "columnNames": ["personId"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_split_items_personId` ON `${TABLE_NAME}` (`personId`)"
+          },
+          {
+            "name": "index_split_items_isSettled",
+            "unique": false,
+            "columnNames": ["isSettled"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_split_items_isSettled` ON `${TABLE_NAME}` (`isSettled`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "transactions",
+            "onDelete": "CASCADE",
+            "onUpdate": "CASCADE",
+            "columns": ["transactionId"],
+            "referencedColumns": ["id"]
+          },
+          {
+            "table": "persons",
+            "onDelete": "CASCADE",
+            "onUpdate": "CASCADE",
+            "columns": ["personId"],
+            "referencedColumns": ["id"]
+          }
+        ]
+      },
+      {
+        "tableName": "pending_settlement_suggestions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `transactionId` INTEGER, `suggestedPersonId` INTEGER NOT NULL, `detectedSenderName` TEXT NOT NULL, `amountPaise` INTEGER NOT NULL, `status` TEXT NOT NULL, FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) ON UPDATE CASCADE ON DELETE CASCADE, FOREIGN KEY(`suggestedPersonId`) REFERENCES `persons`(`id`) ON UPDATE CASCADE ON DELETE CASCADE)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "transactionId", "columnName": "transactionId", "affinity": "INTEGER", "notNull": false },
+          { "fieldPath": "suggestedPersonId", "columnName": "suggestedPersonId", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "detectedSenderName", "columnName": "detectedSenderName", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "amountPaise", "columnName": "amountPaise", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "status", "columnName": "status", "affinity": "TEXT", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [
+          {
+            "name": "index_pending_settlement_suggestions_transactionId",
+            "unique": false,
+            "columnNames": ["transactionId"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_pending_settlement_suggestions_transactionId` ON `${TABLE_NAME}` (`transactionId`)"
+          },
+          {
+            "name": "index_pending_settlement_suggestions_suggestedPersonId",
+            "unique": false,
+            "columnNames": ["suggestedPersonId"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_pending_settlement_suggestions_suggestedPersonId` ON `${TABLE_NAME}` (`suggestedPersonId`)"
+          },
+          {
+            "name": "index_pending_settlement_suggestions_status",
+            "unique": false,
+            "columnNames": ["status"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_pending_settlement_suggestions_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "transactions",
+            "onDelete": "CASCADE",
+            "onUpdate": "CASCADE",
+            "columns": ["transactionId"],
+            "referencedColumns": ["id"]
+          },
+          {
+            "table": "persons",
+            "onDelete": "CASCADE",
+            "onUpdate": "CASCADE",
+            "columns": ["suggestedPersonId"],
+            "referencedColumns": ["id"]
+          }
+        ]
+      },
+      {
+        "tableName": "accounts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `bankName` TEXT NOT NULL, `bankKey` TEXT NOT NULL, `last4` TEXT NOT NULL, `type` TEXT NOT NULL, `displayName` TEXT NOT NULL, `color` TEXT NOT NULL, `balancePaise` INTEGER NOT NULL, `balanceAsOf` INTEGER NOT NULL, `balanceSource` TEXT NOT NULL, `creditLimitPaise` INTEGER NOT NULL, `isArchived` INTEGER NOT NULL, `editedFields` TEXT NOT NULL)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "bankName", "columnName": "bankName", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "bankKey", "columnName": "bankKey", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "last4", "columnName": "last4", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "type", "columnName": "type", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "displayName", "columnName": "displayName", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "color", "columnName": "color", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "balancePaise", "columnName": "balancePaise", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "balanceAsOf", "columnName": "balanceAsOf", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "balanceSource", "columnName": "balanceSource", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "creditLimitPaise", "columnName": "creditLimitPaise", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "isArchived", "columnName": "isArchived", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "editedFields", "columnName": "editedFields", "affinity": "TEXT", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [
+          {
+            "name": "index_accounts_bankKey",
+            "unique": false,
+            "columnNames": ["bankKey"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_accounts_bankKey` ON `${TABLE_NAME}` (`bankKey`)"
+          },
+          {
+            "name": "index_accounts_last4",
+            "unique": false,
+            "columnNames": ["last4"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_accounts_last4` ON `${TABLE_NAME}` (`last4`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "account_aliases",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountId` INTEGER NOT NULL, `bankKey` TEXT NOT NULL, `last4` TEXT NOT NULL, PRIMARY KEY(`accountId`, `bankKey`, `last4`), FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        "fields": [
+          { "fieldPath": "accountId", "columnName": "accountId", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "bankKey", "columnName": "bankKey", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "last4", "columnName": "last4", "affinity": "TEXT", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": ["accountId", "bankKey", "last4"]
+        },
+        "indices": [
+          {
+            "name": "index_account_aliases_bankKey_last4",
+            "unique": false,
+            "columnNames": ["bankKey", "last4"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_account_aliases_bankKey_last4` ON `${TABLE_NAME}` (`bankKey`, `last4`)"
+          },
+          {
+            "name": "index_account_aliases_accountId",
+            "unique": false,
+            "columnNames": ["accountId"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_account_aliases_accountId` ON `${TABLE_NAME}` (`accountId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "accounts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": ["accountId"],
+            "referencedColumns": ["id"]
+          }
+        ]
+      },
+      {
+        "tableName": "merge_log",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `survivingAccountId` INTEGER NOT NULL, `mergedAccountSnapshot` TEXT NOT NULL, `movedTransactionIds` TEXT NOT NULL, `mode` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `undoneAt` INTEGER)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "survivingAccountId", "columnName": "survivingAccountId", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "mergedAccountSnapshot", "columnName": "mergedAccountSnapshot", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "movedTransactionIds", "columnName": "movedTransactionIds", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "mode", "columnName": "mode", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "createdAt", "columnName": "createdAt", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "undoneAt", "columnName": "undoneAt", "affinity": "INTEGER", "notNull": false }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [
+          {
+            "name": "index_merge_log_survivingAccountId",
+            "unique": false,
+            "columnNames": ["survivingAccountId"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_merge_log_survivingAccountId` ON `${TABLE_NAME}` (`survivingAccountId`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "not_same_pairs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountIdA` INTEGER NOT NULL, `accountIdB` INTEGER NOT NULL, PRIMARY KEY(`accountIdA`, `accountIdB`), FOREIGN KEY(`accountIdA`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`accountIdB`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        "fields": [
+          { "fieldPath": "accountIdA", "columnName": "accountIdA", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "accountIdB", "columnName": "accountIdB", "affinity": "INTEGER", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": ["accountIdA", "accountIdB"]
+        },
+        "indices": [
+          {
+            "name": "index_not_same_pairs_accountIdA",
+            "unique": false,
+            "columnNames": ["accountIdA"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_not_same_pairs_accountIdA` ON `${TABLE_NAME}` (`accountIdA`)"
+          },
+          {
+            "name": "index_not_same_pairs_accountIdB",
+            "unique": false,
+            "columnNames": ["accountIdB"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_not_same_pairs_accountIdB` ON `${TABLE_NAME}` (`accountIdB`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "accounts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": ["accountIdA"],
+            "referencedColumns": ["id"]
+          },
+          {
+            "table": "accounts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": ["accountIdB"],
+            "referencedColumns": ["id"]
+          }
+        ]
+      },
+      {
+        "tableName": "rules",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `conditionsJson` TEXT NOT NULL, `actionsJson` TEXT NOT NULL, `priority` INTEGER NOT NULL, `enabled` INTEGER NOT NULL, `source` TEXT NOT NULL)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "conditionsJson", "columnName": "conditionsJson", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "actionsJson", "columnName": "actionsJson", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "priority", "columnName": "priority", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "enabled", "columnName": "enabled", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "source", "columnName": "source", "affinity": "TEXT", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [
+          {
+            "name": "index_rules_priority",
+            "unique": false,
+            "columnNames": ["priority"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_rules_priority` ON `${TABLE_NAME}` (`priority`)"
+          },
+          {
+            "name": "index_rules_enabled",
+            "unique": false,
+            "columnNames": ["enabled"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_rules_enabled` ON `${TABLE_NAME}` (`enabled`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "review_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `payloadJson` TEXT NOT NULL, `reason` TEXT NOT NULL, `confidence` REAL NOT NULL, `origin` TEXT NOT NULL, `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "payloadJson", "columnName": "payloadJson", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "reason", "columnName": "reason", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "confidence", "columnName": "confidence", "affinity": "REAL", "notNull": true },
+          { "fieldPath": "origin", "columnName": "origin", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "status", "columnName": "status", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "createdAt", "columnName": "createdAt", "affinity": "INTEGER", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [
+          {
+            "name": "index_review_items_status",
+            "unique": false,
+            "columnNames": ["status"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_review_items_status` ON `${TABLE_NAME}` (`status`)"
+          },
+          {
+            "name": "index_review_items_createdAt",
+            "unique": false,
+            "columnNames": ["createdAt"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_review_items_createdAt` ON `${TABLE_NAME}` (`createdAt`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "unparsed_messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `source` TEXT NOT NULL, `sender` TEXT NOT NULL, `receivedAt` INTEGER NOT NULL, `body` TEXT NOT NULL, `bodyHash` TEXT NOT NULL)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "source", "columnName": "source", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "sender", "columnName": "sender", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "receivedAt", "columnName": "receivedAt", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "body", "columnName": "body", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "bodyHash", "columnName": "bodyHash", "affinity": "TEXT", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [
+          {
+            "name": "index_unparsed_messages_bodyHash",
+            "unique": false,
+            "columnNames": ["bodyHash"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_unparsed_messages_bodyHash` ON `${TABLE_NAME}` (`bodyHash`)"
+          },
+          {
+            "name": "index_unparsed_messages_receivedAt",
+            "unique": false,
+            "columnNames": ["receivedAt"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_unparsed_messages_receivedAt` ON `${TABLE_NAME}` (`receivedAt`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "processed_messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`bodyHash` TEXT PRIMARY KEY NOT NULL, `source` TEXT NOT NULL, `sourceId` TEXT, `outcome` TEXT NOT NULL, `processedAt` INTEGER NOT NULL)",
+        "fields": [
+          { "fieldPath": "bodyHash", "columnName": "bodyHash", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "source", "columnName": "source", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "sourceId", "columnName": "sourceId", "affinity": "TEXT", "notNull": false },
+          { "fieldPath": "outcome", "columnName": "outcome", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "processedAt", "columnName": "processedAt", "affinity": "INTEGER", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": ["bodyHash"]
+        },
+        "indices": [
+          {
+            "name": "index_processed_messages_processedAt",
+            "unique": false,
+            "columnNames": ["processedAt"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_processed_messages_processedAt` ON `${TABLE_NAME}` (`processedAt`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "ai_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`inputHash` TEXT PRIMARY KEY NOT NULL, `task` TEXT NOT NULL, `resultJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)",
+        "fields": [
+          { "fieldPath": "inputHash", "columnName": "inputHash", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "task", "columnName": "task", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "resultJson", "columnName": "resultJson", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "createdAt", "columnName": "createdAt", "affinity": "INTEGER", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": ["inputHash"]
+        },
+        "indices": [
+          {
+            "name": "index_ai_cache_task",
+            "unique": false,
+            "columnNames": ["task"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_cache_task` ON `${TABLE_NAME}` (`task`)"
+          },
+          {
+            "name": "index_ai_cache_createdAt",
+            "unique": false,
+            "columnNames": ["createdAt"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_cache_createdAt` ON `${TABLE_NAME}` (`createdAt`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "scan_history",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `source` TEXT NOT NULL, `startedAt` INTEGER NOT NULL, `finishedAt` INTEGER, `read` INTEGER NOT NULL, `added` INTEGER NOT NULL, `duplicatesSkipped` INTEGER NOT NULL, `sentToReview` INTEGER NOT NULL, `resolvedByAi` INTEGER NOT NULL)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "source", "columnName": "source", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "startedAt", "columnName": "startedAt", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "finishedAt", "columnName": "finishedAt", "affinity": "INTEGER", "notNull": false },
+          { "fieldPath": "read", "columnName": "read", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "added", "columnName": "added", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "duplicatesSkipped", "columnName": "duplicatesSkipped", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "sentToReview", "columnName": "sentToReview", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "resolvedByAi", "columnName": "resolvedByAi", "affinity": "INTEGER", "notNull": true }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": ["id"]
+        },
+        "indices": [
+          {
+            "name": "index_scan_history_startedAt",
+            "unique": false,
+            "columnNames": ["startedAt"],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_scan_history_startedAt` ON `${TABLE_NAME}` (`startedAt`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b7e28a4914c62f39229ad5ce3b44b67f')"
+    ]
+  }
+}

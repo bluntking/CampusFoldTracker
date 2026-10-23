@@ -24,38 +24,60 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.campusfold.tracker.data.entity.AccountEntity
+import com.campusfold.tracker.data.entity.AccountType
+import com.campusfold.tracker.data.entity.BalanceSource
+import com.campusfold.tracker.data.entity.MergeLogEntity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.campusfold.tracker.ui.TransactionViewModel
-import com.campusfold.tracker.ui.components.FoldCard
-import com.campusfold.tracker.ui.components.MonospaceCurrencyText
-import com.campusfold.tracker.ui.components.StatusPill
+import com.campusfold.tracker.ui.components.*
 import com.campusfold.tracker.ui.theme.*
+import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountsScreen(viewModel: TransactionViewModel) {
-    val accounts by viewModel.accounts.collectAsState()
-    val pnbLimit by viewModel.pnbCreditLimit.collectAsState()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val showArchived by viewModel.showArchivedAccounts.collectAsStateWithLifecycle()
+    val latestAutoMerge by viewModel.latestAutoMergeLog.collectAsStateWithLifecycle()
+    val dismissedAutoMergeId by viewModel.dismissedAutoMergeLogId.collectAsStateWithLifecycle()
+    val suggestedDuplicates by viewModel.suggestedDuplicates.collectAsStateWithLifecycle()
+    val allActiveMergeLogs by viewModel.allActiveMergeLogs.collectAsStateWithLifecycle()
 
     var showAddAccountDialog by remember { mutableStateOf(false) }
     var accountToEdit by remember { mutableStateOf<AccountEntity?>(null) }
-    var accountToDelete by remember { mutableStateOf<AccountEntity?>(null) }
+    var accountToDeleteWithReassign by remember { mutableStateOf<AccountEntity?>(null) }
+    var accountForManualBalance by remember { mutableStateOf<AccountEntity?>(null) }
+    var showMergeAccountsDialog by remember { mutableStateOf(false) }
+    var mergePreselectedSourceId by remember { mutableStateOf<Long?>(null) }
 
-    val creditCards = accounts.filter { it.accountType == "CREDIT_CARD" }
-    val bankAccounts = accounts.filter { it.accountType != "CREDIT_CARD" }
+    val displayedAccounts = remember(accounts, showArchived) {
+        if (showArchived) accounts else accounts.filter { !it.isArchived }
+    }
+    val creditCards = displayedAccounts.filter { it.type == AccountType.CREDIT_CARD }
+    val bankAccounts = displayedAccounts.filter { it.type != AccountType.CREDIT_CARD }
+
+    val currencyFormatter = remember {
+        NumberFormat.getCurrencyInstance(Locale("en", "IN")).apply {
+            maximumFractionDigits = 0
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(OledBlack)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = Dimensions.Padding.content)
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Top Header
+            // Reference Style Top Bar Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -63,118 +85,144 @@ fun AccountsScreen(viewModel: TransactionViewModel) {
             ) {
                 Column {
                     Text(
-                        text = "CAMPUSFOLD",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        letterSpacing = 1.sp,
-                        color = TextMuted
-                    )
-                    Text(
-                        text = "Accounts & Cards",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = TextPrimary
-                    )
-                }
-
-                Button(
-                    onClick = {
-                        accountToEdit = null
-                        showAddAccountDialog = true
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.height(34.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp)
-                ) {
-                    Icon(Icons.Default.AddCard, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("+ Add Account", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Summary Card
-            FoldCard {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "ACTIVE ACCOUNTS",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextMuted
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "${accounts.size} Total Sources",
-                            fontSize = 22.sp,
+                        text = "ACCOUNTS & CARDS",
+                        style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
+                            letterSpacing = 1.sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Manage Accounts",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            StatusPill(
-                                text = "${creditCards.size} Cards",
-                                bgColor = PillBgCard,
-                                textColor = PillTextCard,
-                                icon = Icons.Default.CreditCard,
-                                fontSize = 10.sp
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (accounts.size >= 2) {
+                        OutlinedButton(
+                            onClick = {
+                                mergePreselectedSourceId = null
+                                showMergeAccountsDialog = true
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.height(36.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.CallMerge,
+                                contentDescription = "Merge",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary
                             )
-                            StatusPill(
-                                text = "${bankAccounts.size} Bank A/c",
-                                bgColor = PillBgIncome,
-                                textColor = PillTextIncome,
-                                icon = Icons.Default.AccountBalance,
-                                fontSize = 10.sp
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                "Merge",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
                             )
                         }
                     }
 
-                    if (pnbLimit > 0) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Divider(color = BorderCharcoal, thickness = 1.dp)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "PNB 8598 Avl Limit:",
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = TextMuted
-                            )
-                            MonospaceCurrencyText(
-                                amount = pnbLimit,
-                                fontSize = 12.sp,
-                                color = PillTextCard
-                            )
-                        }
+                    Button(
+                        onClick = {
+                            accountToEdit = null
+                            showAddAccountDialog = true
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.height(36.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            "+ Add",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Accounts List
-            if (accounts.isEmpty()) {
+            // Archive Filter Toggle Bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${bankAccounts.size} Bank Accounts • ${creditCards.size} Credit Cards",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { viewModel.toggleShowArchivedAccounts() }
+                ) {
+                    Icon(
+                        imageVector = if (showArchived) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = null,
+                        tint = if (showArchived) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (showArchived) "Showing Archived" else "Archived Hidden",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (showArchived) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Auto-Merged Notification Card (if present)
+            if (latestAutoMerge != null && latestAutoMerge?.undoneAt == null && latestAutoMerge?.id != dismissedAutoMergeId) {
+                AutoMergedCard(
+                    mergeLog = latestAutoMerge!!,
+                    accounts = accounts,
+                    onUndo = { viewModel.undoMerge(it) },
+                    onDismiss = { viewModel.dismissAutoMergeNotification(it) }
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Suggested Duplicates Cards
+            suggestedDuplicates.forEach { pair ->
+                SuggestedDuplicateCard(
+                    pair = pair,
+                    onMerge = { source, _ ->
+                        mergePreselectedSourceId = source.id
+                        showMergeAccountsDialog = true
+                    },
+                    onNotSame = { a, b -> viewModel.markPairNotSame(a, b) },
+                    onDismiss = { viewModel.dismissSuggestedDuplicate(pair) }
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Accounts List grouped by Bank Accounts and Credit Cards
+            if (displayedAccounts.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("No payment accounts configured.", color = TextSecondary)
+                        Text(
+                            text = "No payment accounts configured.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
                             onClick = { showAddAccountDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack)
+                            shape = RoundedCornerShape(10.dp)
                         ) {
                             Text("+ Add First Account")
                         }
@@ -184,23 +232,113 @@ fun AccountsScreen(viewModel: TransactionViewModel) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 90.dp)
+                    contentPadding = PaddingValues(bottom = 100.dp)
                 ) {
-                    items(accounts, key = { it.id }) { account ->
-                        AccountItemCard(
-                            account = account,
-                            onEdit = {
-                                accountToEdit = account
-                                showAddAccountDialog = true
-                            },
-                            onDelete = {
-                                accountToDelete = account
-                            }
-                        )
+                    // 1. Bank Accounts Group
+                    if (bankAccounts.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "BANK ACCOUNTS",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.8.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                            )
+                        }
+
+                        items(bankAccounts, key = { it.id }) { account ->
+                            val activeMergeLog = allActiveMergeLogs.find { it.survivingAccountId == account.id }
+                            AccountReferenceCard(
+                                account = account,
+                                activeMergeLog = activeMergeLog,
+                                currencyFormatter = currencyFormatter,
+                                onUpdateBalance = { accountForManualBalance = account },
+                                onEdit = {
+                                    accountToEdit = account
+                                    showAddAccountDialog = true
+                                },
+                                onClearManualBalance = { viewModel.clearManualBalanceOverride(account.id) },
+                                onToggleArchive = { viewModel.setAccountArchived(account.id, !account.isArchived) },
+                                onMergeWith = {
+                                    mergePreselectedSourceId = account.id
+                                    showMergeAccountsDialog = true
+                                },
+                                onSplitUndoMerge = { logId -> viewModel.undoMerge(logId) },
+                                onDelete = { accountToDeleteWithReassign = account }
+                            )
+                        }
+                    }
+
+                    // 2. Credit Cards Group
+                    if (creditCards.isNotEmpty()) {
+                        item {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "CREDIT CARDS",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.8.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                            )
+                        }
+
+                        items(creditCards, key = { it.id }) { card ->
+                            val activeMergeLog = allActiveMergeLogs.find { it.survivingAccountId == card.id }
+                            AccountReferenceCard(
+                                account = card,
+                                activeMergeLog = activeMergeLog,
+                                currencyFormatter = currencyFormatter,
+                                onUpdateBalance = { accountForManualBalance = card },
+                                onEdit = {
+                                    accountToEdit = card
+                                    showAddAccountDialog = true
+                                },
+                                onClearManualBalance = { viewModel.clearManualBalanceOverride(card.id) },
+                                onToggleArchive = { viewModel.setAccountArchived(card.id, !card.isArchived) },
+                                onMergeWith = {
+                                    mergePreselectedSourceId = card.id
+                                    showMergeAccountsDialog = true
+                                },
+                                onSplitUndoMerge = { logId -> viewModel.undoMerge(logId) },
+                                onDelete = { accountToDeleteWithReassign = card }
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    // ── Dialogs ────────────────────────────────────────────────────────────────
+
+    // Manual Merge Accounts Dialog
+    if (showMergeAccountsDialog) {
+        ManualMergeAccountsDialog(
+            accounts = accounts,
+            preSelectedSourceId = mergePreselectedSourceId,
+            onCountTransactions = { accId, callback ->
+                viewModel.countTransactionsForAccount(accId, callback)
+            },
+            onDismiss = {
+                showMergeAccountsDialog = false
+                mergePreselectedSourceId = null
+            },
+            onConfirmMerge = { survivingId, mergedId, name, type, last4 ->
+                viewModel.mergeAccounts(
+                    survivingAccountId = survivingId,
+                    mergedAccountId = mergedId,
+                    overrideDisplayName = name,
+                    overrideType = type,
+                    overrideLast4 = last4
+                )
+                showMergeAccountsDialog = false
+                mergePreselectedSourceId = null
+            }
+        )
     }
 
     // Add / Edit Account Dialog
@@ -223,309 +361,576 @@ fun AccountsScreen(viewModel: TransactionViewModel) {
         )
     }
 
-    // Delete Confirmation Dialog
-    accountToDelete?.let { acc ->
-        AlertDialog(
-            onDismissRequest = { accountToDelete = null },
-            containerColor = MatteCharcoal,
-            title = {
-                Text(
-                    text = "Remove Account",
-                    fontWeight = FontWeight.Bold,
-                    color = NeonCrimson
-                )
-            },
-            text = {
-                Text(
-                    text = "Are you sure you want to remove '${acc.name}'? Existing transactions will retain their payment mode string.",
-                    fontSize = 13.sp,
-                    color = TextPrimary
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deleteAccount(acc)
-                        accountToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeonCrimson, contentColor = TextPrimary)
-                ) {
-                    Text("Remove")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { accountToDelete = null }) {
-                    Text("Cancel", color = TextSecondary)
-                }
+    // Delete Confirmation Dialog with Reassign
+    accountToDeleteWithReassign?.let { acc ->
+        DeleteAccountReassignDialog(
+            account = acc,
+            accounts = accounts,
+            onDismiss = { accountToDeleteWithReassign = null },
+            onConfirm = { targetAccountId ->
+                viewModel.deleteAccountWithReassign(acc.id, targetAccountId)
+                accountToDeleteWithReassign = null
+            }
+        )
+    }
+
+    // Set Manual Balance Dialog
+    accountForManualBalance?.let { acc ->
+        SetManualBalanceDialog(
+            account = acc,
+            onDismiss = { accountForManualBalance = null },
+            onSave = { amount ->
+                viewModel.setAccountBalanceManually(acc.id, amount)
+                accountForManualBalance = null
             }
         )
     }
 }
 
+/**
+ * Restyled Account Card matching Reference Design:
+ * - Bank Icon on left
+ * - "Bank Name ••1234"
+ * - Balance on right
+ * - Outlined "Update Balance" button
+ * - 3-dot overflow menu
+ */
 @Composable
-fun AccountItemCard(
+fun AccountReferenceCard(
     account: AccountEntity,
+    activeMergeLog: MergeLogEntity? = null,
+    currencyFormatter: NumberFormat,
+    onUpdateBalance: () -> Unit,
     onEdit: () -> Unit,
+    onClearManualBalance: () -> Unit,
+    onToggleArchive: () -> Unit,
+    onMergeWith: () -> Unit,
+    onSplitUndoMerge: (Long) -> Unit,
     onDelete: () -> Unit
 ) {
-    val isCreditCard = account.accountType == "CREDIT_CARD"
-    val parsedColor = try {
-        Color(android.graphics.Color.parseColor(account.colorHex))
-    } catch (e: Exception) {
-        if (isCreditCard) NeonCrimson else NeonEmerald
+    val isCreditCard = account.type == AccountType.CREDIT_CARD
+    val isKnown = isAccountBalanceKnown(account)
+    val amountRupees = if (isCreditCard) account.creditLimitPaise / 100.0 else account.balancePaise / 100.0
+
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    val asOfFormatter = remember {
+        SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
     }
 
-    FoldCard {
-        Row(
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                RoundedCornerShape(16.dp)
+            ),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                alpha = if (account.isArchived) 0.25f else 0.45f
+            )
+        )
+    ) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(Dimensions.Padding.card)
         ) {
-            // Account Icon Box
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(parsedColor.copy(alpha = 0.15f))
-                    .border(1.dp, parsedColor.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
-                contentAlignment = Alignment.Center
+            // Top Row: Bank Icon, "Bank Name ••1234", Balance on Right
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = if (isCreditCard) Icons.Default.CreditCard else Icons.Default.AccountBalance,
-                    contentDescription = null,
-                    tint = parsedColor,
-                    modifier = Modifier.size(22.dp)
-                )
+                // Left: Bank Icon & Title
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isCreditCard) Icons.Default.CreditCard else Icons.Default.AccountBalance,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = if (account.displayName.isNotBlank()) account.displayName else account.bankName,
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            if (account.isArchived) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = "Archived",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = if (account.last4.isNotBlank()) "${account.bankName} ••${account.last4}" else account.bankName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Right: Balance & Status Label
+                Column(horizontalAlignment = Alignment.End) {
+                    if (!isKnown) {
+                        Text(
+                            text = "Balance not detected yet",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Text(
+                            text = currencyFormatter.format(amountRupees),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = if (isCreditCard) NeonCyan else MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (isCreditCard) "Available Credit" else "Balance",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
+            // Middle Status Bar: Balance source / As of timestamp / Merge tag
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = account.name,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = account.bankName,
-                        fontSize = 11.sp,
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-
-                    if (account.last4.isNotBlank()) {
+                    if (account.balanceSource == BalanceSource.MANUAL && isKnown) {
+                        Surface(
+                            color = NeonCyan.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "entered manually",
+                                color = NeonCyan,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            )
+                        }
+                    } else if (account.balanceSource == BalanceSource.AUTO && account.balanceAsOf > 0L) {
                         Text(
-                            text = "• A/c: ${account.last4}",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = TextMuted
+                            text = "as of ${asOfFormatter.format(Date(account.balanceAsOf))}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
-                    StatusPill(
-                        text = if (isCreditCard) "Credit Card" else "Savings",
-                        bgColor = if (isCreditCard) PillBgCard else PillBgIncome,
-                        textColor = if (isCreditCard) PillTextCard else PillTextIncome,
-                        fontSize = 8.sp
-                    )
-                }
-
-                if (account.creditLimitOrBalance > 0) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = if (isCreditCard) "Limit: " else "Balance: ",
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = TextMuted
-                        )
-                        MonospaceCurrencyText(
-                            amount = account.creditLimitOrBalance,
-                            fontSize = 11.sp,
-                            color = parsedColor
-                        )
+                    if (activeMergeLog != null) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "Merged",
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            // Action Buttons
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Bottom Actions: Outlined "Update Balance" button + 3-dot overflow menu
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = onUpdateBalance,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.height(34.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp)
+                ) {
                     Icon(
                         Icons.Default.Edit,
-                        contentDescription = "Edit Account",
-                        tint = TextSecondary,
-                        modifier = Modifier.size(15.dp)
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Update Balance",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
                     )
                 }
-                IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete Account",
-                        tint = NeonCrimson,
-                        modifier = Modifier.size(15.dp)
-                    )
+
+                Box {
+                    IconButton(
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "More Options",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Edit Details") },
+                            onClick = {
+                                menuExpanded = false
+                                onEdit()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) }
+                        )
+
+                        if (account.balanceSource == BalanceSource.MANUAL) {
+                            DropdownMenuItem(
+                                text = { Text("Clear Manual Balance") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onClearManualBalance()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) }
+                            )
+                        }
+
+                        DropdownMenuItem(
+                            text = { Text("Merge into Another...") },
+                            onClick = {
+                                menuExpanded = false
+                                onMergeWith()
+                            },
+                            leadingIcon = { Icon(Icons.Default.CallMerge, contentDescription = null) }
+                        )
+
+                        if (activeMergeLog != null) {
+                            DropdownMenuItem(
+                                text = { Text("Undo Last Merge") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onSplitUndoMerge(activeMergeLog.id)
+                                },
+                                leadingIcon = { Icon(Icons.Default.Undo, contentDescription = null) }
+                            )
+                        }
+
+                        DropdownMenuItem(
+                            text = { Text(if (account.isArchived) "Unarchive Account" else "Archive Account") },
+                            onClick = {
+                                menuExpanded = false
+                                onToggleArchive()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    if (account.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                                    contentDescription = null
+                                )
+                            }
+                        )
+
+                        HorizontalDivider()
+
+                        DropdownMenuItem(
+                            text = { Text("Delete Account", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                menuExpanded = false
+                                onDelete()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+// ── Existing Dialogs from Steps 6 & 7 (Preserved) ──────────────────────────
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddEditAccountDialog(
     account: AccountEntity?,
     onDismiss: () -> Unit,
-    onSave: (name: String, bankName: String, type: String, last4: String, limit: Double, colorHex: String) -> Unit
+    onSave: (displayName: String, bankName: String, type: AccountType, last4: String, limit: Double, colorHex: String) -> Unit
 ) {
-    var name by remember { mutableStateOf(account?.name ?: "") }
+    var displayName by remember { mutableStateOf(account?.displayName ?: "") }
     var bankName by remember { mutableStateOf(account?.bankName ?: "") }
-    var accountType by remember { mutableStateOf(account?.accountType ?: "SAVINGS") }
     var last4 by remember { mutableStateOf(account?.last4 ?: "") }
-    var limitText by remember { mutableStateOf(account?.creditLimitOrBalance?.let { if (it > 0) it.toString() else "" } ?: "") }
-    var selectedColor by remember { mutableStateOf(account?.colorHex ?: "#10B981") }
-
-    val colors = listOf("#10B981", "#8B5CF6", "#F59E0B", "#06B6D4", "#3B82F6", "#EC4899", "#F43F5E", "#14B8A6")
+    var selectedType by remember { mutableStateOf(account?.type ?: AccountType.SAVINGS) }
+    var limitInput by remember { mutableStateOf(if (account != null && account.creditLimitPaise > 0) (account.creditLimitPaise / 100.0).toInt().toString() else "") }
+    var selectedColor by remember { mutableStateOf(account?.color ?: "#10B981") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = MatteCharcoal,
+        title = { Text(if (account == null) "Add Account" else "Edit Account", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = displayName,
+                    onValueChange = { displayName = it },
+                    label = { Text("Account Name / Alias") },
+                    placeholder = { Text("e.g. Salary Account or Campus Card") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = bankName,
+                    onValueChange = { bankName = it },
+                    label = { Text("Bank / Institution Name") },
+                    placeholder = { Text("e.g. HDFC Bank, SBI, ICICI") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = last4,
+                        onValueChange = { if (it.length <= 4) last4 = it },
+                        label = { Text("Last 4 Digits") },
+                        placeholder = { Text("1234") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Type", style = MaterialTheme.typography.labelSmall)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FilterChip(
+                                selected = selectedType == AccountType.SAVINGS,
+                                onClick = { selectedType = AccountType.SAVINGS },
+                                label = { Text("Savings", fontSize = 10.sp) }
+                            )
+                            FilterChip(
+                                selected = selectedType == AccountType.CREDIT_CARD,
+                                onClick = { selectedType = AccountType.CREDIT_CARD },
+                                label = { Text("Credit", fontSize = 10.sp) }
+                            )
+                        }
+                    }
+                }
+
+                if (selectedType == AccountType.CREDIT_CARD) {
+                    OutlinedTextField(
+                        value = limitInput,
+                        onValueChange = { limitInput = it },
+                        label = { Text("Credit Limit (₹)") },
+                        placeholder = { Text("50000") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val limit = limitInput.toDoubleOrNull() ?: 0.0
+                    onSave(
+                        displayName.trim().ifEmpty { bankName.trim() },
+                        bankName.trim(),
+                        selectedType,
+                        last4.trim(),
+                        limit,
+                        selectedColor
+                    )
+                },
+                enabled = bankName.isNotBlank()
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun SetManualBalanceDialog(
+    account: AccountEntity,
+    onDismiss: () -> Unit,
+    onSave: (Double) -> Unit
+) {
+    var amountInput by remember {
+        mutableStateOf(if (account.balancePaise > 0L) (account.balancePaise / 100.0).toString() else "")
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (account == null) "ADD ACCOUNT" else "EDIT ACCOUNT",
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = TextPrimary
+                "Update Balance Manually",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Type selector
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    FilterChip(
-                        selected = accountType == "SAVINGS",
-                        onClick = { accountType = "SAVINGS" },
-                        label = { Text("Savings / Bank", fontSize = 10.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = PillBgIncome,
-                            selectedLabelColor = PillTextIncome
-                        )
-                    )
-                    FilterChip(
-                        selected = accountType == "CREDIT_CARD",
-                        onClick = { accountType = "CREDIT_CARD" },
-                        label = { Text("Credit Card", fontSize = 10.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = PillBgCard,
-                            selectedLabelColor = PillTextCard
-                        )
-                    )
-                }
-
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Account Name (e.g. Axis Bank XX2003)", fontSize = 11.sp, color = TextSecondary) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        focusedBorderColor = NeonEmerald,
-                        unfocusedBorderColor = BorderCharcoal
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Set current balance for ${account.displayName.ifEmpty { account.bankName }} (••${account.last4}).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "This balance will be labeled 'entered manually'. Automatic message updates will not overwrite it until you clear it.",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    color = NeonCyan
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = bankName,
-                        onValueChange = { bankName = it },
-                        label = { Text("Bank Name", fontSize = 11.sp, color = TextSecondary) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = InputBg,
-                            unfocusedContainerColor = InputBg,
-                            focusedBorderColor = NeonEmerald,
-                            unfocusedBorderColor = BorderCharcoal
-                        )
-                    )
-
-                    OutlinedTextField(
-                        value = last4,
-                        onValueChange = { last4 = it },
-                        label = { Text("Last 4 digits", fontSize = 11.sp, color = TextSecondary) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = InputBg,
-                            unfocusedContainerColor = InputBg,
-                            focusedBorderColor = NeonEmerald,
-                            unfocusedBorderColor = BorderCharcoal
-                        )
-                    )
-                }
+                Spacer(modifier = Modifier.height(4.dp))
 
                 OutlinedTextField(
-                    value = limitText,
-                    onValueChange = { limitText = it },
-                    label = { Text(if (accountType == "CREDIT_CARD") "Credit Limit (₹)" else "Starting Balance (₹ optional)", fontSize = 11.sp, color = TextSecondary) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
+                    value = amountInput,
+                    onValueChange = { amountInput = it },
+                    label = { Text("Current Balance (₹)") },
+                    placeholder = { Text("e.g. 15000") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        focusedBorderColor = NeonEmerald,
-                        unfocusedBorderColor = BorderCharcoal
-                    )
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val amt = amountInput.toDoubleOrNull() ?: 0.0
+                    onSave(amt)
+                }
+            ) {
+                Text("Save Balance")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun DeleteAccountReassignDialog(
+    account: AccountEntity,
+    accounts: List<AccountEntity>,
+    onDismiss: () -> Unit,
+    onConfirm: (targetAccountId: Long?) -> Unit
+) {
+    val otherAccounts = remember(accounts, account) {
+        accounts.filter { it.id != account.id && !it.isArchived }
+    }
+    var selectedTargetId by remember { mutableStateOf<Long?>(otherAccounts.firstOrNull()?.id) }
+    var reassignChoice by remember { mutableStateOf(if (otherAccounts.isNotEmpty()) "REASSIGN" else "NONE") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Delete Account", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Are you sure you want to delete ${account.displayName.ifEmpty { account.bankName }} (••${account.last4})?",
+                    style = MaterialTheme.typography.bodyMedium
                 )
 
-                // Color picker
-                Text("Account Color:", fontSize = 11.sp, color = TextMuted)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    colors.forEach { hex ->
-                        val color = try { Color(android.graphics.Color.parseColor(hex)) } catch (e: Exception) { NeonEmerald }
-                        Box(
-                            modifier = Modifier
-                                .size(26.dp)
-                                .clip(CircleShape)
-                                .background(color)
-                                .border(
-                                    width = if (selectedColor == hex) 2.dp else 0.dp,
-                                    color = if (selectedColor == hex) TextPrimary else Color.Transparent,
-                                    shape = CircleShape
-                                )
-                                .clickable { selectedColor = hex }
+                if (otherAccounts.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Where should its existing transactions go?",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = reassignChoice == "REASSIGN",
+                            onClick = { reassignChoice = "REASSIGN" }
                         )
+                        Text("Reassign to another account", style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    if (reassignChoice == "REASSIGN") {
+                        Column(modifier = Modifier.padding(start = 24.dp)) {
+                            otherAccounts.forEach { other ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { selectedTargetId = other.id }
+                                ) {
+                                    RadioButton(
+                                        selected = selectedTargetId == other.id,
+                                        onClick = { selectedTargetId = other.id }
+                                    )
+                                    Text(
+                                        text = "${other.displayName.ifEmpty { other.bankName }} ••${other.last4}",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = reassignChoice == "NONE",
+                            onClick = { reassignChoice = "NONE" }
+                        )
+                        Text("Leave unassigned", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -533,20 +938,17 @@ fun AddEditAccountDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (name.isNotBlank()) {
-                        val limit = limitText.toDoubleOrNull() ?: 0.0
-                        onSave(name.trim(), bankName.trim().ifEmpty { name.trim() }, accountType, last4.trim(), limit, selectedColor)
-                    }
+                    val target = if (reassignChoice == "REASSIGN") selectedTargetId else null
+                    onConfirm(target)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack),
-                shape = RoundedCornerShape(8.dp)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             ) {
-                Text("Save Account", fontWeight = FontWeight.Bold)
+                Text("Delete")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = TextSecondary)
+                Text("Cancel")
             }
         }
     )

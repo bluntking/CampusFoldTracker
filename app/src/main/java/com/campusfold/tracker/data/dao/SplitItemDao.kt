@@ -29,28 +29,21 @@ interface SplitItemDao {
     @Query("SELECT * FROM split_items WHERE id = :id LIMIT 1")
     suspend fun getSplitById(id: Long): SplitItemEntity?
 
-    /**
-     * Strictly computes each person's net pending balance dynamically:
-     * Never stores a static balance column so data never drifts out of sync.
-     */
-    @Query("SELECT COALESCE(SUM(amountOwed - amountPaidSoFar), 0.0) FROM split_items WHERE personId = :personId AND isSettled = 0")
-    fun getNetPendingBalanceForPerson(personId: Long): Flow<Double>
+    @Query("SELECT COALESCE(SUM(amountOwedPaise - amountPaidSoFarPaise), 0) FROM split_items WHERE personId = :personId AND isSettled = 0")
+    fun getNetPendingBalanceForPerson(personId: Long): Flow<Long>
 
-    @Query("SELECT COALESCE(SUM(amountOwed - amountPaidSoFar), 0.0) FROM split_items WHERE personId = :personId AND isSettled = 0")
-    suspend fun getNetPendingBalanceForPersonSync(personId: Long): Double
+    @Query("SELECT COALESCE(SUM(amountOwedPaise - amountPaidSoFarPaise), 0) FROM split_items WHERE personId = :personId AND isSettled = 0")
+    suspend fun getNetPendingBalanceForPersonSync(personId: Long): Long
 
-    /**
-     * Item-by-item unsettled bills for a person.
-     */
     @Query("""
         SELECT 
             s.id AS splitId,
             s.transactionId AS transactionId,
             s.personId AS personId,
             t.friendlyVendorName AS vendorName,
-            t.amount AS transactionTotal,
-            s.amountOwed AS amountOwed,
-            s.amountPaidSoFar AS amountPaidSoFar,
+            t.amountPaise AS transactionTotalPaise,
+            s.amountOwedPaise AS amountOwedPaise,
+            s.amountPaidSoFarPaise AS amountPaidSoFarPaise,
             s.isSettled AS isSettled,
             s.createdAt AS createdAt
         FROM split_items s
@@ -66,9 +59,9 @@ interface SplitItemDao {
             s.transactionId AS transactionId,
             s.personId AS personId,
             t.friendlyVendorName AS vendorName,
-            t.amount AS transactionTotal,
-            s.amountOwed AS amountOwed,
-            s.amountPaidSoFar AS amountPaidSoFar,
+            t.amountPaise AS transactionTotalPaise,
+            s.amountOwedPaise AS amountOwedPaise,
+            s.amountPaidSoFarPaise AS amountPaidSoFarPaise,
             s.isSettled AS isSettled,
             s.createdAt AS createdAt
         FROM split_items s
@@ -93,17 +86,15 @@ interface SplitItemDao {
     @Query("DELETE FROM split_items WHERE transactionId = :transactionId")
     suspend fun deleteSplitsForTransaction(transactionId: Long)
 
+    @Query("UPDATE split_items SET transactionId = :newTxId WHERE transactionId = :oldTxId")
+    suspend fun reassignSplits(oldTxId: Long, newTxId: Long)
+
     @Query("DELETE FROM split_items")
     suspend fun clearAll()
 
     @Query("UPDATE split_items SET isSettled = :isSettled WHERE id = :id")
     suspend fun markSettled(id: Long, isSettled: Boolean)
 
-    @Query("""
-        UPDATE split_items 
-        SET amountPaidSoFar = amountPaidSoFar + :additionalPayment,
-            isSettled = CASE WHEN (amountPaidSoFar + :additionalPayment) >= amountOwed THEN 1 ELSE isSettled END
-        WHERE id = :id
-    """)
-    suspend fun recordPayment(id: Long, additionalPayment: Double)
+    @Query("UPDATE split_items SET amountPaidSoFarPaise = amountPaidSoFarPaise + :paymentAmountPaise WHERE id = :splitId")
+    suspend fun recordPayment(splitId: Long, paymentAmountPaise: Long)
 }

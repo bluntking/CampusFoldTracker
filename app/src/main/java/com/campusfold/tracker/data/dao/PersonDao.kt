@@ -18,20 +18,20 @@ interface PersonDao {
     suspend fun getPersonById(id: Long): PersonEntity?
 
     /**
-     * Strictly dynamic calculation of balances owed to me.
-     * Computes SUM(amountOwed - amountPaidSoFar) from unsettled split items.
-     * ZERO data drift because no static column is stored.
+     * Dynamic calculation of balances owed to me in paise.
+     * Computes SUM(amountOwedPaise - amountPaidSoFarPaise) from unsettled split items.
+     * Zero data drift because no static column is stored.
      */
     @Query("""
         SELECT 
             p.id, 
             p.name, 
             p.exactSmsAliases,
-            COALESCE(SUM(s.amountOwed - s.amountPaidSoFar), 0.0) AS totalOwedToMe
+            COALESCE(SUM(s.amountOwedPaise - s.amountPaidSoFarPaise), 0) AS totalOwedToMePaise
         FROM persons p
         LEFT JOIN split_items s ON p.id = s.personId AND s.isSettled = 0
         GROUP BY p.id
-        ORDER BY totalOwedToMe DESC, p.name ASC
+        ORDER BY totalOwedToMePaise DESC, p.name ASC
     """)
     fun getPersonsWithBalances(): Flow<List<PersonWithBalance>>
 
@@ -40,7 +40,7 @@ interface PersonDao {
             p.id, 
             p.name, 
             p.exactSmsAliases,
-            COALESCE(SUM(s.amountOwed - s.amountPaidSoFar), 0.0) AS totalOwedToMe
+            COALESCE(SUM(s.amountOwedPaise - s.amountPaidSoFarPaise), 0) AS totalOwedToMePaise
         FROM persons p
         LEFT JOIN split_items s ON p.id = s.personId AND s.isSettled = 0
         WHERE p.id = :personId

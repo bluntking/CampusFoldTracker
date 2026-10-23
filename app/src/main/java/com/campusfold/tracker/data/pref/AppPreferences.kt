@@ -4,8 +4,11 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.campusfold.tracker.util.KeystoreHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "campus_fold_prefs")
@@ -13,23 +16,152 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "ca
 class AppPreferences(private val context: Context) {
 
     companion object {
-        private val PNB_CREDIT_LIMIT = doublePreferencesKey("pnb_credit_limit")
         private val LAST_SMS_SYNC = longPreferencesKey("last_sms_sync_timestamp")
         private val OVERALL_MONTHLY_BUDGET = doublePreferencesKey("overall_monthly_budget")
         private val SAVED_AI_MODEL_PATH = stringPreferencesKey("saved_ai_model_path")
-        private val PROCESSED_NOTIF_HASHES = stringSetPreferencesKey("processed_notif_hashes")
         private val GMAIL_SYNC_EMAIL = stringPreferencesKey("gmail_sync_email")
         private val GMAIL_SYNC_APP_PASSWORD = stringPreferencesKey("gmail_sync_app_password")
         private val GMAIL_LAST_SYNC_TIMESTAMP = longPreferencesKey("gmail_last_sync_timestamp")
+        private val GMAIL_UID_VALIDITY = longPreferencesKey("gmail_uid_validity")
+        private val GMAIL_LAST_UID = longPreferencesKey("gmail_last_uid")
+        private val AUTO_ACCEPT_AI_RESULTS = booleanPreferencesKey("auto_accept_ai_results")
+        private val AI_FALLBACK_PARSING = booleanPreferencesKey("ai_fallback_parsing_enabled")
+        private val AI_FALLBACK_ACCOUNTS = booleanPreferencesKey("ai_fallback_accounts_enabled")
+        private val AI_FALLBACK_VENDORS = booleanPreferencesKey("ai_fallback_vendors_enabled")
+        private val AI_FALLBACK_CATEGORIES = booleanPreferencesKey("ai_fallback_categories_enabled")
+        private val HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding")
+        private val USER_NAME = stringPreferencesKey("user_name")
+        private val HIDE_BALANCES = booleanPreferencesKey("hide_balances")
+        private val THEME_MODE = stringPreferencesKey("theme_mode") // "SYSTEM", "LIGHT", "DARK"
+        private val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        private val AMOLED_MODE = booleanPreferencesKey("amoled_mode")
+    }
+
+    // ─── Onboarding & Appearance Preferences ──────────────────────────────────
+
+    val hasCompletedOnboarding: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[HAS_COMPLETED_ONBOARDING] ?: false
+    }
+
+    suspend fun isCompletedOnboardingSync(): Boolean {
+        val prefs = context.dataStore.data.first()
+        return prefs[HAS_COMPLETED_ONBOARDING] ?: false
+    }
+
+    suspend fun setCompletedOnboarding(completed: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[HAS_COMPLETED_ONBOARDING] = completed
+        }
+    }
+
+    val userName: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[USER_NAME] ?: ""
+    }
+
+    suspend fun getUserNameSync(): String {
+        val prefs = context.dataStore.data.first()
+        return prefs[USER_NAME] ?: ""
+    }
+
+    suspend fun setUserName(name: String) {
+        context.dataStore.edit { preferences ->
+            preferences[USER_NAME] = name.trim()
+        }
+    }
+
+    val hideBalances: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[HIDE_BALANCES] ?: false
+    }
+
+    suspend fun setHideBalances(hide: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[HIDE_BALANCES] = hide
+        }
+    }
+
+    val themeMode: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[THEME_MODE] ?: "SYSTEM"
+    }
+
+    suspend fun setThemeMode(mode: String) {
+        context.dataStore.edit { preferences ->
+            preferences[THEME_MODE] = mode
+        }
+    }
+
+    val dynamicColor: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[DYNAMIC_COLOR] ?: true
+    }
+
+    suspend fun setDynamicColor(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[DYNAMIC_COLOR] = enabled
+        }
+    }
+
+    val amoledMode: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[AMOLED_MODE] ?: false
+    }
+
+    suspend fun setAmoledMode(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[AMOLED_MODE] = enabled
+        }
+    }
+
+    val autoAcceptAiResults: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[AUTO_ACCEPT_AI_RESULTS] ?: false
+    }
+
+    suspend fun isAutoAcceptAiResultsSync(): Boolean {
+        val prefs = context.dataStore.data.first()
+        return prefs[AUTO_ACCEPT_AI_RESULTS] ?: false
+    }
+
+    suspend fun setAutoAcceptAiResults(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[AUTO_ACCEPT_AI_RESULTS] = enabled
+        }
+    }
+
+    val aiFallbackParsingEnabled: Flow<Boolean> = context.dataStore.data.map { it[AI_FALLBACK_PARSING] ?: true }
+    val aiFallbackAccountsEnabled: Flow<Boolean> = context.dataStore.data.map { it[AI_FALLBACK_ACCOUNTS] ?: true }
+    val aiFallbackVendorsEnabled: Flow<Boolean> = context.dataStore.data.map { it[AI_FALLBACK_VENDORS] ?: true }
+    val aiFallbackCategoriesEnabled: Flow<Boolean> = context.dataStore.data.map { it[AI_FALLBACK_CATEGORIES] ?: true }
+
+    suspend fun isAiTaskEnabledSync(task: String): Boolean {
+        val prefs = context.dataStore.data.first()
+        return when (task) {
+            "PARSE_UNSTRUCTURED" -> prefs[AI_FALLBACK_PARSING] ?: true
+            "ACCOUNT_IDENTIFICATION", "ACCOUNT_IS_SAME" -> prefs[AI_FALLBACK_ACCOUNTS] ?: true
+            "VENDOR_IS_SAME" -> prefs[AI_FALLBACK_VENDORS] ?: true
+            "CATEGORIZE_VENDOR" -> prefs[AI_FALLBACK_CATEGORIES] ?: true
+            else -> true
+        }
+    }
+
+    suspend fun setAiTaskEnabled(task: String, enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            when (task) {
+                "PARSE_UNSTRUCTURED" -> prefs[AI_FALLBACK_PARSING] = enabled
+                "ACCOUNT_IDENTIFICATION", "ACCOUNT_IS_SAME" -> prefs[AI_FALLBACK_ACCOUNTS] = enabled
+                "VENDOR_IS_SAME" -> prefs[AI_FALLBACK_VENDORS] = enabled
+                "CATEGORIZE_VENDOR" -> prefs[AI_FALLBACK_CATEGORIES] = enabled
+            }
+        }
     }
 
     val gmailSyncEmail: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[GMAIL_SYNC_EMAIL]
     }
 
+    /**
+     * Decrypts the Gmail app password with Android Keystore on flow emissions.
+     */
     val gmailSyncAppPassword: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[GMAIL_SYNC_APP_PASSWORD]
-    }
+        val raw = preferences[GMAIL_SYNC_APP_PASSWORD]
+        raw?.let { KeystoreHelper.decrypt(it) ?: it }
+    }.flowOn(Dispatchers.IO)
 
     val gmailLastSyncTimestamp: Flow<Long> = context.dataStore.data.map { preferences ->
         preferences[GMAIL_LAST_SYNC_TIMESTAMP] ?: 0L
@@ -37,13 +169,17 @@ class AppPreferences(private val context: Context) {
 
     suspend fun getGmailCredentialsSync(): Pair<String?, String?> {
         val prefs = context.dataStore.data.first()
-        return Pair(prefs[GMAIL_SYNC_EMAIL], prefs[GMAIL_SYNC_APP_PASSWORD])
+        val rawPassword = prefs[GMAIL_SYNC_APP_PASSWORD]
+        val decryptedPassword = rawPassword?.let { KeystoreHelper.decrypt(it) ?: it }
+        return Pair(prefs[GMAIL_SYNC_EMAIL], decryptedPassword)
     }
 
     suspend fun saveGmailCredentials(email: String, appPassword: String) {
+        val sanitizedPassword = appPassword.replace(" ", "").trim()
+        val encryptedPassword = KeystoreHelper.encrypt(sanitizedPassword)
         context.dataStore.edit { preferences ->
             preferences[GMAIL_SYNC_EMAIL] = email.trim()
-            preferences[GMAIL_SYNC_APP_PASSWORD] = appPassword.replace(" ", "").trim()
+            preferences[GMAIL_SYNC_APP_PASSWORD] = encryptedPassword
         }
     }
 
@@ -79,27 +215,24 @@ class AppPreferences(private val context: Context) {
         return prefs[SAVED_AI_MODEL_PATH]
     }
 
-    suspend fun isNotificationHashProcessed(hash: String): Boolean {
+    suspend fun getGmailUidSyncState(): Pair<Long, Long> {
         val prefs = context.dataStore.data.first()
-        val set = prefs[PROCESSED_NOTIF_HASHES] ?: emptySet()
-        return set.contains(hash)
+        val uidValidity = prefs[GMAIL_UID_VALIDITY] ?: 0L
+        val lastUid = prefs[GMAIL_LAST_UID] ?: 0L
+        return Pair(uidValidity, lastUid)
     }
 
-    suspend fun markNotificationHashProcessed(hash: String) {
+    suspend fun setGmailUidSyncState(uidValidity: Long, lastUid: Long) {
         context.dataStore.edit { preferences ->
-            val existing = preferences[PROCESSED_NOTIF_HASHES] ?: emptySet()
-            // Keep last 500 hashes to prevent unbounded growth
-            val updated = if (existing.size > 500) {
-                existing.drop(100).toSet() + hash
-            } else {
-                existing + hash
-            }
-            preferences[PROCESSED_NOTIF_HASHES] = updated
+            preferences[GMAIL_UID_VALIDITY] = uidValidity
+            preferences[GMAIL_LAST_UID] = lastUid
         }
     }
 
-    val latestPnbCreditLimit: Flow<Double> = context.dataStore.data.map { preferences ->
-        preferences[PNB_CREDIT_LIMIT] ?: 50000.0
+    suspend fun resetGmailUidSyncState() {
+        context.dataStore.edit { preferences ->
+            preferences[GMAIL_LAST_UID] = 0L
+        }
     }
 
     val lastSmsSyncTimestamp: Flow<Long> = context.dataStore.data.map { preferences ->
@@ -108,12 +241,6 @@ class AppPreferences(private val context: Context) {
 
     val overallMonthlyBudget: Flow<Double> = context.dataStore.data.map { preferences ->
         preferences[OVERALL_MONTHLY_BUDGET] ?: 20000.0
-    }
-
-    suspend fun setPnbCreditLimit(limit: Double) {
-        context.dataStore.edit { preferences ->
-            preferences[PNB_CREDIT_LIMIT] = limit
-        }
     }
 
     suspend fun setLastSmsSyncTimestamp(timestamp: Long) {
@@ -131,11 +258,6 @@ class AppPreferences(private val context: Context) {
     suspend fun getOverallMonthlyBudgetSync(): Double {
         val prefs = context.dataStore.data.first()
         return prefs[OVERALL_MONTHLY_BUDGET] ?: 20000.0
-    }
-
-    suspend fun getLatestPnbCreditLimitSync(): Double {
-        val prefs = context.dataStore.data.first()
-        return prefs[PNB_CREDIT_LIMIT] ?: 50000.0
     }
 
     // ─── Budget Alert Threshold Tracking (50, 70, 90, 100) ───────────────────

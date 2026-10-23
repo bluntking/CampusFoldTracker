@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "CampusFoldTracker"
 include(":app")
+include(":parser-core")

@@ -2,6 +2,7 @@ package com.campusfold.tracker
 
 import com.campusfold.tracker.data.entity.TransactionEntity
 import com.campusfold.tracker.data.entity.TransactionType
+import com.campusfold.tracker.util.CurrencyUtils
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -34,7 +35,7 @@ class IncomeExpenseMappingTest {
         // Simulate link calculation
         val offsetAmount = friendPayment.amount
         val updatedExpenseShare = (originalExpense.myActualShare - offsetAmount).coerceAtLeast(0.0)
-        val updatedExpense = originalExpense.copy(myActualShare = updatedExpenseShare)
+        val updatedExpense = originalExpense.copy(myActualSharePaise = CurrencyUtils.rupeesToPaise(updatedExpenseShare))
 
         val updatedIncome = friendPayment.copy(
             type = TransactionType.SPLIT_SETTLEMENT,

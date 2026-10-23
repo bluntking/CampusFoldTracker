@@ -3,13 +3,22 @@ package com.campusfold.tracker.util
 import android.content.Context
 import android.provider.Telephony
 import android.util.Log
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.campusfold.tracker.data.AppDatabase
 import com.campusfold.tracker.data.TransactionRepository
-import com.campusfold.tracker.data.entity.PendingSettlementSuggestionEntity
-import com.campusfold.tracker.data.entity.SettlementSuggestionStatus
-import com.campusfold.tracker.data.entity.TransactionEntity
-import com.campusfold.tracker.data.entity.TransactionType
+import com.campusfold.tracker.data.ingest.IngestResult
+import com.campusfold.tracker.data.ingest.MessageIngestor
+import com.campusfold.tracker.data.pref.AppPreferences
+import com.campusfold.tracker.data.resolver.DefaultEntityResolver
+import com.campusfold.tracker.parser.model.MessageSource
+import com.campusfold.tracker.parser.model.RawMessage
+import com.campusfold.tracker.worker.SmsScanWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 data class ScanResult(
     val totalRead: Int,
@@ -31,20 +40,61 @@ object InboxSmsScanner {
     )
 
     /**
-     * Scans Telephony.Sms.Inbox for messages starting from a specific timestamp up to an end timestamp (default: now).
-     * Useful when a user wants to start tracking after a specific date (e.g. 20 Oct 2026).
+     * Enqueues an asynchronous SMS scan via WorkManager.
+     */
+    fun enqueueSmsScanWorker(
+        context: Context,
+        startDateMillis: Long,
+        endDateMillis: Long = System.currentTimeMillis()
+    ): UUID {
+        val workRequest = OneTimeWorkRequestBuilder<SmsScanWorker>()
+            .setInputData(
+                workDataOf(
+                    SmsScanWorker.KEY_START_DATE to startDateMillis,
+                    SmsScanWorker.KEY_END_DATE to endDateMillis
+                )
+            )
+            .addTag(SmsScanWorker.TAG)
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "sms_inbox_scan",
+            ExistingWorkPolicy.REPLACE,
+            workRequest
+        )
+        return workRequest.id
+    }
+
+    /**
+     * Historical SMS inbox scan using paged ContentResolver reads and MessageIngestor pipeline.
      */
     suspend fun scanInboxFromDate(
         context: Context,
         repository: TransactionRepository,
         startDateMillis: Long,
         endDateMillis: Long = System.currentTimeMillis(),
-        maxMessages: Int = 3000
+        maxMessages: Int = 3000,
+        pageSize: Int = 100
     ): ScanResult = withContext(Dispatchers.IO) {
         var totalRead = 0
         var importedCount = 0
         var skippedDuplicates = 0
-        var highestDetectedLimit: Double? = null
+        val highestDetectedLimit: Double? = null
+
+        val db = AppDatabase.getDatabase(context)
+        val prefs = AppPreferences(context)
+        val aiService = com.campusfold.tracker.ai.AiFallbackService(db.aiCacheDao(), prefs)
+        val resolver = DefaultEntityResolver(
+            accountDao = db.accountDao(),
+            accountAliasDao = db.accountAliasDao(),
+            vendorDao = db.vendorDao(),
+            categoryDao = db.categoryDao(),
+            ruleDao = db.ruleDao(),
+            reviewItemDao = db.reviewItemDao(),
+            aiFallbackService = aiService,
+            appPreferences = prefs
+        )
+        val ingestor = MessageIngestor(db, resolver, repository, context, prefs, aiService)
 
         val selection = "${Telephony.Sms.TYPE} = ? AND ${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.DATE} <= ?"
         val selectionArgs = arrayOf(
@@ -52,73 +102,73 @@ object InboxSmsScanner {
             startDateMillis.toString(),
             endDateMillis.toString()
         )
-        val sortOrder = "${Telephony.Sms.DATE} ASC" // Process chronologically
 
-        val accounts = repository.getAllAccountsList()
-
+        var offset = 0
         try {
-            val cursor = context.contentResolver.query(
-                Telephony.Sms.CONTENT_URI,
-                SMS_PROJECTION,
-                selection,
-                selectionArgs,
-                sortOrder
-            )
+            while (totalRead < maxMessages) {
+                val sortOrder = "${Telephony.Sms.DATE} ASC LIMIT $pageSize OFFSET $offset"
+                val rawBatch = mutableListOf<RawMessage>()
 
-            cursor?.use { c ->
-                val addressIdx = c.getColumnIndex(Telephony.Sms.ADDRESS)
-                val dateIdx = c.getColumnIndex(Telephony.Sms.DATE)
-                val bodyIdx = c.getColumnIndex(Telephony.Sms.BODY)
+                val cursor = context.contentResolver.query(
+                    Telephony.Sms.CONTENT_URI,
+                    SMS_PROJECTION,
+                    selection,
+                    selectionArgs,
+                    sortOrder
+                )
 
-                while (c.moveToNext() && totalRead < maxMessages) {
-                    totalRead++
-                    val address = if (addressIdx != -1) c.getString(addressIdx) ?: "" else ""
-                    val date = if (dateIdx != -1) c.getLong(dateIdx) else System.currentTimeMillis()
-                    val body = if (bodyIdx != -1) c.getString(bodyIdx) ?: "" else ""
+                cursor?.use { c ->
+                    val addressIdx = c.getColumnIndex(Telephony.Sms.ADDRESS)
+                    val dateIdx = c.getColumnIndex(Telephony.Sms.DATE)
+                    val bodyIdx = c.getColumnIndex(Telephony.Sms.BODY)
 
-                    if (body.isBlank()) continue
+                    while (c.moveToNext() && totalRead + rawBatch.size < maxMessages) {
+                        val address = if (addressIdx != -1) c.getString(addressIdx) ?: "" else ""
+                        val date = if (dateIdx != -1) c.getLong(dateIdx) else System.currentTimeMillis()
+                        val body = if (bodyIdx != -1) c.getString(bodyIdx) ?: "" else ""
 
-                    val parsedResult = CampusSmsParser.parse(body, address, date, accounts) ?: continue
-
-                    // Update credit limit if extracted from PNB SMS
-                    if (parsedResult.extractedCreditLimit != null) {
-                        highestDetectedLimit = parsedResult.extractedCreditLimit
-                        repository.setPnbCreditLimit(parsedResult.extractedCreditLimit)
-                    }
-
-                    val rawTx = parsedResult.transaction
-
-                    // Deduplication check via upiRef / dedupeHash
-                    if (rawTx.upiRef != null && repository.isTransactionDuplicate(rawTx.upiRef)) {
-                        skippedDuplicates++
-                        continue
-                    }
-
-                    // Resolve campus friendly vendor name and default category
-                    val (friendlyName, categoryId) = repository.resolveVendor(rawTx.rawMerchant)
-                    val resolvedTx = rawTx.copy(
-                        friendlyVendorName = friendlyName,
-                        categoryId = categoryId
-                    )
-
-                    val insertedId = repository.addTransaction(resolvedTx)
-                    if (insertedId > 0) {
-                        importedCount++
-
-                        // Route only genuine INCOME (never CC_BILL_TRANSFER) to friend split suggestions
-                        if (resolvedTx.type == TransactionType.INCOME) {
-                            checkFriendSplitSuggestion(repository, insertedId, resolvedTx, body)
+                        if (body.isNotBlank()) {
+                            rawBatch.add(
+                                RawMessage(
+                                    source = MessageSource.SMS,
+                                    sender = address,
+                                    body = body,
+                                    timestamp = date
+                                )
+                            )
                         }
-                    } else {
-                        skippedDuplicates++
                     }
                 }
-            }
 
-            repository.setLastSmsSyncTimestamp(System.currentTimeMillis())
+                if (rawBatch.isEmpty()) {
+                    break
+                }
+
+                totalRead += rawBatch.size
+                offset += rawBatch.size
+
+                val batchResults = ingestor.ingestBatch(rawBatch)
+                for (res in batchResults) {
+                    when (res) {
+                        is IngestResult.Imported -> importedCount++
+                        is IngestResult.Enriched,
+                        is IngestResult.SkippedAlreadyProcessed -> skippedDuplicates++
+                        else -> {}
+                    }
+                }
+
+                if (rawBatch.size < pageSize) {
+                    break
+                }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error while scanning SMS inbox cursor", e)
+            Log.e(TAG, "Error scanning SMS inbox", e)
         }
+
+        prefs.setLastSmsSyncTimestamp(endDateMillis)
+        try {
+            repository.runAutoMergePass()
+        } catch (_: Exception) {}
 
         ScanResult(
             totalRead = totalRead,
@@ -126,50 +176,5 @@ object InboxSmsScanner {
             skippedDuplicates = skippedDuplicates,
             latestCreditLimit = highestDetectedLimit
         )
-    }
-
-    /**
-     * Backward-compatible helper to scan by days back
-     */
-    suspend fun scanInbox(
-        context: Context,
-        repository: TransactionRepository,
-        daysBack: Int = 90,
-        maxMessages: Int = 2000
-    ): ScanResult {
-        val startTime = System.currentTimeMillis() - (daysBack.toLong() * 24L * 60L * 60L * 1000L)
-        return scanInboxFromDate(context, repository, startTime, System.currentTimeMillis(), maxMessages)
-    }
-
-    private suspend fun checkFriendSplitSuggestion(
-        repository: TransactionRepository,
-        transactionId: Long,
-        transaction: TransactionEntity,
-        rawBody: String
-    ) {
-        val persons = repository.getAllPersonsList()
-        val lowerBody = rawBody.lowercase()
-
-        for (person in persons) {
-            val aliases = person.exactSmsAliases.split(",")
-                .map { it.trim().lowercase() }
-                .filter { it.isNotEmpty() }
-
-            val matchesAlias = aliases.any { alias -> lowerBody.contains(alias) }
-            val matchesName = lowerBody.contains(person.name.lowercase())
-
-            if (matchesAlias || matchesName) {
-                repository.createSettlementSuggestion(
-                    PendingSettlementSuggestionEntity(
-                        transactionId = transactionId,
-                        suggestedPersonId = person.id,
-                        detectedSenderName = transaction.rawMerchant,
-                        amount = transaction.amount,
-                        status = SettlementSuggestionStatus.PENDING
-                    )
-                )
-                break
-            }
-        }
     }
 }

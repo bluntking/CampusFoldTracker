@@ -51,6 +51,10 @@ object NotificationHelper {
             TransactionType.INCOME -> "Money Received: $formattedAmount"
             TransactionType.CC_BILL_TRANSFER -> "CC Bill Payment: $formattedAmount"
             TransactionType.SPLIT_SETTLEMENT -> "Split Settlement: $formattedAmount"
+            TransactionType.OWN_TRANSFER -> "Self Transfer: $formattedAmount"
+            TransactionType.REFUND -> "Refund Received: $formattedAmount"
+            TransactionType.ATM -> "ATM Withdrawal: $formattedAmount"
+            TransactionType.EMI -> "EMI Payment: $formattedAmount"
             TransactionType.EXPENSE -> "Expense Tracked: $formattedAmount"
         }
         val content = "${transaction.friendlyVendorName} via ${transaction.paymentMode}"

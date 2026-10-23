@@ -9,6 +9,7 @@ import com.campusfold.tracker.data.entity.*
 import com.campusfold.tracker.data.model.*
 import com.campusfold.tracker.data.pref.AppPreferences
 import com.campusfold.tracker.util.SmsReader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -52,7 +53,6 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     val allUnsettledBills: StateFlow<List<com.campusfold.tracker.data.model.UnsettledBillItem>>
 
     // Preferences
-    val pnbCreditLimit: StateFlow<Double>
     val lastSmsSyncTimestamp: StateFlow<Long>
     val gmailSyncEmail: StateFlow<String?>
     val gmailSyncAppPassword: StateFlow<String?>
@@ -67,6 +67,46 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
 
     // Accounts
     val accounts: StateFlow<List<com.campusfold.tracker.data.entity.AccountEntity>>
+
+    // Duplicate Accounts & Merge Management
+    val latestAutoMergeLog: StateFlow<MergeLogEntity?>
+    val allActiveMergeLogs: StateFlow<List<MergeLogEntity>>
+    private val _suggestedDuplicates = MutableStateFlow<List<com.campusfold.tracker.data.merge.DuplicatePair>>(emptyList())
+    val suggestedDuplicates = _suggestedDuplicates.asStateFlow()
+
+    // Onboarding & Theme Preferences
+    val hasCompletedOnboarding: StateFlow<Boolean>
+    val userName: StateFlow<String>
+    val hideBalances: StateFlow<Boolean>
+    val themeMode: StateFlow<String>
+    val dynamicColor: StateFlow<Boolean>
+    val amoledMode: StateFlow<Boolean>
+
+    private val _dismissedAutoMergeLogId = MutableStateFlow<Long?>(null)
+    val dismissedAutoMergeLogId = _dismissedAutoMergeLogId.asStateFlow()
+
+    // Rules & AI Review Queue
+    val allRules: StateFlow<List<RuleEntity>>
+    val pendingReviewItems: StateFlow<List<ReviewItemEntity>>
+    val autoAcceptAiResults: StateFlow<Boolean>
+    val unparsedMessages: StateFlow<List<UnparsedMessageEntity>>
+    val scanHistory: StateFlow<List<ScanHistoryEntity>>
+    val aiFallbackParsingEnabled: StateFlow<Boolean>
+    val aiFallbackAccountsEnabled: StateFlow<Boolean>
+    val aiFallbackVendorsEnabled: StateFlow<Boolean>
+    val aiFallbackCategoriesEnabled: StateFlow<Boolean>
+
+    // Multi-Select State
+    private val _isSelectionMode = MutableStateFlow(false)
+    val isSelectionMode = _isSelectionMode.asStateFlow()
+
+    private val _selectedTransactionIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedTransactionIds = _selectedTransactionIds.asStateFlow()
+
+    private val _showArchivedAccounts = MutableStateFlow(false)
+    val showArchivedAccounts = _showArchivedAccounts.asStateFlow()
+
+    private var deletedTransactionsStash: List<TransactionEntity> = emptyList()
 
     // UI state
     private val _selectedFilter = MutableStateFlow("ALL")
@@ -172,8 +212,9 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             emptyList()
         )
 
-        viewModelScope.launch {
-            allTransactions.collect {
+        viewModelScope.launch(Dispatchers.Default) {
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            allTransactions.debounce(300L).collect {
                 _weekOverWeekSpike.value = repository.calculateWeekOverWeekSpike()
             }
         }
@@ -208,12 +249,6 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             emptyList()
         )
 
-        pnbCreditLimit = repository.latestPnbCreditLimit.stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5000),
-            50000.0
-        )
-
         lastSmsSyncTimestamp = repository.lastSmsSyncTimestamp.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
@@ -242,6 +277,115 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
             emptyList()
+        )
+
+        latestAutoMergeLog = repository.latestAutoMergeLog.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            null
+        )
+
+        allActiveMergeLogs = repository.allActiveMergeLogs.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        viewModelScope.launch(Dispatchers.Default) {
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            accounts.debounce(300L).collect {
+                refreshDuplicateAccounts()
+            }
+        }
+
+        allRules = repository.allRules.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        pendingReviewItems = repository.pendingReviewItems.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        autoAcceptAiResults = prefs.autoAcceptAiResults.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            false
+        )
+
+        unparsedMessages = repository.allUnparsedMessages.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        scanHistory = repository.allScanHistory.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        aiFallbackParsingEnabled = prefs.aiFallbackParsingEnabled.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            true
+        )
+
+        aiFallbackAccountsEnabled = prefs.aiFallbackAccountsEnabled.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            true
+        )
+
+        aiFallbackVendorsEnabled = prefs.aiFallbackVendorsEnabled.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            true
+        )
+
+        aiFallbackCategoriesEnabled = prefs.aiFallbackCategoriesEnabled.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            true
+        )
+
+        hasCompletedOnboarding = repository.hasCompletedOnboarding.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            false
+        )
+
+        userName = repository.userName.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            ""
+        )
+
+        hideBalances = repository.hideBalances.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            false
+        )
+
+        themeMode = repository.themeMode.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            "SYSTEM"
+        )
+
+        dynamicColor = repository.dynamicColor.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            true
+        )
+
+        amoledMode = repository.amoledMode.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            false
         )
 
         filteredTransactions = combine(allTransactions, _selectedFilter) { list, filter ->
@@ -658,13 +802,6 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
 
     // ─── Preferences & Budgets ───────────────────────────────────────────────
 
-    fun updatePnbCreditLimit(limit: Double) {
-        viewModelScope.launch {
-            repository.setPnbCreditLimit(limit)
-            _statusMessage.value = "PNB credit limit updated to ₹$limit."
-        }
-    }
-
     fun setOverallMonthlyBudget(budget: Double) {
         viewModelScope.launch {
             repository.setOverallMonthlyBudget(budget)
@@ -679,6 +816,49 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun setCompletedOnboarding(completed: Boolean) {
+        viewModelScope.launch {
+            repository.setCompletedOnboarding(completed)
+        }
+    }
+
+    fun setUserName(name: String) {
+        viewModelScope.launch {
+            repository.setUserName(name)
+        }
+    }
+
+    fun setHideBalances(hide: Boolean) {
+        viewModelScope.launch {
+            repository.setHideBalances(hide)
+        }
+    }
+
+    fun toggleHideBalances() {
+        viewModelScope.launch {
+            val current = hideBalances.value
+            repository.setHideBalances(!current)
+        }
+    }
+
+    fun setThemeMode(mode: String) {
+        viewModelScope.launch {
+            repository.setThemeMode(mode)
+        }
+    }
+
+    fun setDynamicColor(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setDynamicColor(enabled)
+        }
+    }
+
+    fun setAmoledMode(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setAmoledMode(enabled)
+        }
+    }
+
     fun refreshInsights() {
         viewModelScope.launch {
             _weekOverWeekSpike.value = repository.calculateWeekOverWeekSpike()
@@ -688,28 +868,15 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     // ─── Inbox Scanning ───────────────────────────────────────────────────────
 
     fun scanInboxFromDate(startDateMillis: Long, endDateMillis: Long = System.currentTimeMillis()) {
-        if (_isScanning.value) return
-        _isScanning.value = true
         val dateFmt = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault())
         val dateStr = dateFmt.format(java.util.Date(startDateMillis))
-        _statusMessage.value = "Scanning SMS from $dateStr to today..."
+        _statusMessage.value = "Started background SMS scan from $dateStr..."
 
-        viewModelScope.launch {
-            try {
-                val result = com.campusfold.tracker.util.InboxSmsScanner.scanInboxFromDate(
-                    context = getApplication(),
-                    repository = repository,
-                    startDateMillis = startDateMillis,
-                    endDateMillis = endDateMillis
-                )
-                val limitInfo = if (result.latestCreditLimit != null) " • PNB Limit: ₹${result.latestCreditLimit.toInt()}" else ""
-                _statusMessage.value = "Imported ${result.importedCount} txns from $dateStr (${result.skippedDuplicates} dupes skipped)$limitInfo"
-            } catch (e: Exception) {
-                _statusMessage.value = "Error scanning SMS: ${e.localizedMessage}"
-            } finally {
-                _isScanning.value = false
-            }
-        }
+        com.campusfold.tracker.util.InboxSmsScanner.enqueueSmsScanWorker(
+            context = getApplication(),
+            startDateMillis = startDateMillis,
+            endDateMillis = endDateMillis
+        )
     }
 
     fun scanInbox(daysBack: Int = 90) {
@@ -777,32 +944,22 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
-     * Silent auto-sync on app open / resume (Option 1).
-     * Connects in the background, pulls new transactions since last sync, and updates UI seamlessly.
+     * Silent auto-sync on app open / foreground.
+     * Triggers a Gmail sync via WorkManager if last sync was > 15 minutes ago.
      */
     fun checkAndAutoSyncGmail() {
         try {
-            if (_isGmailSyncing.value) return
             val email = gmailSyncEmail.value
             val password = gmailSyncAppPassword.value
             if (email.isNullOrBlank() || password.isNullOrBlank()) return
 
             val lastSync = gmailLastSyncTimestamp.value
-            // Throttle: don't sync if last sync was within 2 minutes
-            if (lastSync > 0L && (System.currentTimeMillis() - lastSync) < 120_000L) return
-
-            val startTime = if (lastSync > 0L) {
-                lastSync - 3600_000L // 1 hour buffer
-            } else {
-                System.currentTimeMillis() - 30L * 86400000L
+            val fifteenMinutesMillis = 15L * 60L * 1000L
+            if (lastSync > 0L && (System.currentTimeMillis() - lastSync) <= fifteenMinutesMillis) {
+                return
             }
 
-            syncAxisFromGmail(
-                emailAddress = email,
-                appPassword = password,
-                startDateMillis = startTime,
-                saveCredentials = false
-            )
+            repository.enqueueGmailSyncWorker(getApplication())
         } catch (e: Exception) {
             android.util.Log.e("TransactionViewModel", "Silent Gmail auto-sync check error", e)
         }
@@ -825,6 +982,549 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
                 onComplete?.invoke()
             } catch (e: Exception) {
                 _statusMessage.value = "Error mapping income to expense: ${e.message}"
+            }
+        }
+    }
+
+    // ─── Rules Management ─────────────────────────────────────────────────────
+
+    fun addRule(rule: RuleEntity, onComplete: ((Long) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                val id = repository.addRule(rule)
+                _statusMessage.value = "Rule created successfully"
+                onComplete?.invoke(id)
+            } catch (e: Exception) {
+                _statusMessage.value = "Error creating rule: ${e.message}"
+            }
+        }
+    }
+
+    fun updateRule(rule: RuleEntity, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.updateRule(rule)
+                _statusMessage.value = "Rule updated"
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error updating rule: ${e.message}"
+            }
+        }
+    }
+
+    fun deleteRule(rule: RuleEntity, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.deleteRule(rule)
+                _statusMessage.value = "Rule deleted"
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error deleting rule: ${e.message}"
+            }
+        }
+    }
+
+    fun deleteRuleById(ruleId: Long, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.deleteRuleById(ruleId)
+                _statusMessage.value = "Rule deleted"
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error deleting rule: ${e.message}"
+            }
+        }
+    }
+
+    fun toggleRuleEnabled(ruleId: Long, enabled: Boolean, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.toggleRuleEnabled(ruleId, enabled)
+                _statusMessage.value = if (enabled) "Rule enabled" else "Rule disabled"
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error toggling rule: ${e.message}"
+            }
+        }
+    }
+
+    fun applyRuleToPastTransactions(ruleId: Long, onComplete: ((Int) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                val count = repository.applyRuleToPastTransactions(ruleId)
+                _statusMessage.value = "Rule applied to $count past transaction(s)"
+                onComplete?.invoke(count)
+            } catch (e: Exception) {
+                _statusMessage.value = "Error applying rule: ${e.message}"
+            }
+        }
+    }
+
+    // ─── Review Items Management ───────────────────────────────────────────────
+
+    fun acceptReviewItem(reviewItemId: Long, editedPayloadJson: String? = null, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.acceptReviewItem(reviewItemId, editedPayloadJson)
+                _statusMessage.value = "Item approved"
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error approving item: ${e.message}"
+            }
+        }
+    }
+
+    fun editReviewItem(reviewItemId: Long, newPayloadJson: String, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.editReviewItem(reviewItemId, newPayloadJson)
+                _statusMessage.value = "Item updated"
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error editing item: ${e.message}"
+            }
+        }
+    }
+
+    fun discardReviewItem(reviewItemId: Long, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.discardReviewItem(reviewItemId)
+                _statusMessage.value = "Item discarded"
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error discarding item: ${e.message}"
+            }
+        }
+    }
+
+    fun setAutoAcceptAiResults(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                val prefs = AppPreferences(getApplication())
+                prefs.setAutoAcceptAiResults(enabled)
+                _statusMessage.value = if (enabled) "Auto-accept AI predictions enabled" else "Auto-accept AI predictions disabled"
+            } catch (e: Exception) {
+                _statusMessage.value = "Error updating setting: ${e.message}"
+            }
+        }
+    }
+
+    // ─── Duplicate Accounts & Merge Management ───────────────────────────────
+
+    fun refreshDuplicateAccounts() {
+        viewModelScope.launch {
+            try {
+                val (_, suggested) = repository.detectDuplicateAccounts()
+                _suggestedDuplicates.value = suggested
+            } catch (e: Exception) {
+                android.util.Log.w("TransactionViewModel", "Error detecting duplicate accounts: ${e.message}")
+            }
+        }
+    }
+
+    fun dismissAutoMergeNotification(logId: Long) {
+        _dismissedAutoMergeLogId.value = logId
+    }
+
+    fun undoMerge(mergeLogId: Long, onComplete: ((Boolean) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                val success = repository.undoMerge(mergeLogId)
+                if (success) {
+                    _statusMessage.value = "✓ Merge undone. Restored original account and transactions."
+                    refreshDuplicateAccounts()
+                } else {
+                    _statusMessage.value = "Unable to undo merge."
+                }
+                onComplete?.invoke(success)
+            } catch (e: Exception) {
+                _statusMessage.value = "Error undoing merge: ${e.message}"
+            }
+        }
+    }
+
+    fun mergeAccounts(
+        survivingAccountId: Long,
+        mergedAccountId: Long,
+        overrideDisplayName: String? = null,
+        overrideType: AccountType? = null,
+        overrideLast4: String? = null,
+        onComplete: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.mergeAccounts(
+                    survivingAccountId = survivingAccountId,
+                    mergedAccountId = mergedAccountId,
+                    mode = MergeMode.MANUAL,
+                    overrideDisplayName = overrideDisplayName,
+                    overrideType = overrideType,
+                    overrideLast4 = overrideLast4
+                )
+                _statusMessage.value = "✓ Accounts merged successfully."
+                refreshDuplicateAccounts()
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error merging accounts: ${e.message}"
+            }
+        }
+    }
+
+    fun markPairNotSame(accountIdA: Long, accountIdB: Long, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.markPairNotSame(accountIdA, accountIdB)
+                _suggestedDuplicates.value = _suggestedDuplicates.value.filterNot {
+                    (it.accountA.id == accountIdA && it.accountB.id == accountIdB) ||
+                    (it.accountA.id == accountIdB && it.accountB.id == accountIdA)
+                }
+                _statusMessage.value = "Marked as different accounts."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    fun dismissSuggestedDuplicate(pair: com.campusfold.tracker.data.merge.DuplicatePair) {
+        _suggestedDuplicates.value = _suggestedDuplicates.value.filterNot {
+            it.accountA.id == pair.accountA.id && it.accountB.id == pair.accountB.id
+        }
+    }
+
+    fun getActiveMergeLogsForAccount(accountId: Long, onResult: (List<MergeLogEntity>) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val logs = repository.getActiveMergeLogsForAccount(accountId)
+                onResult(logs)
+            } catch (_: Exception) {
+                onResult(emptyList())
+            }
+        }
+    }
+
+    fun countTransactionsForAccount(accountId: Long, onResult: (Int) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val count = repository.countTransactionsForAccount(accountId)
+                onResult(count)
+            } catch (_: Exception) {
+                onResult(0)
+            }
+        }
+    }
+
+    // ─── Selection Mode & Bulk Actions ────────────────────────────────────────
+    fun toggleSelectionMode() {
+        _isSelectionMode.value = !_isSelectionMode.value
+        if (!_isSelectionMode.value) {
+            _selectedTransactionIds.value = emptySet()
+        }
+    }
+
+    fun startSelectionWith(transactionId: Long) {
+        _isSelectionMode.value = true
+        _selectedTransactionIds.value = setOf(transactionId)
+    }
+
+    fun toggleTransactionSelected(transactionId: Long) {
+        val current = _selectedTransactionIds.value.toMutableSet()
+        if (current.contains(transactionId)) {
+            current.remove(transactionId)
+            if (current.isEmpty()) {
+                _isSelectionMode.value = false
+            }
+        } else {
+            current.add(transactionId)
+        }
+        _selectedTransactionIds.value = current
+    }
+
+    fun selectAllTransactions() {
+        val allIds = filteredTransactions.value.map { it.id }.toSet()
+        _selectedTransactionIds.value = allIds
+    }
+
+    fun clearTransactionSelection() {
+        _selectedTransactionIds.value = emptySet()
+        _isSelectionMode.value = false
+    }
+
+    fun bulkDeleteSelectedTransactions(onComplete: (() -> Unit)? = null) {
+        val ids = _selectedTransactionIds.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val deleted = repository.bulkDeleteTransactions(ids)
+                deletedTransactionsStash = deleted
+                _statusMessage.value = "Deleted ${deleted.size} transaction(s)."
+                clearTransactionSelection()
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error deleting transactions: ${e.message}"
+            }
+        }
+    }
+
+    fun bulkRecategorizeSelectedTransactions(categoryId: Long?, onComplete: (() -> Unit)? = null) {
+        val ids = _selectedTransactionIds.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                repository.bulkRecategorizeTransactions(ids, categoryId)
+                _statusMessage.value = "Recategorized ${ids.size} transaction(s)."
+                clearTransactionSelection()
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error recategorizing: ${e.message}"
+            }
+        }
+    }
+
+    fun bulkMoveSelectedTransactionsToAccount(accountId: Long, onComplete: (() -> Unit)? = null) {
+        val ids = _selectedTransactionIds.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                repository.bulkMoveTransactionsToAccount(ids, accountId)
+                _statusMessage.value = "Moved ${ids.size} transaction(s) to account."
+                clearTransactionSelection()
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error moving transactions: ${e.message}"
+            }
+        }
+    }
+
+    // ─── Single Transaction Manual Actions & Undo ─────────────────────────────
+    fun deleteTransactionWithUndo(tx: TransactionEntity, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.deleteTransaction(tx)
+                deletedTransactionsStash = listOf(tx)
+                _statusMessage.value = "Deleted transaction of ₹${tx.amount.toInt()}."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error deleting transaction: ${e.message}"
+            }
+        }
+    }
+
+    fun undoLastDelete() {
+        val stash = deletedTransactionsStash
+        if (stash.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                repository.restoreTransactions(stash)
+                deletedTransactionsStash = emptyList()
+                _statusMessage.value = "✓ Restored ${stash.size} deleted item(s)."
+            } catch (e: Exception) {
+                _statusMessage.value = "Error restoring: ${e.message}"
+            }
+        }
+    }
+
+    fun mergeTransactions(survivingTxId: Long, duplicateTxId: Long, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.mergeDuplicateTransactions(survivingTxId, duplicateTxId)
+                _statusMessage.value = "✓ Transactions merged successfully."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error merging transactions: ${e.message}"
+            }
+        }
+    }
+
+    // ─── Manual Account Actions ───────────────────────────────────────────────
+    fun deleteAccountWithReassign(accountId: Long, targetAccountId: Long?, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.deleteAccountWithReassign(accountId, targetAccountId)
+                _statusMessage.value = "Account deleted and transactions reassigned."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error removing account: ${e.message}"
+            }
+        }
+    }
+
+    fun toggleShowArchivedAccounts() {
+        _showArchivedAccounts.value = !_showArchivedAccounts.value
+    }
+
+    fun setAccountArchived(accountId: Long, isArchived: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.setAccountArchived(accountId, isArchived)
+                _statusMessage.value = if (isArchived) "Account archived." else "Account unarchived."
+            } catch (e: Exception) {
+                _statusMessage.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    fun setAccountBalanceManually(accountId: Long, balancePaise: Long) {
+        viewModelScope.launch {
+            try {
+                repository.setAccountBalanceManually(accountId, balancePaise)
+                _statusMessage.value = "Manual balance updated."
+            } catch (e: Exception) {
+                _statusMessage.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    fun clearManualBalanceOverride(accountId: Long) {
+        viewModelScope.launch {
+            try {
+                repository.clearManualBalanceOverride(accountId)
+                _statusMessage.value = "Reverted to auto balance updates."
+            } catch (e: Exception) {
+                _statusMessage.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    // ─── Manual Vendor Actions ────────────────────────────────────────────────
+    fun renameVendor(vendorId: Long, newName: String, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.renameVendor(vendorId, newName)
+                _statusMessage.value = "Vendor renamed."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    fun reassignVendorCategory(vendorId: Long, newCategoryId: Long?, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.reassignVendorCategory(vendorId, newCategoryId)
+                _statusMessage.value = "Vendor category reassigned."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    fun mergeVendors(survivingVendorId: Long, mergedVendorId: Long, survivingName: String, categoryId: Long?, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.mergeVendors(survivingVendorId, mergedVendorId, survivingName, categoryId)
+                _statusMessage.value = "Vendors merged successfully."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error merging vendors: ${e.message}"
+            }
+        }
+    }
+
+    fun mergeVendors(survivingVendorId: Long, mergedVendorId: Long, onComplete: (() -> Unit)? = null) {
+        val surviving = vendorMappings.value.find { it.id == survivingVendorId }
+        val survivingName = surviving?.displayName ?: ""
+        val categoryId = surviving?.categoryId
+        mergeVendors(survivingVendorId, mergedVendorId, survivingName, categoryId, onComplete)
+    }
+
+    // ─── Manual Category Actions ──────────────────────────────────────────────
+    fun deleteCategoryWithReassign(categoryId: Long, targetCategoryId: Long?, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.deleteCategoryWithReassign(categoryId, targetCategoryId)
+                _statusMessage.value = "Category deleted and transactions reassigned."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error deleting category: ${e.message}"
+            }
+        }
+    }
+
+    fun mergeCategories(survivingCategoryId: Long, mergedCategoryId: Long, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.mergeCategories(survivingCategoryId, mergedCategoryId)
+                _statusMessage.value = "Categories merged successfully."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error merging categories: ${e.message}"
+            }
+        }
+    }
+
+    fun setCategoryBudgetPaise(categoryId: Long, budgetPaise: Long) {
+        viewModelScope.launch {
+            try {
+                repository.setCategoryBudget(categoryId, budgetPaise)
+                _statusMessage.value = "Budget updated."
+            } catch (e: Exception) {
+                _statusMessage.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    // ─── Review Queue Batch Actions ───────────────────────────────────────────
+    fun acceptAllHighConfidenceReviewItems(onComplete: ((Int) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                val count = repository.acceptAllHighConfidenceReviewItems()
+                _statusMessage.value = "Accepted $count high-confidence items."
+                onComplete?.invoke(count)
+            } catch (e: Exception) {
+                _statusMessage.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    fun discardAllPendingReviewItems(onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.discardAllPendingReviewItems()
+                _statusMessage.value = "Discarded all pending items."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    // ─── Unparsed Messages & Scan History & Rebuild ───────────────────────────
+    fun deleteUnparsedMessage(id: Long) {
+        viewModelScope.launch {
+            try {
+                repository.deleteUnparsedMessage(id)
+                _statusMessage.value = "Unparsed message dismissed."
+            } catch (e: Exception) {
+                _statusMessage.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    fun rebuildFromScratch(onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.rebuildFromScratch()
+                _statusMessage.value = "All transaction & scan data reset for rebuild."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error rebuilding: ${e.message}"
+            }
+        }
+    }
+
+    // ─── AI Task Settings ─────────────────────────────────────────────────────
+    fun setAiTaskEnabled(task: String, enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                val prefs = AppPreferences(getApplication())
+                prefs.setAiTaskEnabled(task, enabled)
+                _statusMessage.value = "AI setting updated for $task."
+            } catch (e: Exception) {
+                _statusMessage.value = "Error: ${e.message}"
             }
         }
     }

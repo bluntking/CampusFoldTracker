@@ -1,22 +1,28 @@
 package com.campusfold.tracker.util
 
 import android.util.Log
+import com.campusfold.tracker.data.pref.AppPreferences
+import com.sun.mail.imap.IMAPFolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.BufferedWriter
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
-import java.nio.charset.StandardCharsets
-import java.text.SimpleDateFormat
 import java.util.*
-import javax.net.ssl.SSLSocket
-import javax.net.ssl.SSLSocketFactory
+import javax.mail.*
+import javax.mail.internet.MimeUtility
+import javax.mail.search.ComparisonTerm
+import javax.mail.search.ReceivedDateTerm
 
 data class RawAxisEmail(
     val msgId: String,
     val subject: String,
     val from: String,
+    val body: String,
+    val dateMillis: Long
+)
+
+data class FetchedEmail(
+    val uid: Long,
+    val sender: String,
+    val subject: String,
     val body: String,
     val dateMillis: Long
 )
@@ -30,17 +36,19 @@ object GmailImapClient {
     private const val IMAP_PORT = 993
 
     /**
-     * Connects securely over SSL to imap.gmail.com:993, authenticates via Google App Password,
-     * searches for Axis Bank credit and debit emails (optionally since startDateMillis),
-     * and fetches the message content without marking them as read (using BODY.PEEK).
+     * Connects securely over TLS/SSL to imap.gmail.com:993, authenticates via Google App Password,
+     * performs UID-based incremental sync with UIDVALIDITY tracking, matches Indian bank sender domains
+     * and subject keywords from BankEmailSyncConfig, and parses quoted-printable, base64 and multipart MIME bodies.
      */
-    suspend fun fetchAxisBankEmails(
+    suspend fun fetchBankEmails(
         emailAddress: String,
         appPassword: String,
+        appPreferences: AppPreferences? = null,
         startDateMillis: Long? = null,
-        maxEmailsToFetch: Int = 150,
+        maxEmailsToFetch: Int = 200,
+        isCancelled: (() -> Boolean)? = null,
         onProgress: ((current: Int, total: Int) -> Unit)? = null
-    ): List<RawAxisEmail> = withContext(Dispatchers.IO) {
+    ): List<FetchedEmail> = withContext(Dispatchers.IO) {
         val cleanEmail = emailAddress.trim()
         val cleanPassword = appPassword.replace(" ", "").trim()
 
@@ -48,185 +56,155 @@ object GmailImapClient {
             throw GmailImapException("Gmail address and App Password cannot be empty.")
         }
 
-        var socket: SSLSocket? = null
-        var reader: BufferedReader? = null
-        var writer: BufferedWriter? = null
-        val fetchedEmails = mutableListOf<RawAxisEmail>()
+        val props = Properties().apply {
+            put("mail.store.protocol", "imaps")
+            put("mail.imaps.host", IMAP_HOST)
+            put("mail.imaps.port", IMAP_PORT.toString())
+            put("mail.imaps.ssl.enable", "true")
+            put("mail.imaps.ssl.checkserveridentity", "true") // Enforce TLS certificate check
+            put("mail.imaps.connectiontimeout", "30000")
+            put("mail.imaps.timeout", "30000")
+        }
+
+        var store: Store? = null
+        var folder: IMAPFolder? = null
+        val fetchedList = mutableListOf<FetchedEmail>()
 
         try {
-            val factory = SSLSocketFactory.getDefault()
-            socket = factory.createSocket(IMAP_HOST, IMAP_PORT) as SSLSocket
-            socket.soTimeout = 25000 // 25s timeout
-
-            reader = BufferedReader(InputStreamReader(socket.inputStream, StandardCharsets.UTF_8))
-            writer = BufferedWriter(OutputStreamWriter(socket.outputStream, StandardCharsets.UTF_8))
-
-            // 1. Initial Greeting
-            val greeting = reader.readLine() ?: throw GmailImapException("No response from Gmail IMAP server.")
-            Log.d(TAG, "IMAP Greeting: $greeting")
-
-            var tagIndex = 1
-
-            fun sendCommand(cmd: String): List<String> {
-                val tag = "A%03d".format(tagIndex++)
-                val fullCmd = "$tag $cmd\r\n"
-                writer.write(fullCmd)
-                writer.flush()
-
-                val responseLines = mutableListOf<String>()
-                while (true) {
-                    val line = reader.readLine() ?: break
-                    responseLines.add(line)
-                    if (line.startsWith("$tag OK")) {
-                        break
-                    } else if (line.startsWith("$tag NO") || line.startsWith("$tag BAD")) {
-                        val errMsg = line.removePrefix("$tag ").trim()
-                        if (errMsg.contains("AUTHENTICATIONFAILED", ignoreCase = true) || errMsg.contains("Invalid credentials", ignoreCase = true)) {
-                            throw GmailImapException("Authentication failed. Please verify your Gmail address and 16-character App Password (from myaccount.google.com/apppasswords).")
-                        }
-                        throw GmailImapException("Gmail IMAP error: $errMsg")
-                    }
-                }
-                return responseLines
+            val session = Session.getInstance(props)
+            store = session.getStore("imaps")
+            try {
+                store.connect(IMAP_HOST, IMAP_PORT, cleanEmail, cleanPassword)
+            } catch (e: AuthenticationFailedException) {
+                throw GmailImapException("Authentication failed. Please verify your Gmail address and 16-character App Password.", e)
+            } catch (e: Exception) {
+                throw GmailImapException("Failed connecting to Gmail IMAP: ${e.localizedMessage}", e)
             }
 
-            // 2. Login
-            sendCommand("LOGIN \"$cleanEmail\" \"$cleanPassword\"")
-            Log.d(TAG, "Successfully authenticated with Gmail IMAP for $cleanEmail")
+            folder = store.getFolder("INBOX") as? IMAPFolder
+                ?: throw GmailImapException("Unable to open INBOX folder on Gmail IMAP.")
+            folder.open(Folder.READ_ONLY)
 
-            // 3. Select INBOX
-            sendCommand("SELECT INBOX")
-
-            // 4. Search Axis Bank Emails
-            // Format IMAP date: dd-MMM-yyyy (e.g. 20-Oct-2026)
-            val dateFilter = if (startDateMillis != null && startDateMillis > 0) {
-                val imapDateFmt = SimpleDateFormat("dd-MMM-yyyy", Locale.US)
-                "SINCE ${imapDateFmt.format(Date(startDateMillis))}"
-            } else ""
-
-            val searchQuery = if (dateFilter.isNotBlank()) {
-                "SEARCH OR FROM \"axis.bank.in\" FROM \"axisbank.com\" $dateFilter"
+            val serverUidValidity = folder.uidValidity
+            val (storedUidValidity, storedLastUid) = if (appPreferences != null) {
+                appPreferences.getGmailUidSyncState()
             } else {
-                "SEARCH OR FROM \"axis.bank.in\" FROM \"axisbank.com\""
+                Pair(0L, 0L)
             }
 
-            val searchResponses = sendCommand(searchQuery)
-            val messageIds = mutableListOf<String>()
-
-            for (line in searchResponses) {
-                if (line.startsWith("* SEARCH")) {
-                    val parts = line.removePrefix("* SEARCH").trim().split("\\s+".toRegex())
-                    for (p in parts) {
-                        if (p.isNotBlank() && p.all { it.isDigit() }) {
-                            messageIds.add(p)
-                        }
-                    }
-                }
+            // UIDVALIDITY state check & reset
+            val effectiveLastUid = if (storedUidValidity != serverUidValidity) {
+                Log.d(TAG, "UIDVALIDITY changed ($storedUidValidity -> $serverUidValidity), resetting last UID.")
+                0L
+            } else {
+                storedLastUid
             }
 
-            Log.d(TAG, "Found ${messageIds.size} Axis Bank email message IDs in Gmail")
-
-            // 5. Fetch recent messages (reverse order to get latest first)
-            val toFetch = messageIds.reversed().take(maxEmailsToFetch)
-
-            for ((index, id) in toFetch.withIndex()) {
+            val messagesToProcess: Array<out Message> = if (effectiveLastUid > 0L) {
+                Log.d(TAG, "Incremental sync: fetching messages with UID > $effectiveLastUid")
                 try {
-                    onProgress?.invoke(index + 1, toFetch.size)
-                    val fetchTag = "A%03d".format(tagIndex++)
-                    writer.write("$fetchTag FETCH $id (BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)] BODY.PEEK[TEXT])\r\n")
-                    writer.flush()
+                    folder.getMessagesByUID(effectiveLastUid + 1, UIDFolder.LASTUID)
+                } catch (e: Exception) {
+                    Log.w(TAG, "getMessagesByUID failed, falling back to date query", e)
+                    val date = if (startDateMillis != null && startDateMillis > 0) Date(startDateMillis) else Date(System.currentTimeMillis() - 30L * 86400000L)
+                    folder.search(ReceivedDateTerm(ComparisonTerm.GE, date))
+                }
+            } else {
+                val filterDate = if (startDateMillis != null && startDateMillis > 0) {
+                    Date(startDateMillis)
+                } else {
+                    Date(System.currentTimeMillis() - 30L * 86400000L)
+                }
+                Log.d(TAG, "Initial sync: fetching messages since $filterDate")
+                folder.search(ReceivedDateTerm(ComparisonTerm.GE, filterDate))
+            }
 
-                    var subject = ""
-                    var from = ""
-                    var rawDateStr = ""
-                    val bodyBuilder = StringBuilder()
+            val totalCandidateCount = messagesToProcess.size
+            Log.d(TAG, "Total candidate messages to inspect: $totalCandidateCount")
 
-                    while (true) {
-                        val line = reader.readLine() ?: break
-                        if (line.startsWith("$fetchTag OK") || line.startsWith("$fetchTag NO") || line.startsWith("$fetchTag BAD")) {
-                            break
-                        }
+            // Take up to maxEmailsToFetch (most recent first)
+            val sortedMessages = messagesToProcess.toList().reversed().take(maxEmailsToFetch)
+            var highestProcessedUid = effectiveLastUid
 
-                        val lower = line.lowercase()
-                        when {
-                            lower.startsWith("subject:") -> subject = line.substringAfter(":").trim()
-                            lower.startsWith("from:") -> from = line.substringAfter(":").trim()
-                            lower.startsWith("date:") -> rawDateStr = line.substringAfter(":").trim()
-                            !line.startsWith("* ") && !line.startsWith(")") -> {
-                                bodyBuilder.append(line).append("\n")
-                            }
-                        }
+            for ((index, msg) in sortedMessages.withIndex()) {
+                if (isCancelled?.invoke() == true) {
+                    Log.d(TAG, "Gmail sync cancelled.")
+                    break
+                }
+                onProgress?.invoke(index + 1, sortedMessages.size)
+
+                try {
+                    val uid = folder.getUID(msg)
+                    if (uid > highestProcessedUid) {
+                        highestProcessedUid = uid
                     }
 
-                    val dateMillis = parseRfc822Date(rawDateStr) ?: System.currentTimeMillis()
-                    val cleanedBody = extractCleanBodyText(bodyBuilder.toString())
-                    fetchedEmails.add(
-                        RawAxisEmail(
-                            msgId = id,
+                    val sender = msg.from?.firstOrNull()?.let {
+                        try { MimeUtility.decodeText(it.toString()) } catch (_: Exception) { it.toString() }
+                    } ?: ""
+
+                    val subject = try {
+                        msg.subject?.let { MimeUtility.decodeText(it) } ?: ""
+                    } catch (_: Exception) {
+                        msg.subject ?: ""
+                    }
+
+                    if (!BankEmailSyncConfig.matchesBankEmail(sender, subject)) {
+                        continue
+                    }
+
+                    val dateMillis = msg.receivedDate?.time ?: msg.sentDate?.time ?: System.currentTimeMillis()
+                    val body = MimeMessageDecoder.extractCleanBodyText(msg)
+
+                    fetchedList.add(
+                        FetchedEmail(
+                            uid = uid,
+                            sender = sender,
                             subject = subject,
-                            from = from,
-                            body = cleanedBody,
+                            body = body,
                             dateMillis = dateMillis
                         )
                     )
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed fetching email message ID $id", e)
+                    Log.w(TAG, "Error parsing message index $index", e)
                 }
             }
 
-            // 6. Logout
-            try {
-                sendCommand("LOGOUT")
-            } catch (_: Exception) {}
+            // Update UID sync state
+            if (appPreferences != null && highestProcessedUid > 0L) {
+                appPreferences.setGmailUidSyncState(serverUidValidity, highestProcessedUid)
+            }
 
-        } catch (e: GmailImapException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "IMAP connection error", e)
-            throw GmailImapException("Failed connecting to Gmail IMAP: ${e.localizedMessage}", e)
         } finally {
-            try { reader?.close() } catch (_: Exception) {}
-            try { writer?.close() } catch (_: Exception) {}
-            try { socket?.close() } catch (_: Exception) {}
+            try { folder?.close(false) } catch (_: Exception) {}
+            try { store?.close() } catch (_: Exception) {}
         }
 
-        return@withContext fetchedEmails
+        return@withContext fetchedList
     }
 
-    private fun extractCleanBodyText(rawBody: String): String {
-        val lower = rawBody.lowercase()
-        if (lower.contains("content-transfer-encoding: base64")) {
-            val blocks = rawBody.split(Regex("(?i)content-transfer-encoding:\\s*base64"))
-            val sb = StringBuilder()
-            for (i in 1 until blocks.size) {
-                val part = blocks[i]
-                val dataPart = part.substringAfter("\n\n").substringBefore("\n--").replace("\r", "").replace("\n", "").trim()
-                try {
-                    val decoded = java.util.Base64.getDecoder().decode(dataPart)
-                    sb.append(String(decoded, StandardCharsets.UTF_8)).append("\n")
-                } catch (_: Exception) {}
-            }
-            if (sb.isNotEmpty()) {
-                return sb.toString()
-            }
-        }
-        return rawBody
-    }
-
-    private fun parseRfc822Date(dateStr: String): Long? {
-        if (dateStr.isBlank()) return null
-        val clean = dateStr.replace(Regex("\\s*\\([^)]*\\)"), "").trim()
-        val formats = listOf(
-            SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss Z", Locale.US),
-            SimpleDateFormat("d MMM yyyy HH:mm:ss Z", Locale.US),
-            SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss", Locale.US)
+    suspend fun fetchAxisBankEmails(
+        emailAddress: String,
+        appPassword: String,
+        startDateMillis: Long? = null,
+        maxEmailsToFetch: Int = 150,
+        onProgress: ((current: Int, total: Int) -> Unit)? = null
+    ): List<RawAxisEmail> = withContext(Dispatchers.IO) {
+        val fetched = fetchBankEmails(
+            emailAddress = emailAddress,
+            appPassword = appPassword,
+            startDateMillis = startDateMillis,
+            maxEmailsToFetch = maxEmailsToFetch,
+            onProgress = onProgress
         )
-        for (fmt in formats) {
-            try {
-                val d = fmt.parse(clean)
-                if (d != null) return d.time
-            } catch (_: Exception) {}
+        return@withContext fetched.map {
+            RawAxisEmail(
+                msgId = it.uid.toString(),
+                subject = it.subject,
+                from = it.sender,
+                body = it.body,
+                dateMillis = it.dateMillis
+            )
         }
-        return null
     }
 }

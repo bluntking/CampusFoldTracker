@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.campusfold.tracker.data.entity.TransactionEntity
 import com.campusfold.tracker.data.entity.TransactionType
 import com.campusfold.tracker.data.model.BurnRateInsight
@@ -75,16 +76,16 @@ fun AnalyticsScreen(
     viewModel: TransactionViewModel,
     onNavigateToTransactions: ((filterType: String, filterValue: String) -> Unit)? = null
 ) {
-    val categories by viewModel.categories.collectAsState()
-    val monthCategorySpending by viewModel.monthCategorySpending.collectAsState()
-    val monthVendorSpending by viewModel.monthVendorSpending.collectAsState()
-    val currentMonthTotalTrueSpend by viewModel.currentMonthTotalTrueSpend.collectAsState()
-    val overallMonthlyBudget by viewModel.overallMonthlyBudget.collectAsState()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val monthCategorySpending by viewModel.monthCategorySpending.collectAsStateWithLifecycle()
+    val monthVendorSpending by viewModel.monthVendorSpending.collectAsStateWithLifecycle()
+    val currentMonthTotalTrueSpend by viewModel.currentMonthTotalTrueSpend.collectAsStateWithLifecycle()
+    val overallMonthlyBudget by viewModel.overallMonthlyBudget.collectAsStateWithLifecycle()
 
-    val burnRateWarnings by viewModel.burnRateWarnings.collectAsState()
-    val highFrequencyLeaks by viewModel.highFrequencyLeaks.collectAsState()
-    val weekOverWeekSpike by viewModel.weekOverWeekSpike.collectAsState()
-    val allTransactions by viewModel.allTransactions.collectAsState()
+    val burnRateWarnings by viewModel.burnRateWarnings.collectAsStateWithLifecycle()
+    val highFrequencyLeaks by viewModel.highFrequencyLeaks.collectAsStateWithLifecycle()
+    val weekOverWeekSpike by viewModel.weekOverWeekSpike.collectAsStateWithLifecycle()
+    val allTransactions by viewModel.allTransactions.collectAsStateWithLifecycle()
 
     // Period selection state (Month vs Week, offsets)
     var dateViewMode by remember { mutableStateOf(DateViewMode.MONTH) }
