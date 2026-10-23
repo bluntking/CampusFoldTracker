@@ -492,9 +492,14 @@ class FakePersonDao : PersonDao {
 
 class FakeSplitItemDao : SplitItemDao {
     override suspend fun getNetPendingBalanceForPersonSync(personId: Long): Long = 0L
+    override fun getNetPendingBalanceForPerson(personId: Long): Flow<Long> = flowOf(0L)
     override fun getSplitsForTransaction(transactionId: Long): Flow<List<SplitItemEntity>> = flowOf(emptyList())
     override suspend fun getSplitsForTransactionSync(transactionId: Long): List<SplitItemEntity> = emptyList()
     override suspend fun getUnsettledSplitsForPersonSync(personId: Long): List<SplitItemEntity> = emptyList()
+    override fun getUnsettledSplitsForPerson(personId: Long): Flow<List<SplitItemEntity>> = flowOf(emptyList())
+    override fun getAllUnsettledSplits(): Flow<List<SplitItemEntity>> = flowOf(emptyList())
+    override suspend fun getAllSplitsSync(): List<SplitItemEntity> = emptyList()
+    override suspend fun getSplitById(id: Long): SplitItemEntity? = null
     override fun getUnsettledBillsForPerson(personId: Long): Flow<List<com.campusfold.tracker.data.model.UnsettledBillItem>> = flowOf(emptyList())
     override fun getAllUnsettledBills(): Flow<List<com.campusfold.tracker.data.model.UnsettledBillItem>> = flowOf(emptyList())
     override suspend fun insertSplitItem(splitItem: SplitItemEntity): Long = 1L
