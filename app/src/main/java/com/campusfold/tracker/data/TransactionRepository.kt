@@ -669,11 +669,11 @@ class TransactionRepository(
     fun getUnsettledBillsForPerson(personId: Long): Flow<List<UnsettledBillItem>> =
         splitDao.getUnsettledBillsForPerson(personId)
 
-    fun getAllUnsettledBills(): Flow<List<UnsettledBillItem>> =
+    val allUnsettledBills: Flow<List<UnsettledBillItem>> =
         splitDao.getAllUnsettledBills()
 
-    val allUnsettledBills: Flow<List<UnsettledBillItem>>
-        get() = getAllUnsettledBills()
+    @JvmName("queryAllUnsettledBills")
+    fun getAllUnsettledBills(): Flow<List<UnsettledBillItem>> = allUnsettledBills
 
     /**
      * Settles amount X for a friend using strict FIFO (oldest split items first).
