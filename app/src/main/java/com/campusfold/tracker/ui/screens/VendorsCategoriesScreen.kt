@@ -669,10 +669,6 @@ fun CategoriesListContent(
                                 }
                             }
                         }
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = NeonCrimson, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
 
                         Spacer(modifier = Modifier.height(8.dp))
 

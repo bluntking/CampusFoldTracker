@@ -463,6 +463,15 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun addAccount(
+        name: String,
+        bankName: String,
+        type: com.campusfold.tracker.data.entity.AccountType,
+        last4: String,
+        creditLimitOrBalance: Double,
+        colorHex: String
+    ) = addAccount(name, bankName, type.name, last4, creditLimitOrBalance, colorHex)
+
     fun editAccount(
         id: Long,
         name: String,
@@ -486,6 +495,16 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             _statusMessage.value = "Account '$name' updated."
         }
     }
+
+    fun editAccount(
+        id: Long,
+        name: String,
+        bankName: String,
+        type: com.campusfold.tracker.data.entity.AccountType,
+        last4: String,
+        creditLimitOrBalance: Double,
+        colorHex: String
+    ) = editAccount(id, name, bankName, type.name, last4, creditLimitOrBalance, colorHex)
 
     fun deleteAccount(account: com.campusfold.tracker.data.entity.AccountEntity) {
         viewModelScope.launch {
@@ -567,11 +586,11 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         splits: List<SplitItemEntity> = emptyList()
     ) {
         viewModelScope.launch {
-            val existing = allTransactions.value.find { it.id == id }
+            val amountPaiseVal = com.campusfold.tracker.util.CurrencyUtils.rupeesToPaise(amount)
             val updated = (existing ?: TransactionEntity(
                 id = id,
-                amount = amount,
-                myActualShare = amount,
+                amountPaise = amountPaiseVal,
+                myActualSharePaise = amountPaiseVal,
                 type = type,
                 paymentMode = paymentMode,
                 rawMerchant = vendorName,
@@ -579,7 +598,7 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
                 categoryId = categoryId,
                 timestamp = System.currentTimeMillis()
             )).copy(
-                amount = amount,
+                amountPaise = amountPaiseVal,
                 friendlyVendorName = vendorName,
                 categoryId = categoryId,
                 type = type,
@@ -596,6 +615,15 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             repository.deleteTransaction(transaction)
             _statusMessage.value = "Transaction deleted (associated splits removed automatically)."
+        }
+    }
+
+    fun deleteTransaction(id: Long) = deleteTransactionById(id)
+
+    fun addTransaction(tx: TransactionEntity) {
+        viewModelScope.launch {
+            repository.addTransaction(tx, emptyList())
+            _statusMessage.value = "Transaction added successfully."
         }
     }
 
@@ -638,6 +666,11 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             _statusMessage.value = "Transaction and splits updated cleanly."
         }
     }
+
+    fun editTransactionWithSplits(
+        transaction: TransactionEntity,
+        splits: List<SplitItemEntity>
+    ) = updateTransactionWithSplits(transaction, splits)
 
     // ─── Category CRUD ────────────────────────────────────────────────────────
 
@@ -882,6 +915,14 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     fun scanInbox(daysBack: Int = 90) {
         val startTime = System.currentTimeMillis() - (daysBack.toLong() * 24L * 60L * 60L * 1000L)
         scanInboxFromDate(startTime)
+    }
+
+    fun scanSmsFromDate(startDateMillis: Long) {
+        scanInboxFromDate(startDateMillis)
+    }
+
+    fun scanSmsMessages(monthsBack: Int) {
+        scanInbox(monthsBack * 30)
     }
 
     // ─── Direct Axis Bank Gmail IMAP Sync ─────────────────────────────────────
@@ -1374,6 +1415,10 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
                 _statusMessage.value = "Error: ${e.message}"
             }
         }
+    }
+
+    fun setAccountBalanceManually(accountId: Long, balanceRupees: Double) {
+        setAccountBalanceManually(accountId, com.campusfold.tracker.util.CurrencyUtils.rupeesToPaise(balanceRupees))
     }
 
     fun clearManualBalanceOverride(accountId: Long) {

@@ -135,6 +135,9 @@ fun HomeScreen(
         if (isViewAllExpanded) searched else searched.take(8)
     }
 
+    val categoryMap = remember(categories) { categories.associateBy { it.id } }
+    val mappedKeywords = remember(vendorMappings) { vendorMappings.map { it.rawSmsKeyword.lowercase() }.toSet() }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -487,9 +490,6 @@ fun HomeScreen(
                     }
                 }
             } else {
-                val categoryMap = remember(categories) { categories.associateBy { it.id } }
-                val mappedKeywords = remember(vendorMappings) { vendorMappings.map { it.rawSmsKeyword.lowercase() }.toSet() }
-
                 items(displayedTransactions, key = { it.id }) { txn ->
                     val category = categoryMap[txn.categoryId]
                     val isMapped = mappedKeywords.contains(txn.rawMerchant.lowercase())

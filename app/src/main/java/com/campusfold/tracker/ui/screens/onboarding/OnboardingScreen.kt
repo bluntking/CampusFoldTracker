@@ -454,11 +454,11 @@ fun OnboardingScreen(
                                 }
 
                                 // Download Progress (if actively downloading)
-                                if (aiStatus is AiModelStatus.Downloading) {
-                                    val dl = aiStatus as AiModelStatus.Downloading
+                                if (aiStatus is AiModelStatus.Loading) {
+                                    val dl = aiStatus as AiModelStatus.Loading
                                     Spacer(modifier = Modifier.height(16.dp))
                                     LinearProgressIndicator(
-                                        progress = dl.progressPercent / 100f,
+                                        progress = (dl.progressPercent / 100f).coerceIn(0f, 1f),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(8.dp)
@@ -470,12 +470,12 @@ fun OnboardingScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text(
-                                            text = "Downloading weights... ${dl.progressPercent}%",
+                                            text = dl.message,
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                         Text(
-                                            text = "${dl.downloadedBytes / (1024 * 1024)} MB / ${dl.totalBytes / (1024 * 1024)} MB",
+                                            text = "${dl.progressPercent}%",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -501,7 +501,7 @@ fun OnboardingScreen(
                                                 LocalAiManager.downloadModel(context, recommendedModel)
                                             }
                                         },
-                                        enabled = aiStatus !is AiModelStatus.Downloading,
+                                        enabled = aiStatus !is AiModelStatus.Loading,
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()

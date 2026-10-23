@@ -150,7 +150,7 @@ class MessageIngestor(
                                 accountLast4 = aiTx.accountLast4,
                                 instrumentType = null,
                                 merchantRaw = aiTx.merchant,
-                                direction = if (aiTx.type == TransactionType.INCOME) Direction.INCOMING else Direction.OUTGOING,
+                                direction = if (aiTx.type == TransactionType.INCOME) Direction.CREDIT else Direction.DEBIT,
                                 transactionType = aiTx.type,
                                 rawMessage = rawMessage,
                                 amountPaise = amountPaise,

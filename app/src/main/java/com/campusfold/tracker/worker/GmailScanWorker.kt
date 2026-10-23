@@ -92,7 +92,7 @@ class GmailScanWorker(
                 maxEmailsToFetch = 200,
                 isCancelled = { isStopped },
                 onProgress = { current, total ->
-                    setProgress(
+                    setProgressAsync(
                         workDataOf(
                             PROGRESS_READ to current,
                             PROGRESS_ADDED to totalAdded,

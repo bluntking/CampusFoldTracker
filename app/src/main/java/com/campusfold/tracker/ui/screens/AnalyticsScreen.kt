@@ -55,6 +55,11 @@ import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.roundToInt
 
+enum class DateViewMode {
+    MONTH,
+    WEEK
+}
+
 enum class ChartBreakdownMode {
     CATEGORY,
     CAMPUS_VENDOR
@@ -2161,6 +2166,7 @@ internal fun computeWeekOverWeekData(transactions: List<TransactionEntity>): Lis
     return result
 }
 
+
 internal fun computeMonthOverMonthData(transactions: List<TransactionEntity>): List<ComparisonPoint> {
     val expenseTxns = transactions.filter { it.type == TransactionType.EXPENSE }
     val now = Calendar.getInstance()
@@ -2235,3 +2241,109 @@ internal fun computeMonthOverMonthData(transactions: List<TransactionEntity>): L
     }
     return result
 }
+
+@Composable
+fun PeriodPickerContent(
+    currentMode: DateViewMode,
+    monthOffset: Int,
+    weekOffset: Int,
+    onSelectPeriod: (DateViewMode, Int, Int) -> Unit
+) {
+    var mode by remember { mutableStateOf(currentMode) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(20.dp)
+    ) {
+        Text(
+            text = "SELECT PERIOD",
+            fontFamily = FontFamily.Monospace,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextSecondary
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MatteCharcoal, RoundedCornerShape(12.dp))
+                .padding(4.dp)
+        ) {
+            Button(
+                onClick = { mode = DateViewMode.MONTH },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (mode == DateViewMode.MONTH) NeonEmerald else Color.Transparent,
+                    contentColor = if (mode == DateViewMode.MONTH) OledBlack else TextSecondary
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Monthly", fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = { mode = DateViewMode.WEEK },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (mode == DateViewMode.WEEK) NeonCyan else Color.Transparent,
+                    contentColor = if (mode == DateViewMode.WEEK) OledBlack else TextSecondary
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Weekly", fontWeight = FontWeight.Bold)
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        val options = if (mode == DateViewMode.MONTH) {
+            (0 downTo -11).map { off ->
+                val cal = Calendar.getInstance().apply { add(Calendar.MONTH, off) }
+                val label = if (off == 0) "This Month" else SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(cal.time)
+                off to label
+            }
+        } else {
+            (0 downTo -11).map { off ->
+                val cal = Calendar.getInstance().apply {
+                    firstDayOfWeek = Calendar.MONDAY
+                    add(Calendar.WEEK_OF_YEAR, off)
+                    set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+                }
+                val start = cal.time
+                cal.add(Calendar.DAY_OF_WEEK, 6)
+                val end = cal.time
+                val fmt = SimpleDateFormat("dd MMM", Locale.getDefault())
+                val label = if (off == 0) "This Week" else "${fmt.format(start)} - ${fmt.format(end)}"
+                off to label
+            }
+        }
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 280.dp)
+        ) {
+            items(options) { (off, label) ->
+                val isSelected = if (mode == DateViewMode.MONTH) off == monthOffset else off == weekOffset
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            if (mode == DateViewMode.MONTH) onSelectPeriod(DateViewMode.MONTH, off, 0)
+                            else onSelectPeriod(DateViewMode.WEEK, 0, off)
+                        }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = label,
+                        color = if (isSelected) NeonCyan else TextPrimary,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    )
+                    if (isSelected) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+

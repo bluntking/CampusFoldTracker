@@ -936,9 +936,6 @@ fun ReviewItemCard(
         }
     }
 }
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

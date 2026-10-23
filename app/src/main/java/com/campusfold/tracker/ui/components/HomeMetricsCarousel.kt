@@ -34,6 +34,7 @@ import java.util.Locale
  * 2. True spend this month.
  * 3. Friends owe you.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun HomeMetricsCarousel(
     currentMonthTrueSpend: Double,

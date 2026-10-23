@@ -672,6 +672,9 @@ class TransactionRepository(
     fun getAllUnsettledBills(): Flow<List<UnsettledBillItem>> =
         splitDao.getAllUnsettledBills()
 
+    val allUnsettledBills: Flow<List<UnsettledBillItem>>
+        get() = getAllUnsettledBills()
+
     /**
      * Settles amount X for a friend using strict FIFO (oldest split items first).
      * Exact integer comparisons on paise: handles partial payments, full settlement, and excess overpayment.
@@ -750,6 +753,9 @@ class TransactionRepository(
         )
         transactionDao.insertTransaction(tx)
     }
+
+    suspend fun logOverpaymentAsIncome(excessAmount: Double, friendName: String) =
+        logOverpaymentAsAdvanceIncome(friendName, CurrencyUtils.rupeesToPaise(excessAmount))
 
     // ─── Pending Settlement Suggestions & 1-Tap Alias Saving ──────────────────
     val pendingSuggestions: Flow<List<PendingSettlementSuggestionEntity>> = suggestionDao.getPendingSuggestions()

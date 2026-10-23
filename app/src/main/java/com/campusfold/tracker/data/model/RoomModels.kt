@@ -144,6 +144,20 @@ data class CategorySpending(
     val colorHex: String get() = color
     val monthlyBudget: Double get() = (budgetPaise ?: 0L) / 100.0
     val totalSpent: Double get() = totalSpentPaise / 100.0
+
+    constructor(
+        categoryId: Long,
+        categoryName: String,
+        colorHex: String,
+        monthlyBudget: Double,
+        totalSpent: Double
+    ) : this(
+        categoryId = categoryId,
+        categoryName = categoryName,
+        color = colorHex,
+        budgetPaise = if (monthlyBudget > 0) CurrencyUtils.rupeesToPaise(monthlyBudget) else null,
+        totalSpentPaise = CurrencyUtils.rupeesToPaise(totalSpent)
+    )
 }
 
 /**

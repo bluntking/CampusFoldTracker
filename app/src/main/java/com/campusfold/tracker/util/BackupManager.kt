@@ -220,7 +220,7 @@ object BackupManager {
 
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                 java.io.BufferedWriter(OutputStreamWriter(outputStream, Charsets.UTF_8)).use { writer ->
-                    rootJson.write(writer)
+                    writer.write(rootJson.toString(2))
                     writer.flush()
                 }
             } ?: return@withContext Result.failure(Exception("Unable to open export output stream"))

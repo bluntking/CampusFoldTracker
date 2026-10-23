@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Locale
 import javax.mail.Multipart
 import javax.mail.Part
+import javax.mail.internet.MimePart
 import javax.mail.internet.MimeUtility
 
 /**
@@ -60,7 +61,8 @@ object MimeMessageDecoder {
     }
 
     private fun readStream(part: Part): String {
-        val encoding = part.encoding
+        val encoding: String? = (part as? MimePart)?.encoding
+            ?: part.getHeader("Content-Transfer-Encoding")?.firstOrNull()
         val inputStream = part.inputStream
         val decodedStream = if (!encoding.isNullOrBlank()) {
             try {
