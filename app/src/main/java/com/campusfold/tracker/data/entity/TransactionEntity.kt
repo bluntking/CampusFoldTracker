@@ -23,6 +23,13 @@ import com.campusfold.tracker.util.CurrencyUtils
             childColumns = ["accountId"],
             onDelete = ForeignKey.SET_NULL,
             onUpdate = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = PersonEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["paidByPersonId"],
+            onDelete = ForeignKey.SET_NULL,
+            onUpdate = ForeignKey.CASCADE
         )
     ],
     indices = [
@@ -30,6 +37,7 @@ import com.campusfold.tracker.util.CurrencyUtils
         Index(value = ["reference"], unique = true),
         Index(value = ["categoryId"]),
         Index(value = ["accountId"]),
+        Index(value = ["paidByPersonId"]),
         Index(value = ["timestamp"])
     ]
 )
@@ -52,7 +60,8 @@ data class TransactionEntity(
     val source: TransactionSource = TransactionSource.MANUAL,
     val confidence: Float = 1.0f,
     val rawMessageHash: String? = null,
-    val editedFields: String = "[]" // JSON list of field names user edited manually
+    val editedFields: String = "[]", // JSON list of field names user edited manually
+    val paidByPersonId: Long? = null
 ) {
     // Backward-compatibility accessors
     val amount: Double get() = amountPaise / 100.0

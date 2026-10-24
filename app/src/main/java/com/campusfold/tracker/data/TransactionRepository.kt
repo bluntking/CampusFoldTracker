@@ -12,6 +12,7 @@ import com.campusfold.tracker.util.CurrencyUtils
 import com.campusfold.tracker.util.GmailImapClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -157,6 +158,16 @@ class TransactionRepository(
     suspend fun clearManualBalanceOverride(accountId: Long) = withContext(Dispatchers.IO) {
         val acc = accountDao.getAccountById(accountId) ?: return@withContext
         accountDao.updateAccount(acc.copy(balanceSource = BalanceSource.AUTO))
+    }
+
+    suspend fun updateAccountAnchor(
+        accountId: Long,
+        balancePaise: Long,
+        owedPaise: Long,
+        asOf: Long,
+        source: BalanceSource = BalanceSource.MANUAL
+    ) = withContext(Dispatchers.IO) {
+        accountDao.updateAnchor(accountId, balancePaise, owedPaise, asOf, source)
     }
 
     // ─── Manual Transaction Control ───────────────────────────────────────────
@@ -373,6 +384,29 @@ class TransactionRepository(
         }
     }
 
+    suspend fun clearTransactionsOnly() = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            transactionDao.clearAll()
+            splitDao.clearAll()
+            suggestionDao.clearAll()
+            reviewItemDao.clearAll()
+            unparsedMessageDao.clearAll()
+            processedMessageDao.clearAll()
+            scanHistoryDao.clearAll()
+        }
+        appPreferences.setLastSmsSyncTimestamp(0L)
+        appPreferences.setGmailLastSyncTimestamp(0L)
+        appPreferences.resetGmailUidSyncState()
+    }
+
+    suspend fun resetEverything() = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            db.clearAllTables()
+        }
+        appPreferences.clearAllPreferences()
+        ensurePreseededData()
+    }
+
     // ─── JSON Backup & Restore ────────────────────────────────────────────────
 
     suspend fun exportBackup(context: android.content.Context, uri: android.net.Uri): Result<com.campusfold.tracker.util.BackupStats> {
@@ -393,6 +427,111 @@ class TransactionRepository(
     val totalMyExpensePaise: Flow<Long?> = transactionDao.getTotalMyExpensePaise()
     val totalGrossExpensePaise: Flow<Long?> = transactionDao.getTotalGrossExpensePaise()
     val totalIncomePaise: Flow<Long?> = transactionDao.getTotalIncomePaise()
+
+    // ─── Derived Account Balances & Net Available Balance (Part 6) ─────────────
+
+    fun computeDerivedAccountBalance(
+        account: AccountEntity,
+        transactions: List<TransactionEntity>
+    ): DerivedAccountBalance {
+        val txsSinceAnchor = transactions.filter { it.accountId == account.id && it.timestamp >= account.openingAsOf }
+
+        if (account.type == AccountType.CREDIT_CARD) {
+            val increases = txsSinceAnchor.filter { it.type == TransactionType.EXPENSE || it.type == TransactionType.EMI }.sumOf { it.amountPaise }
+            val decreases = txsSinceAnchor.filter {
+                it.type == TransactionType.CC_BILL_TRANSFER ||
+                it.type == TransactionType.REFUND ||
+                it.type == TransactionType.INCOME
+            }.sumOf { it.amountPaise }
+
+            val derivedOwed = maxOf(0L, account.openingOwedPaise + increases - decreases)
+            val availableCredit = if (account.creditLimitPaise > 0L) maxOf(0L, account.creditLimitPaise - derivedOwed) else 0L
+
+            val hasDiscrepancy = account.anchorSet && account.balanceSource == BalanceSource.AUTO &&
+                    account.balancePaise > 0L && account.balancePaise != derivedOwed
+            val discrepancyBankBalance = if (hasDiscrepancy) account.balancePaise else null
+
+            return DerivedAccountBalance(
+                account = account,
+                derivedBalancePaise = 0L,
+                derivedOwedPaise = derivedOwed,
+                availableCreditPaise = availableCredit,
+                hasDiscrepancy = hasDiscrepancy,
+                discrepancyBankBalancePaise = discrepancyBankBalance
+            )
+        } else {
+            val credits = txsSinceAnchor.filter {
+                it.type == TransactionType.INCOME ||
+                it.type == TransactionType.REFUND ||
+                (it.type == TransactionType.SPLIT_SETTLEMENT && (it.friendlyVendorName.contains("Settlement from", ignoreCase = true) || it.rawMerchant.contains("Credit", ignoreCase = true))) ||
+                (it.type == TransactionType.OWN_TRANSFER && (it.friendlyVendorName.contains("from", ignoreCase = true) || it.rawMerchant.contains("Inflow", ignoreCase = true) || it.description?.contains("INCOMING", ignoreCase = true) == true))
+            }.sumOf { it.amountPaise }
+
+            val debits = txsSinceAnchor.filter {
+                it.type == TransactionType.EXPENSE ||
+                it.type == TransactionType.ATM ||
+                it.type == TransactionType.EMI ||
+                it.type == TransactionType.CC_BILL_TRANSFER ||
+                (it.type == TransactionType.SPLIT_SETTLEMENT && !it.friendlyVendorName.contains("Settlement from", ignoreCase = true)) ||
+                (it.type == TransactionType.OWN_TRANSFER && !it.friendlyVendorName.contains("from", ignoreCase = true) && !it.rawMerchant.contains("Inflow", ignoreCase = true) && it.description?.contains("INCOMING", ignoreCase = true) != true)
+            }.sumOf { it.amountPaise }
+
+            val derivedBalance = account.openingBalancePaise + credits - debits
+
+            val hasDiscrepancy = account.anchorSet && account.balanceSource == BalanceSource.AUTO &&
+                    account.balancePaise > 0L && account.balancePaise != derivedBalance
+            val discrepancyBankBalance = if (hasDiscrepancy) account.balancePaise else null
+
+            return DerivedAccountBalance(
+                account = account,
+                derivedBalancePaise = derivedBalance,
+                derivedOwedPaise = 0L,
+                availableCreditPaise = 0L,
+                hasDiscrepancy = hasDiscrepancy,
+                discrepancyBankBalancePaise = discrepancyBankBalance
+            )
+        }
+    }
+
+    val derivedAccountBalances: Flow<List<DerivedAccountBalance>> = combine(
+        allAccounts,
+        allTransactions
+    ) { accounts, txs ->
+        accounts.map { computeDerivedAccountBalance(it, txs) }
+    }
+
+    val netBalanceOverview: Flow<NetBalanceOverview> = combine(
+        allAccounts,
+        allTransactions,
+        splitDao.getAllUnsettledSplits()
+    ) { accounts, txs, unsettledSplits ->
+        val activeAccounts = accounts.filter { !it.isArchived }
+        val derivedList = activeAccounts.map { computeDerivedAccountBalance(it, txs) }
+
+        val totalSavings = derivedList.filter { it.account.type != AccountType.CREDIT_CARD }.sumOf { it.derivedBalancePaise }
+        val totalCardOwed = derivedList.filter { it.account.type == AccountType.CREDIT_CARD }.sumOf { it.derivedOwedPaise }
+        val netAvailable = totalSavings - totalCardOwed
+
+        val owedToFriends = unsettledSplits.filter { it.direction == SplitDirection.OWED_BY_ME }.sumOf { it.amountOwedPaise - it.amountPaidSoFarPaise }
+        val friendsOweMe = unsettledSplits.filter { it.direction == SplitDirection.OWED_TO_ME }.sumOf { it.amountOwedPaise - it.amountPaidSoFarPaise }
+
+        val unanchored = activeAccounts.count { !it.anchorSet }
+
+        val anchoredDates = activeAccounts.filter { it.anchorSet && it.openingAsOf > 0L }.map { it.openingAsOf }
+        val earliestTx = txs.minOfOrNull { it.timestamp }
+        val candidates = anchoredDates + listOfNotNull(earliestTx)
+        val earliestTimestamp = candidates.minOrNull() ?: System.currentTimeMillis()
+
+        NetBalanceOverview(
+            netAvailableBalancePaise = netAvailable,
+            totalSavingsBalancePaise = totalSavings,
+            totalCardOwedPaise = totalCardOwed,
+            totalOwedToFriendsPaise = owedToFriends,
+            totalFriendsOweMePaise = friendsOweMe,
+            unanchoredAccountsCount = unanchored,
+            earliestTrackedTimestamp = earliestTimestamp
+        )
+    }
 
     fun getTransactionWithSplits(id: Long): Flow<TransactionWithSplits?> =
         transactionDao.getTransactionWithSplits(id)
@@ -728,6 +867,232 @@ class TransactionRepository(
         }
     }
 
+    suspend fun repayFriendDebtPaise(
+        personId: Long,
+        accountId: Long,
+        amountToPayPaise: Long,
+        timestamp: Long = System.currentTimeMillis()
+    ): RepaymentResult = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val person = personDao.getPersonById(personId)
+            val friendName = person?.name ?: "Friend"
+            val account = accountDao.getAccountById(accountId)
+            val accountName = account?.displayName ?: "Account"
+
+            val unsettledRows = splitDao.getUnsettledSplitsForPersonAndDirectionSync(personId, SplitDirection.OWED_BY_ME)
+            val totalOwedBeforePaise = unsettledRows.sumOf { it.amountOwedPaise - it.amountPaidSoFarPaise }
+
+            val debtToSettlePaise = minOf(amountToPayPaise, totalOwedBeforePaise)
+            val excessPaise = maxOf(0L, amountToPayPaise - totalOwedBeforePaise)
+
+            var remainingToAllocate = debtToSettlePaise
+            var updatedCount = 0
+            for (row in unsettledRows) {
+                if (remainingToAllocate <= 0L) break
+                val rowRemaining = row.amountOwedPaise - row.amountPaidSoFarPaise
+                if (remainingToAllocate < rowRemaining) {
+                    val newPaid = row.amountPaidSoFarPaise + remainingToAllocate
+                    splitDao.updateSplitItem(row.copy(amountPaidSoFarPaise = newPaid, isSettled = false))
+                    remainingToAllocate = 0L
+                    updatedCount++
+                } else {
+                    splitDao.updateSplitItem(row.copy(amountPaidSoFarPaise = row.amountOwedPaise, isSettled = true))
+                    remainingToAllocate -= rowRemaining
+                    updatedCount++
+                }
+            }
+
+            val settlementTx = TransactionEntity(
+                amountPaise = debtToSettlePaise,
+                myActualSharePaise = 0L,
+                type = TransactionType.SPLIT_SETTLEMENT,
+                paymentMode = accountName,
+                rawMerchant = "Repayment to $friendName",
+                friendlyVendorName = "Repayment to $friendName",
+                accountId = accountId,
+                timestamp = timestamp,
+                source = TransactionSource.MANUAL,
+                description = "Repayment of debt to $friendName"
+            )
+            val settlementTxId = transactionDao.insertTransaction(settlementTx)
+
+            if (excessPaise > 0L) {
+                val excessTx = TransactionEntity(
+                    amountPaise = excessPaise,
+                    myActualSharePaise = excessPaise,
+                    type = TransactionType.EXPENSE,
+                    paymentMode = accountName,
+                    rawMerchant = friendName,
+                    friendlyVendorName = "Payment to $friendName",
+                    accountId = accountId,
+                    timestamp = timestamp,
+                    source = TransactionSource.MANUAL,
+                    description = "Excess repayment to $friendName recorded as expense"
+                )
+                transactionDao.insertTransaction(excessTx)
+            }
+
+            val remainingDebtPaise = maxOf(0L, totalOwedBeforePaise - debtToSettlePaise)
+
+            RepaymentResult(
+                friendName = friendName,
+                debtSettledPaise = debtToSettlePaise,
+                remainingDebtPaise = remainingDebtPaise,
+                excessAsExpensePaise = excessPaise,
+                updatedSplitCount = updatedCount,
+                transactionId = settlementTxId
+            )
+        }
+    }
+
+    suspend fun addFriendPaidExpense(
+        personId: Long,
+        mySharePaise: Long,
+        totalBillPaise: Long? = null,
+        vendor: String,
+        categoryId: Long? = null,
+        timestamp: Long = System.currentTimeMillis(),
+        note: String = ""
+    ): Long = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val person = personDao.getPersonById(personId)
+            val friendName = person?.name ?: "Friend"
+
+            val desc = buildString {
+                if (totalBillPaise != null && totalBillPaise > mySharePaise) {
+                    append("Total bill: ₹${CurrencyUtils.formatPaiseCompact(totalBillPaise)}. ")
+                }
+                if (note.isNotBlank()) {
+                    append(note)
+                }
+            }.trim().ifBlank { null }
+
+            val tx = TransactionEntity(
+                amountPaise = mySharePaise,
+                myActualSharePaise = mySharePaise,
+                type = TransactionType.EXPENSE,
+                paymentMode = "Paid by $friendName",
+                rawMerchant = vendor.ifBlank { "Expense paid by $friendName" },
+                friendlyVendorName = vendor.ifBlank { "Expense paid by $friendName" },
+                categoryId = categoryId,
+                timestamp = timestamp,
+                description = desc,
+                accountId = null,
+                source = TransactionSource.MANUAL,
+                confidence = 1.0f,
+                paidByPersonId = personId
+            )
+            val txId = transactionDao.insertTransaction(tx)
+
+            val splitItem = SplitItemEntity(
+                transactionId = txId,
+                personId = personId,
+                amountOwedPaise = mySharePaise,
+                amountPaidSoFarPaise = 0L,
+                isSettled = false,
+                createdAt = timestamp,
+                direction = SplitDirection.OWED_BY_ME
+            )
+            splitDao.insertSplitItem(splitItem)
+
+            txId
+        }
+    }
+
+    suspend fun addManualTransaction(
+        amountPaise: Long,
+        type: TransactionType,
+        accountId: Long?,
+        toAccountId: Long? = null,
+        vendor: String,
+        categoryId: Long? = null,
+        timestamp: Long = System.currentTimeMillis(),
+        note: String = ""
+    ): Long = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val account = accountId?.let { accountDao.getAccountById(it) }
+            val toAccount = toAccountId?.let { accountDao.getAccountById(it) }
+
+            when (type) {
+                TransactionType.CC_BILL_TRANSFER -> {
+                    val leg1 = TransactionEntity(
+                        amountPaise = amountPaise,
+                        myActualSharePaise = 0L,
+                        type = TransactionType.CC_BILL_TRANSFER,
+                        paymentMode = account?.displayName ?: "Savings",
+                        rawMerchant = toAccount?.displayName ?: "Credit Card",
+                        friendlyVendorName = "Payment to ${toAccount?.displayName ?: "Credit Card"}",
+                        accountId = accountId,
+                        timestamp = timestamp,
+                        description = note.ifBlank { null }
+                    )
+                    val leg1Id = transactionDao.insertTransaction(leg1)
+
+                    if (toAccountId != null) {
+                        val leg2 = TransactionEntity(
+                            amountPaise = amountPaise,
+                            myActualSharePaise = 0L,
+                            type = TransactionType.CC_BILL_TRANSFER,
+                            paymentMode = toAccount?.displayName ?: "Credit Card",
+                            rawMerchant = account?.displayName ?: "Savings",
+                            friendlyVendorName = "Payment from ${account?.displayName ?: "Savings"}",
+                            accountId = toAccountId,
+                            timestamp = timestamp,
+                            description = note.ifBlank { null }
+                        )
+                        transactionDao.insertTransaction(leg2)
+                    }
+                    leg1Id
+                }
+                TransactionType.OWN_TRANSFER -> {
+                    val leg1 = TransactionEntity(
+                        amountPaise = amountPaise,
+                        myActualSharePaise = 0L,
+                        type = TransactionType.OWN_TRANSFER,
+                        paymentMode = account?.displayName ?: "Account",
+                        rawMerchant = "Transfer to ${toAccount?.displayName ?: "Account"}",
+                        friendlyVendorName = "Transfer to ${toAccount?.displayName ?: "Account"}",
+                        accountId = accountId,
+                        timestamp = timestamp,
+                        description = ("Transfer to ${toAccount?.displayName ?: "Account"} | $note").trim().removeSuffix("|").trim()
+                    )
+                    val leg1Id = transactionDao.insertTransaction(leg1)
+
+                    if (toAccountId != null) {
+                        val leg2 = TransactionEntity(
+                            amountPaise = amountPaise,
+                            myActualSharePaise = 0L,
+                            type = TransactionType.OWN_TRANSFER,
+                            paymentMode = toAccount?.displayName ?: "Account",
+                            rawMerchant = "Transfer from ${account?.displayName ?: "Account"}",
+                            friendlyVendorName = "Transfer from ${account?.displayName ?: "Account"}",
+                            accountId = toAccountId,
+                            timestamp = timestamp,
+                            description = ("Transfer from ${account?.displayName ?: "Account"} | $note").trim().removeSuffix("|").trim()
+                        )
+                        transactionDao.insertTransaction(leg2)
+                    }
+                    leg1Id
+                }
+                else -> {
+                    val tx = TransactionEntity(
+                        amountPaise = amountPaise,
+                        myActualSharePaise = amountPaise,
+                        type = type,
+                        paymentMode = account?.displayName ?: "Cash / Manual",
+                        rawMerchant = vendor.ifBlank { "Manual ${type.name.lowercase().replaceFirstChar { it.uppercase() }}" },
+                        friendlyVendorName = vendor.ifBlank { "Manual ${type.name.lowercase().replaceFirstChar { it.uppercase() }}" },
+                        categoryId = categoryId,
+                        timestamp = timestamp,
+                        accountId = accountId,
+                        description = note.ifBlank { null }
+                    )
+                    transactionDao.insertTransaction(tx)
+                }
+            }
+        }
+    }
+
     suspend fun recordSplitPayment(splitId: Long, paymentAmountPaise: Long) = withContext(Dispatchers.IO) {
         splitDao.recordPayment(splitId, paymentAmountPaise)
     }
@@ -775,8 +1140,87 @@ class TransactionRepository(
             val suggestion = suggestionDao.getSuggestionById(suggestionId) ?: return@withTransaction null
             val person = personDao.getPersonById(suggestion.suggestedPersonId) ?: return@withTransaction null
 
-            // 1. Run FIFO settlement
-            val result = settleAmountForPersonPaise(person.id, suggestion.amountPaise)
+            // 1. Run FIFO settlement based on direction
+            val result = if (suggestion.direction == SplitDirection.OWED_BY_ME) {
+                // Outgoing repayment
+                val unsettledRows = splitDao.getUnsettledSplitsForPersonAndDirectionSync(person.id, SplitDirection.OWED_BY_ME)
+                val totalOwedBeforePaise = unsettledRows.sumOf { it.amountOwedPaise - it.amountPaidSoFarPaise }
+                val debtToSettle = minOf(suggestion.amountPaise, totalOwedBeforePaise)
+                val excess = maxOf(0L, suggestion.amountPaise - totalOwedBeforePaise)
+
+                var remaining = debtToSettle
+                var count = 0
+                for (row in unsettledRows) {
+                    if (remaining <= 0L) break
+                    val rowRemaining = row.amountOwedPaise - row.amountPaidSoFarPaise
+                    if (remaining < rowRemaining) {
+                        splitDao.updateSplitItem(row.copy(amountPaidSoFarPaise = row.amountPaidSoFarPaise + remaining, isSettled = false))
+                        remaining = 0L
+                        count++
+                    } else {
+                        splitDao.updateSplitItem(row.copy(amountPaidSoFarPaise = row.amountOwedPaise, isSettled = true))
+                        remaining -= rowRemaining
+                        count++
+                    }
+                }
+
+                // If transaction exists, update it to SPLIT_SETTLEMENT
+                suggestion.transactionId?.let { txId ->
+                    val tx = transactionDao.getTransactionByIdSync(txId)
+                    if (tx != null) {
+                        if (excess > 0L) {
+                            transactionDao.updateTransaction(
+                                tx.copy(
+                                    amountPaise = debtToSettle,
+                                    myActualSharePaise = 0L,
+                                    type = TransactionType.SPLIT_SETTLEMENT,
+                                    friendlyVendorName = "Repayment to ${person.name}"
+                                )
+                            )
+                            val excessTx = tx.copy(
+                                id = 0,
+                                amountPaise = excess,
+                                myActualSharePaise = excess,
+                                type = TransactionType.EXPENSE,
+                                friendlyVendorName = "Payment to ${person.name}",
+                                description = "Excess repayment to ${person.name}"
+                            )
+                            transactionDao.insertTransaction(excessTx)
+                        } else {
+                            transactionDao.updateTransaction(
+                                tx.copy(
+                                    type = TransactionType.SPLIT_SETTLEMENT,
+                                    myActualSharePaise = 0L,
+                                    friendlyVendorName = "Repayment to ${person.name}"
+                                )
+                            )
+                        }
+                    }
+                }
+
+                SettlementResult(
+                    friendName = person.name,
+                    settledAmountPaise = debtToSettle,
+                    remainingOwedPaise = maxOf(0L, totalOwedBeforePaise - debtToSettle),
+                    excessAmountPaise = excess,
+                    updatedSplitCount = count
+                )
+            } else {
+                // Incoming settlement
+                val res = settleAmountForPersonPaise(person.id, suggestion.amountPaise)
+                suggestion.transactionId?.let { txId ->
+                    val tx = transactionDao.getTransactionByIdSync(txId)
+                    if (tx != null) {
+                        transactionDao.updateTransaction(
+                            tx.copy(
+                                type = TransactionType.SPLIT_SETTLEMENT,
+                                friendlyVendorName = "Settlement from ${person.name}"
+                            )
+                        )
+                    }
+                }
+                res
+            }
 
             // 2. Add detectedSenderName to exactSmsAliases for future auto-settlement
             val existingAliases = person.exactSmsAliases.split(",")
@@ -792,19 +1236,6 @@ class TransactionRepository(
 
             // 3. Mark suggestion CONFIRMED
             suggestionDao.updateStatus(suggestionId, SettlementSuggestionStatus.CONFIRMED)
-
-            // 4. Update transaction type to SPLIT_SETTLEMENT if transaction exists
-            suggestion.transactionId?.let { txId ->
-                val tx = transactionDao.getTransactionByIdSync(txId)
-                if (tx != null) {
-                    transactionDao.updateTransaction(
-                        tx.copy(
-                            type = TransactionType.SPLIT_SETTLEMENT,
-                            friendlyVendorName = "Settlement from ${person.name}"
-                        )
-                    )
-                }
-            }
 
             result
         }

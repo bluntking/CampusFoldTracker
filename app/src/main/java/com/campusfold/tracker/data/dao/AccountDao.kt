@@ -49,4 +49,7 @@ interface AccountDao {
 
     @Query("UPDATE accounts SET balancePaise = :balancePaise, balanceAsOf = :balanceAsOf, balanceSource = :source WHERE id = :id")
     suspend fun updateBalance(id: Long, balancePaise: Long, balanceAsOf: Long, source: BalanceSource)
+
+    @Query("UPDATE accounts SET openingBalancePaise = :balancePaise, openingOwedPaise = :owedPaise, openingAsOf = :asOf, anchorSet = 1, balanceSource = :source WHERE id = :id")
+    suspend fun updateAnchor(id: Long, balancePaise: Long, owedPaise: Long, asOf: Long, source: BalanceSource = BalanceSource.MANUAL)
 }

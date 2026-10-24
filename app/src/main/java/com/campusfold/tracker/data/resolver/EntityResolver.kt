@@ -289,6 +289,25 @@ class DefaultEntityResolver(
             )
         }
 
+        // ─── 5. PERSIST VENDOR ENTITY ─────────────────────────────────────────
+        if (cleanVendor.isNotBlank() && !cleanVendor.equals("Merchant", ignoreCase = true)) {
+            val normKey = cleanVendor.lowercase(Locale.US)
+            if (matchedVendor == null) {
+                val newVendor = VendorEntity(
+                    displayName = vendorDisplayName,
+                    normalizedKey = normKey,
+                    categoryId = finalCategoryId
+                )
+                val insertedId = vendorDao.insertVendor(newVendor)
+                batchContext?.vendors?.add(newVendor.copy(id = insertedId))
+            } else if (matchedVendor.categoryId == null && finalCategoryId != null) {
+                val updatedVendor = matchedVendor.copy(categoryId = finalCategoryId)
+                vendorDao.updateVendor(updatedVendor)
+                batchContext?.vendors?.remove(matchedVendor)
+                batchContext?.vendors?.add(updatedVendor)
+            }
+        }
+
         return ResolvedEntities(
             account = resolvedAccount,
             vendorDisplayName = vendorDisplayName,

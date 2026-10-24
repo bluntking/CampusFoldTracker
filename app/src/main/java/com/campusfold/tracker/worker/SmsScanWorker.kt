@@ -45,6 +45,18 @@ class SmsScanWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val appContext = applicationContext
+
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                appContext,
+                android.Manifest.permission.READ_SMS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "READ_SMS permission not granted. Aborting scan.")
+            return@withContext Result.failure(
+                workDataOf(PROGRESS_STATUS to "PERMISSION_DENIED")
+            )
+        }
+
         val db = AppDatabase.getDatabase(appContext)
         val prefs = AppPreferences(appContext)
         val repo = TransactionRepository(db, prefs, appContext)
@@ -76,19 +88,23 @@ class SmsScanWorker(
         var totalAdded = 0
         var totalDuplicates = 0
         var totalUnparsed = 0
-        var offset = 0
 
-        val selection = "${Telephony.Sms.TYPE} = ? AND ${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.DATE} <= ?"
-        val selectionArgs = arrayOf(
-            Telephony.Sms.MESSAGE_TYPE_INBOX.toString(),
-            startDate.toString(),
-            endDate.toString()
-        )
+        var lastDate = startDate - 1
+        var lastId = -1L
 
         try {
             while (!isStopped) {
-                val sortOrder = "${Telephony.Sms.DATE} ASC LIMIT $pageSize OFFSET $offset"
+                val selection = "${Telephony.Sms.TYPE} = ? AND (${Telephony.Sms.DATE} > ? OR (${Telephony.Sms.DATE} = ? AND ${Telephony.Sms._ID} > ?)) AND ${Telephony.Sms.DATE} <= ?"
+                val selectionArgs = arrayOf(
+                    Telephony.Sms.MESSAGE_TYPE_INBOX.toString(),
+                    lastDate.toString(),
+                    lastDate.toString(),
+                    lastId.toString(),
+                    endDate.toString()
+                )
+                val sortOrder = "${Telephony.Sms.DATE} ASC, ${Telephony.Sms._ID} ASC"
                 val rawMessages = mutableListOf<RawMessage>()
+                var rowsFetchedInPage = 0
 
                 appContext.contentResolver.query(
                     Telephony.Sms.CONTENT_URI,
@@ -97,14 +113,20 @@ class SmsScanWorker(
                     selectionArgs,
                     sortOrder
                 )?.use { cursor ->
+                    val idIdx = cursor.getColumnIndex(Telephony.Sms._ID)
                     val addressIdx = cursor.getColumnIndex(Telephony.Sms.ADDRESS)
                     val dateIdx = cursor.getColumnIndex(Telephony.Sms.DATE)
                     val bodyIdx = cursor.getColumnIndex(Telephony.Sms.BODY)
 
-                    while (cursor.moveToNext() && !isStopped) {
+                    while (cursor.moveToNext() && rowsFetchedInPage < pageSize && !isStopped) {
+                        rowsFetchedInPage++
+                        val id = if (idIdx != -1) cursor.getLong(idIdx) else -1L
                         val address = if (addressIdx != -1) cursor.getString(addressIdx) ?: "" else ""
                         val date = if (dateIdx != -1) cursor.getLong(dateIdx) else System.currentTimeMillis()
                         val body = if (bodyIdx != -1) cursor.getString(bodyIdx) ?: "" else ""
+
+                        lastDate = date
+                        lastId = id
 
                         if (body.isNotBlank()) {
                             rawMessages.add(
@@ -112,19 +134,19 @@ class SmsScanWorker(
                                     source = MessageSource.SMS,
                                     sender = address,
                                     body = body,
-                                    timestamp = date
+                                    timestamp = date,
+                                    sourceId = id.toString()
                                 )
                             )
                         }
                     }
                 }
 
-                if (rawMessages.isEmpty()) {
+                if (rowsFetchedInPage == 0) {
                     break // No more messages to read
                 }
 
                 totalRead += rawMessages.size
-                offset += rawMessages.size
 
                 val ingestResults = ingestor.ingestBatch(rawMessages)
                 for (res in ingestResults) {
@@ -147,7 +169,7 @@ class SmsScanWorker(
                     )
                 )
 
-                if (rawMessages.size < pageSize) {
+                if (rowsFetchedInPage < pageSize) {
                     break
                 }
             }

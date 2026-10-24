@@ -84,6 +84,10 @@ class AccountMergeManager(
             json.put("creditLimitPaise", account.creditLimitPaise)
             json.put("isArchived", account.isArchived)
             json.put("editedFields", account.editedFields)
+            json.put("openingBalancePaise", account.openingBalancePaise)
+            json.put("openingOwedPaise", account.openingOwedPaise)
+            json.put("openingAsOf", account.openingAsOf)
+            json.put("anchorSet", account.anchorSet)
             return json.toString()
         }
 
@@ -107,7 +111,11 @@ class AccountMergeManager(
                 balanceSource = balanceSource,
                 creditLimitPaise = json.optLong("creditLimitPaise", 0L),
                 isArchived = json.optBoolean("isArchived", false),
-                editedFields = json.optString("editedFields", "[]")
+                editedFields = json.optString("editedFields", "[]"),
+                openingBalancePaise = json.optLong("openingBalancePaise", 0L),
+                openingOwedPaise = json.optLong("openingOwedPaise", 0L),
+                openingAsOf = json.optLong("openingAsOf", 0L),
+                anchorSet = json.optBoolean("anchorSet", false)
             )
         }
 

@@ -320,14 +320,12 @@ class MessageIngestor(
                     )
                     db.transactionDao().updateTransaction(enriched)
 
-                    // Balance updates if present
-                    if (extracted.balancePaise != null && account.balanceSource != BalanceSource.MANUAL) {
-                        if (extracted.timestamp >= account.balanceAsOf) {
+                    // Bank reported balance handling (Part 6)
+                    if (extracted.balancePaise != null) {
+                        val autoUse = appPreferences?.isAutoUseBankBalancesSync() ?: false
+                        if (autoUse && extracted.timestamp >= account.balanceAsOf) {
                             db.accountDao().updateBalance(account.id, extracted.balancePaise, extracted.timestamp, BalanceSource.AUTO)
                         }
-                    }
-                    if (extracted.availableCreditPaise != null) {
-                        db.accountDao().updateAccount(account.copy(creditLimitPaise = extracted.availableCreditPaise))
                     }
 
                     db.processedMessageDao().insertProcessed(
@@ -370,16 +368,16 @@ class MessageIngestor(
                     // Income / Friend Split Settlement handling
                     if (extracted.type == TransactionType.INCOME && insertedTxId > 0 && repository != null) {
                         handleIncomeSettlement(insertedTxId, newTx)
+                    } else if (extracted.type == TransactionType.EXPENSE && insertedTxId > 0 && repository != null) {
+                        handleOutgoingRepaymentSuggestion(insertedTxId, newTx)
                     }
 
-                    // Balance updates
-                    if (extracted.balancePaise != null && account.balanceSource != BalanceSource.MANUAL) {
-                        if (extracted.timestamp >= account.balanceAsOf) {
+                    // Bank reported balance handling (Part 6)
+                    if (extracted.balancePaise != null) {
+                        val autoUse = appPreferences?.isAutoUseBankBalancesSync() ?: false
+                        if (autoUse && extracted.timestamp >= account.balanceAsOf) {
                             db.accountDao().updateBalance(account.id, extracted.balancePaise, extracted.timestamp, BalanceSource.AUTO)
                         }
-                    }
-                    if (extracted.availableCreditPaise != null) {
-                        db.accountDao().updateAccount(account.copy(creditLimitPaise = extracted.availableCreditPaise))
                     }
 
                     // Budget alert evaluation
@@ -467,11 +465,49 @@ class MessageIngestor(
                             suggestedPersonId = person.id,
                             detectedSenderName = senderClean,
                             amountPaise = tx.amountPaise,
-                            status = SettlementSuggestionStatus.PENDING
+                            status = SettlementSuggestionStatus.PENDING,
+                            direction = SplitDirection.OWED_TO_ME
                         )
                     )
                     break
                 }
+            }
+        }
+    }
+
+    private suspend fun handleOutgoingRepaymentSuggestion(txId: Long, tx: TransactionEntity) {
+        val persons = db.personDao().getAllPersonsList()
+        val counterpartyClean = tx.rawMerchant.trim()
+        val lowerCounterparty = counterpartyClean.lowercase(Locale.US)
+        if (counterpartyClean.isEmpty()) return
+
+        for (person in persons) {
+            val unsettledSplits = db.splitItemDao().getUnsettledSplitsForPersonAndDirectionSync(person.id, SplitDirection.OWED_BY_ME)
+            val pendingOwedByMe = unsettledSplits.sumOf { it.amountOwedPaise - it.amountPaidSoFarPaise }
+            if (pendingOwedByMe <= 0L) continue
+
+            val aliases = person.exactSmsAliases.split(",")
+                .map { it.trim().lowercase(Locale.US) }
+                .filter { it.isNotEmpty() }
+            val name = person.name.trim().lowercase(Locale.US)
+            val firstName = person.name.split(" ").firstOrNull()?.trim()?.lowercase(Locale.US) ?: ""
+
+            val matches = aliases.any { alias -> alias.length >= 3 && (lowerCounterparty.contains(alias) || alias.contains(lowerCounterparty)) } ||
+                    (name.length >= 3 && (lowerCounterparty.contains(name) || name.contains(lowerCounterparty))) ||
+                    (firstName.length >= 3 && lowerCounterparty.contains(firstName))
+
+            if (matches) {
+                db.pendingSettlementSuggestionDao().insertSuggestion(
+                    PendingSettlementSuggestionEntity(
+                        transactionId = txId,
+                        suggestedPersonId = person.id,
+                        detectedSenderName = counterpartyClean,
+                        amountPaise = tx.amountPaise,
+                        status = SettlementSuggestionStatus.PENDING,
+                        direction = SplitDirection.OWED_BY_ME
+                    )
+                )
+                break
             }
         }
     }

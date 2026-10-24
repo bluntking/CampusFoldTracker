@@ -18,8 +18,8 @@ interface PersonDao {
     suspend fun getPersonById(id: Long): PersonEntity?
 
     /**
-     * Dynamic calculation of balances owed to me in paise.
-     * Computes SUM(amountOwedPaise - amountPaidSoFarPaise) from unsettled split items.
+     * Dynamic calculation of balances owed to me and owed by me in paise.
+     * Computes SUM(amountOwedPaise - amountPaidSoFarPaise) from unsettled split items by direction.
      * Zero data drift because no static column is stored.
      */
     @Query("""
@@ -27,11 +27,12 @@ interface PersonDao {
             p.id, 
             p.name, 
             p.exactSmsAliases,
-            COALESCE(SUM(s.amountOwedPaise - s.amountPaidSoFarPaise), 0) AS totalOwedToMePaise
+            COALESCE(SUM(CASE WHEN s.direction = 'OWED_TO_ME' THEN s.amountOwedPaise - s.amountPaidSoFarPaise ELSE 0 END), 0) AS totalOwedToMePaise,
+            COALESCE(SUM(CASE WHEN s.direction = 'OWED_BY_ME' THEN s.amountOwedPaise - s.amountPaidSoFarPaise ELSE 0 END), 0) AS totalOwedByMePaise
         FROM persons p
         LEFT JOIN split_items s ON p.id = s.personId AND s.isSettled = 0
         GROUP BY p.id
-        ORDER BY totalOwedToMePaise DESC, p.name ASC
+        ORDER BY (totalOwedToMePaise + totalOwedByMePaise) DESC, p.name ASC
     """)
     fun getPersonsWithBalances(): Flow<List<PersonWithBalance>>
 
@@ -40,7 +41,8 @@ interface PersonDao {
             p.id, 
             p.name, 
             p.exactSmsAliases,
-            COALESCE(SUM(s.amountOwedPaise - s.amountPaidSoFarPaise), 0) AS totalOwedToMePaise
+            COALESCE(SUM(CASE WHEN s.direction = 'OWED_TO_ME' THEN s.amountOwedPaise - s.amountPaidSoFarPaise ELSE 0 END), 0) AS totalOwedToMePaise,
+            COALESCE(SUM(CASE WHEN s.direction = 'OWED_BY_ME' THEN s.amountOwedPaise - s.amountPaidSoFarPaise ELSE 0 END), 0) AS totalOwedByMePaise
         FROM persons p
         LEFT JOIN split_items s ON p.id = s.personId AND s.isSettled = 0
         WHERE p.id = :personId

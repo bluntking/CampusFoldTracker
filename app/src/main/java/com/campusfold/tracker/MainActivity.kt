@@ -5,13 +5,16 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -36,8 +39,12 @@ class MainActivity : ComponentActivity() {
         hasSmsPermissionState.value = smsGranted
     }
 
+    private var lastGmailSyncTime: Long = 0L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        enableEdgeToEdge()
 
         com.campusfold.tracker.ai.LocalAiManager.init(this)
         NotificationHelper.createNotificationChannel(this)
@@ -52,6 +59,22 @@ class MainActivity : ComponentActivity() {
                 "DARK" -> true
                 "LIGHT" -> false
                 else -> isSystemInDarkTheme()
+            }
+
+            DisposableEffect(isDark) {
+                enableEdgeToEdge(
+                    statusBarStyle = if (isDark) {
+                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                    },
+                    navigationBarStyle = if (isDark) {
+                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                    }
+                )
+                onDispose {}
             }
 
             CampusFoldTrackerTheme(
@@ -76,7 +99,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         updatePermissionStatus()
-        viewModel.checkAndAutoSyncGmail()
+        val now = System.currentTimeMillis()
+        if (now - lastGmailSyncTime > 60_000L) {
+            lastGmailSyncTime = now
+            viewModel.syncGmailOnAppOpen()
+        }
     }
 
     private fun updatePermissionStatus() {

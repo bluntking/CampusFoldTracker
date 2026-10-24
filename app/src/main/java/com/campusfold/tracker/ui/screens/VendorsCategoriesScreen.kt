@@ -1,14 +1,17 @@
 package com.campusfold.tracker.ui.screens
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -42,7 +45,15 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
+fun VendorsCategoriesScreen(
+    viewModel: TransactionViewModel,
+    initialTab: Int = 0,
+    onBack: (() -> Unit)? = null
+) {
+    if (onBack != null) {
+        BackHandler { onBack() }
+    }
+
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val categorySpending by viewModel.categorySpending.collectAsStateWithLifecycle()
     val vendorMappings by viewModel.vendorMappings.collectAsStateWithLifecycle()
@@ -52,7 +63,7 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val autoAcceptAi by viewModel.autoAcceptAiResults.collectAsStateWithLifecycle()
 
-    var selectedTab by remember { mutableStateOf(0) } // 0: Rules, 1: Review, 2: Unparsed, 3: Vendors, 4: Categories
+    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) } // 0: Rules, 1: Review, 2: Unparsed, 3: Vendors, 4: Categories
 
     // Dialog states
     var showAddRuleDialog by remember { mutableStateOf(false) }
@@ -86,20 +97,28 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "MANAGE REPOSITORIES",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextMuted
-                    )
-                    Text(
-                        text = "Campus Rules & Budgets",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = TextPrimary
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onBack != null) {
+                        IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary)
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    Column {
+                        Text(
+                            text = "MANAGE REPOSITORIES",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted
+                        )
+                        Text(
+                            text = "Campus Rules & Budgets",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = TextPrimary
+                        )
+                    }
                 }
 
                 // ⚙ Sync & Data Button in Header
@@ -132,24 +151,24 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Clean 5-Segment Full-Width Pill Switcher (Rules vs Review vs Unparsed vs Vendors vs Categories)
+            // Clean 5-Segment Horizontally Scrollable Pill Switcher
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(MatteCharcoal)
                     .border(1.dp, BorderCharcoal, RoundedCornerShape(12.dp))
+                    .horizontalScroll(rememberScrollState())
                     .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // 1. Rules Pill
                 Box(
                     modifier = Modifier
-                        .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(if (selectedTab == 0) CardElevated else Color.Transparent)
                         .clickable { selectedTab = 0 }
-                        .padding(vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -158,17 +177,17 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                     ) {
                         Text(
                             text = "Rules",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
                             color = if (selectedTab == 0) NeonEmerald else TextSecondary,
                             maxLines = 1
                         )
-                        Spacer(modifier = Modifier.width(3.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         StatusPill(
                             text = rules.size.toString(),
                             bgColor = if (selectedTab == 0) NeonEmerald.copy(alpha = 0.2f) else BorderCharcoal,
                             textColor = if (selectedTab == 0) NeonEmerald else TextSecondary,
-                            fontSize = 8.sp
+                            fontSize = 9.sp
                         )
                     }
                 }
@@ -176,11 +195,10 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                 // 2. Review Queue Pill
                 Box(
                     modifier = Modifier
-                        .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(if (selectedTab == 1) CardElevated else Color.Transparent)
                         .clickable { selectedTab = 1 }
-                        .padding(vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -189,17 +207,17 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                     ) {
                         Text(
                             text = "Review",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
                             color = if (selectedTab == 1) NeonPurple else TextSecondary,
                             maxLines = 1
                         )
-                        Spacer(modifier = Modifier.width(3.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         StatusPill(
                             text = reviewItems.size.toString(),
                             bgColor = if (reviewItems.isNotEmpty()) NeonPurple.copy(alpha = 0.25f) else BorderCharcoal,
                             textColor = if (reviewItems.isNotEmpty()) NeonPurple else TextSecondary,
-                            fontSize = 8.sp
+                            fontSize = 9.sp
                         )
                     }
                 }
@@ -207,11 +225,10 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                 // 3. Unparsed Messages Pill
                 Box(
                     modifier = Modifier
-                        .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(if (selectedTab == 2) CardElevated else Color.Transparent)
                         .clickable { selectedTab = 2 }
-                        .padding(vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -220,17 +237,17 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                     ) {
                         Text(
                             text = "Unparsed",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium,
                             color = if (selectedTab == 2) NeonCrimson else TextSecondary,
                             maxLines = 1
                         )
-                        Spacer(modifier = Modifier.width(3.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         StatusPill(
                             text = unparsedMessages.size.toString(),
                             bgColor = if (unparsedMessages.isNotEmpty()) NeonCrimson.copy(alpha = 0.25f) else BorderCharcoal,
                             textColor = if (unparsedMessages.isNotEmpty()) NeonCrimson else TextSecondary,
-                            fontSize = 8.sp
+                            fontSize = 9.sp
                         )
                     }
                 }
@@ -238,11 +255,10 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                 // 4. Campus Vendors Pill
                 Box(
                     modifier = Modifier
-                        .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(if (selectedTab == 3) CardElevated else Color.Transparent)
                         .clickable { selectedTab = 3 }
-                        .padding(vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -251,17 +267,17 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                     ) {
                         Text(
                             text = "Vendors",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Medium,
                             color = if (selectedTab == 3) NeonCyan else TextSecondary,
                             maxLines = 1
                         )
-                        Spacer(modifier = Modifier.width(3.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         StatusPill(
                             text = vendorMappings.size.toString(),
                             bgColor = if (selectedTab == 3) NeonCyan.copy(alpha = 0.2f) else BorderCharcoal,
                             textColor = if (selectedTab == 3) NeonCyan else TextSecondary,
-                            fontSize = 8.sp
+                            fontSize = 9.sp
                         )
                     }
                 }
@@ -269,11 +285,10 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                 // 5. Categories Pill
                 Box(
                     modifier = Modifier
-                        .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(if (selectedTab == 4) CardElevated else Color.Transparent)
                         .clickable { selectedTab = 4 }
-                        .padding(vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -282,17 +297,17 @@ fun VendorsCategoriesScreen(viewModel: TransactionViewModel) {
                     ) {
                         Text(
                             text = "Categories",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = if (selectedTab == 4) FontWeight.Bold else FontWeight.Medium,
                             color = if (selectedTab == 4) NeonAmber else TextSecondary,
                             maxLines = 1
                         )
-                        Spacer(modifier = Modifier.width(3.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         StatusPill(
                             text = categories.size.toString(),
                             bgColor = if (selectedTab == 4) NeonAmber.copy(alpha = 0.2f) else BorderCharcoal,
                             textColor = if (selectedTab == 4) NeonAmber else TextSecondary,
-                            fontSize = 8.sp
+                            fontSize = 9.sp
                         )
                     }
                 }

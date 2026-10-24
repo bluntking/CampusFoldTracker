@@ -52,9 +52,24 @@ object BankEmailSyncConfig {
         "transferred"
     )
 
-    fun isBankSender(sender: String): Boolean {
-        val lower = sender.lowercase()
-        return BANK_SENDER_DOMAINS.any { domain -> lower.contains(domain) }
+    enum class EmailMatchResult {
+        MATCHED_BY_SENDER,
+        MATCHED_BY_SUBJECT_ONLY,
+        SKIPPED
+    }
+
+    fun isBankSender(sender: String, customSenders: Set<String> = emptySet()): Boolean {
+        val lower = sender.lowercase().trim()
+        val inDefaultList = BANK_SENDER_DOMAINS.any { domain -> lower.contains(domain) }
+        if (inDefaultList) return true
+
+        val inCustomList = customSenders.any { custom -> custom.isNotBlank() && lower.contains(custom.lowercase().trim()) }
+        if (inCustomList) return true
+
+        // RBI compliance: .bank.in and .fin.in domains
+        val domainMatches = lower.contains(".bank.in") || lower.contains(".fin.in") ||
+                Regex("""@[a-z0-9.-]+\.(bank\.in|fin\.in)\b""").containsMatchIn(lower)
+        return domainMatches
     }
 
     fun isBankSubject(subject: String): Boolean {
@@ -62,7 +77,40 @@ object BankEmailSyncConfig {
         return BANK_SUBJECT_KEYWORDS.any { keyword -> lower.contains(keyword) }
     }
 
-    fun matchesBankEmail(sender: String, subject: String): Boolean {
-        return isBankSender(sender) || isBankSubject(subject)
+    /**
+     * RBI compliant email filter.
+     * Subject keywords count ONLY when the sender is a known bank sender or custom user added sender.
+     * If scanAllSenders is enabled in Settings, subject-only matches are permitted as a fallback.
+     */
+    fun matchesBankEmail(
+        sender: String,
+        subject: String,
+        customSenders: Set<String> = emptySet(),
+        scanAllSenders: Boolean = false
+    ): Boolean {
+        val senderMatched = isBankSender(sender, customSenders)
+        val subjectMatched = isBankSubject(subject)
+
+        return if (scanAllSenders) {
+            senderMatched || subjectMatched
+        } else {
+            senderMatched && subjectMatched
+        }
+    }
+
+    fun classifyEmail(
+        sender: String,
+        subject: String,
+        customSenders: Set<String> = emptySet(),
+        scanAllSenders: Boolean = false
+    ): EmailMatchResult {
+        val senderMatched = isBankSender(sender, customSenders)
+        val subjectMatched = isBankSubject(subject)
+
+        return when {
+            senderMatched && subjectMatched -> EmailMatchResult.MATCHED_BY_SENDER
+            subjectMatched && scanAllSenders -> EmailMatchResult.MATCHED_BY_SUBJECT_ONLY
+            else -> EmailMatchResult.SKIPPED
+        }
     }
 }

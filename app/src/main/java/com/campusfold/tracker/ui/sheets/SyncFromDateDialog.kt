@@ -278,8 +278,9 @@ fun SyncFromDateDialog(
                         },
                         enabled = !isScanning,
                         modifier = Modifier
-                            .weight(1.4f)
+                            .weight(1.2f)
                             .height(44.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = NeonEmerald,
                             contentColor = OledBlack
@@ -293,14 +294,15 @@ fun SyncFromDateDialog(
                                 strokeWidth = 2.dp
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Syncing...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Syncing...", fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                         } else {
                             Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Sync from ${shortDateFmt.format(selectedCalendar.time)}",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
+                                text = "Start Sync",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
                             )
                         }
                     }

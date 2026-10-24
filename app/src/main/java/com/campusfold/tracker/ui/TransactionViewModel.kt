@@ -65,8 +65,17 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     private val _gmailSyncProgress = MutableStateFlow<String?>(null)
     val gmailSyncProgress = _gmailSyncProgress.asStateFlow()
 
-    // Accounts
+    // Accounts & Derived Balances (Part 6)
     val accounts: StateFlow<List<com.campusfold.tracker.data.entity.AccountEntity>>
+    val derivedAccountBalances: StateFlow<List<DerivedAccountBalance>>
+    val netBalanceOverview: StateFlow<NetBalanceOverview>
+
+    // Sync state
+    val isSyncing: StateFlow<Boolean>
+    val syncGmailOnOpen: StateFlow<Boolean>
+    val autoUseBankBalances: StateFlow<Boolean>
+    val scanAllSenders: StateFlow<Boolean>
+    val customBankSenders: StateFlow<Set<String>>
 
     // Duplicate Accounts & Merge Management
     val latestAutoMergeLog: StateFlow<MergeLogEntity?>
@@ -277,6 +286,61 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
             emptyList()
+        )
+
+        derivedAccountBalances = repository.derivedAccountBalances.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+        netBalanceOverview = repository.netBalanceOverview.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            NetBalanceOverview()
+        )
+
+        syncGmailOnOpen = prefs.syncGmailOnOpen.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            true
+        )
+
+        autoUseBankBalances = prefs.autoUseBankBalances.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            false
+        )
+
+        scanAllSenders = prefs.scanAllSenders.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            false
+        )
+
+        customBankSenders = prefs.customBankSenders.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptySet()
+        )
+
+        val workManager = androidx.work.WorkManager.getInstance(application)
+        val smsWorkFlow = workManager.getWorkInfosForUniqueWorkFlow("sms_inbox_scan")
+        val gmailWorkFlow = workManager.getWorkInfosForUniqueWorkFlow(com.campusfold.tracker.worker.GmailScanWorker.WORK_NAME)
+
+        isSyncing = combine(
+            smsWorkFlow,
+            gmailWorkFlow,
+            _isScanning,
+            _isGmailSyncing
+        ) { smsInfos, gmailInfos, scanning, gmailSyncing ->
+            val smsRunning = smsInfos.any { it.state == androidx.work.WorkInfo.State.RUNNING || it.state == androidx.work.WorkInfo.State.ENQUEUED }
+            val gmailRunning = gmailInfos.any { it.state == androidx.work.WorkInfo.State.RUNNING || it.state == androidx.work.WorkInfo.State.ENQUEUED }
+            smsRunning || gmailRunning || scanning || gmailSyncing
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            false
         )
 
         latestAutoMergeLog = repository.latestAutoMergeLog.stateIn(
@@ -730,6 +794,10 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             repository.addPerson(PersonEntity(name = name, exactSmsAliases = exactSmsAliases))
             _statusMessage.value = "Friend '$name' added."
         }
+    }
+
+    suspend fun createPersonSync(name: String, exactSmsAliases: String = ""): Long {
+        return repository.addPerson(PersonEntity(name = name, exactSmsAliases = exactSmsAliases))
     }
 
     fun editPerson(id: Long, name: String, exactSmsAliases: String) {
@@ -1577,5 +1645,137 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
 
     fun clearStatusMessage() {
         _statusMessage.value = null
+    }
+
+    // ─── Sync & Preference Toggles (Part 7 & 8) ────────────────────────────────
+    fun setSyncGmailOnOpen(enabled: Boolean) {
+        viewModelScope.launch {
+            val prefs = AppPreferences(getApplication())
+            prefs.setSyncGmailOnOpen(enabled)
+        }
+    }
+
+    fun setAutoUseBankBalances(enabled: Boolean) {
+        viewModelScope.launch {
+            val prefs = AppPreferences(getApplication())
+            prefs.setAutoUseBankBalances(enabled)
+        }
+    }
+
+    fun setScanAllSenders(enabled: Boolean) {
+        viewModelScope.launch {
+            val prefs = AppPreferences(getApplication())
+            prefs.setScanAllSenders(enabled)
+        }
+    }
+
+    fun addCustomBankSender(sender: String) {
+        viewModelScope.launch {
+            val prefs = AppPreferences(getApplication())
+            val current = prefs.getCustomBankSendersSync().toMutableSet()
+            if (sender.isNotBlank()) {
+                current.add(sender.trim().lowercase())
+                prefs.setCustomBankSenders(current)
+            }
+        }
+    }
+
+    fun removeCustomBankSender(sender: String) {
+        viewModelScope.launch {
+            val prefs = AppPreferences(getApplication())
+            val current = prefs.getCustomBankSendersSync().toMutableSet()
+            current.remove(sender.trim().lowercase())
+            prefs.setCustomBankSenders(current)
+        }
+    }
+
+    suspend fun testGmailConnection(email: String, appPass: String): Result<String> {
+        return GmailImapClient.testConnection(email, appPass)
+    }
+
+    // ─── Anchors & Derived Balances (Part 6) ──────────────────────────────────
+    fun updateAccountAnchor(
+        accountId: Long,
+        balancePaise: Long,
+        owedPaise: Long,
+        asOf: Long = System.currentTimeMillis()
+    ) {
+        viewModelScope.launch {
+            repository.updateAccountAnchor(accountId, balancePaise, owedPaise, asOf, BalanceSource.MANUAL)
+        }
+    }
+
+    // ─── Friend-Paid & Repayment (Part 5) ──────────────────────────────────────
+    fun addFriendPaidExpense(
+        personId: Long,
+        mySharePaise: Long,
+        totalBillPaise: Long? = null,
+        vendor: String,
+        categoryId: Long? = null,
+        timestamp: Long = System.currentTimeMillis(),
+        note: String = ""
+    ) {
+        viewModelScope.launch {
+            repository.addFriendPaidExpense(
+                personId = personId,
+                mySharePaise = mySharePaise,
+                totalBillPaise = totalBillPaise,
+                vendor = vendor,
+                categoryId = categoryId,
+                timestamp = timestamp,
+                note = note
+            )
+        }
+    }
+
+    fun repayFriendDebt(
+        personId: Long,
+        accountId: Long,
+        amountToPayPaise: Long,
+        timestamp: Long = System.currentTimeMillis(),
+        onComplete: ((RepaymentResult) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val res = repository.repayFriendDebtPaise(personId, accountId, amountToPayPaise, timestamp)
+            onComplete?.invoke(res)
+        }
+    }
+
+    fun addManualTransaction(
+        amountPaise: Long,
+        type: TransactionType,
+        accountId: Long?,
+        toAccountId: Long? = null,
+        vendor: String,
+        categoryId: Long? = null,
+        timestamp: Long = System.currentTimeMillis(),
+        note: String = ""
+    ) {
+        viewModelScope.launch {
+            repository.addManualTransaction(
+                amountPaise = amountPaise,
+                type = type,
+                accountId = accountId,
+                toAccountId = toAccountId,
+                vendor = vendor,
+                categoryId = categoryId,
+                timestamp = timestamp,
+                note = note
+            )
+        }
+    }
+
+    fun clearTransactionsOnly() {
+        viewModelScope.launch {
+            repository.clearTransactionsOnly()
+            _statusMessage.value = "All transactions and related items cleared."
+        }
+    }
+
+    fun resetEverything() {
+        viewModelScope.launch {
+            repository.resetEverything()
+            _statusMessage.value = "App completely reset to factory defaults."
+        }
     }
 }

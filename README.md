@@ -50,15 +50,27 @@
 - **Undo Delete Stash:** Deleting transactions offers an immediate undo snackbar to restore records without data loss.
 - **Transaction Merging:** Merge duplicate charges (e.g., SMS and email alerts for the same purchase) into a single unified record.
 
-### 7. 🏠 Home Tab, Live Balances & Daily Gauge
-- **Account Balance Cards:** Displays live account balances, balance source indicators (Auto vs Manual), and quick balance overrides.
-- **Quick Metric Filters:** Filter feeds by All, Needs Review, Uncategorized, or High Spend items.
-- **Daily Spending Gauge:** Visualizes real-time daily spending against monthly pacing and previous period averages.
+### 7. 🏠 Rebuilt Home & Net Available Balance Engine
+- **7-Section Dashboard:** Features a clean LazyColumn layout with Header (sync status & AI Coach launcher), slim Needs-Attention strip, Net Available Balance Card, Total Spends tile (Month/Week toggle, True Spend gauge, Gross/Split breakdown), Recent Transactions (with "See All >"), My Accounts tile, and 14-week Activity Heatmap.
+- **Anchor-Based Balance Engine:** Accounts use immutable anchor timestamps (`openingBalancePaise`, `openingOwedPaise`, `openingAsOf`). Derived balances dynamically calculate from anchors (`anchor + credits - debits` for savings, `anchorOwed + debits - credits` for cards).
+- **True Net Available Balance:** Headline displays strictly `savings balances - credit card owed`. Credit card bill transfers (`CC_BILL_TRANSFER`) and internal transfers between own accounts leave net available balance completely unchanged. Available credit is never inflated into the net balance headline.
+- **Discrepancy Alerts:** Highlights discrepancies between derived balance and bank-reported message balance, with a 1-tap "Use bank balance" anchor update or an optional "Auto-use bank-reported balances" setting.
 
-### 8. 👥 Bill Splitting & FIFO Debt Settlement
-- **Dynamic Net Balances:** Friend balances are computed dynamically from active Room split items to avoid balance drift.
-- **FIFO Settlement Engine:** Repayments automatically settle the oldest outstanding split items first, with full support for partial payments and advance credits.
-- **"Paid Friend for My Share":** Quickly record a debit when a friend pays for a shared bill and you transfer your share via UPI, correctly attributing the category to your personal spend.
+### 8. 👥 Bidirectional Splits, Friend-Paid Expenses & Repayments
+- **Bidirectional Debt Summary:** Top summary card displays both "You owe ₹X" and "Owed to you ₹Y" alongside the net balance per friend.
+- **Friend-Paid Expenses:** Record an expense a friend paid on your behalf directly from the Add Transaction sheet. Debits zero accounts, counts your share toward True Spend, and records an `OWED_BY_ME` debt in Room DB without inflating gross spending.
+- **FIFO Settlement Engine:** "They paid me" settles incoming friend debts oldest first. "I paid them" debits your selected bank account, settles `OWED_BY_ME` debts FIFO, and records any excess overpayment as a normal expense on that account.
+- **Smart Repayment Suggestions:** Outgoing bank payments matching a friend's SMS/UPI alias trigger 1-tap settlement suggestions directly on the Splits screen.
+
+### 9. 🧭 Bottom Navigation & Pushed Screens
+- **5-Slot Floating Bar:** Pill-shaped bottom navigation featuring Home, Analytics, Center Add (+), Splits, and Settings.
+- **Pushed Screens:** Dedicated `TransactionsScreen` (with search, category/vendor drill-down, date grouping, bulk actions) and full `AccountsScreen` with system-back handling. Pushed screens keep the floating pill bar visible with Home highlighted.
+- **True Edge-to-Edge:** Replaced deprecated window color assignments with native `enableEdgeToEdge()` responsive to app theme (Dark, Light, AMOLED) and dark window background, eliminating the white status bar glitch.
+
+### 10. ⚙️ Dedicated Settings Hub & Enhanced Sync
+- **Sub-Screen Navigation:** Modular settings hub with pushed screens for Sync & Data, Backup & Restore, Organize (Categories & Vendors, Review Queue, Rules), Accounts, AI Diagnostics, Appearance & Profile, and a guarded Danger Zone.
+- **Sync & Data Engine:** Keyset cursor pagination for SMS avoids Android SQLite limit rejection; Gmail sync on open with 60s debounce, 100-msg batch ingestion with post-commit UID checkpointing, FetchProfile prefetching, RBI domain filtering (`.bank.in`, `.fin.in`), and editable custom bank senders.
+- **Guarded Danger Zone:** Clear separation between "Clear Transactions Only" (reverts accounts to opening anchors, preserves metadata) and "Reset Everything" (factory defaults), both requiring typed "DELETE" confirmation.
 
 ### 9. 📊 Budgets & Intelligent Insights
 - **Monthly Targets:** Set overall and per-category monthly spending limits with color-coded progress indicators.

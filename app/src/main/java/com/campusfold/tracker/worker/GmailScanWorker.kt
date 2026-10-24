@@ -84,12 +84,12 @@ class GmailScanWorker(
                 )
             )
 
-            val fetchedEmails = GmailImapClient.fetchBankEmails(
+            GmailImapClient.fetchBankEmailsInChunks(
                 emailAddress = email,
                 appPassword = password,
                 appPreferences = prefs,
                 startDateMillis = startDate,
-                maxEmailsToFetch = 200,
+                chunkSize = 100,
                 isCancelled = { isStopped },
                 onProgress = { current, total ->
                     setProgressAsync(
@@ -100,32 +100,37 @@ class GmailScanWorker(
                             PROGRESS_STATUS to "FETCHING ($current/$total)"
                         )
                     )
+                },
+                onChunkReady = { chunkEmails, serverUidValidity, chunkHighestUid ->
+                    totalRead += chunkEmails.size
+                    val rawMessages = chunkEmails.map { emailItem ->
+                        RawMessage(
+                            source = MessageSource.EMAIL,
+                            sender = emailItem.sender,
+                            body = emailItem.body,
+                            timestamp = emailItem.dateMillis,
+                            sourceId = emailItem.uid.toString()
+                        )
+                    }
+
+                    val ingestResults = ingestor.ingestBatch(rawMessages)
+                    for (res in ingestResults) {
+                        when (res) {
+                            is IngestResult.Imported -> totalAdded++
+                            is IngestResult.Enriched,
+                            is IngestResult.SkippedAlreadyProcessed -> totalDuplicates++
+                            is IngestResult.Unparsed -> totalUnparsed++
+                            is IngestResult.Ignored,
+                            is IngestResult.BalanceUpdated -> {}
+                        }
+                    }
+
+                    // Commit UID only after successful ingestion of chunk
+                    if (chunkHighestUid > 0L) {
+                        prefs.setGmailUidSyncState(serverUidValidity, chunkHighestUid)
+                    }
                 }
             )
-
-            totalRead = fetchedEmails.size
-
-            val rawMessages = fetchedEmails.map { emailItem ->
-                RawMessage(
-                    source = MessageSource.EMAIL,
-                    sender = emailItem.sender,
-                    body = emailItem.body,
-                    timestamp = emailItem.dateMillis,
-                    sourceId = emailItem.uid.toString()
-                )
-            }
-
-            val ingestResults = ingestor.ingestBatch(rawMessages)
-            for (res in ingestResults) {
-                when (res) {
-                    is IngestResult.Imported -> totalAdded++
-                    is IngestResult.Enriched,
-                    is IngestResult.SkippedAlreadyProcessed -> totalDuplicates++
-                    is IngestResult.Unparsed -> totalUnparsed++
-                    is IngestResult.Ignored,
-                    is IngestResult.BalanceUpdated -> {}
-                }
-            }
 
             // Update scan history record
             val scanRecord = db.scanHistoryDao().getScanHistoryById(scanHistoryId)

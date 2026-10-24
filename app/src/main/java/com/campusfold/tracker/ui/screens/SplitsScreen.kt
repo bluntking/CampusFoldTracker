@@ -1,5 +1,6 @@
 package com.campusfold.tracker.ui.screens
 
+import android.app.DatePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,54 +18,68 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.campusfold.tracker.data.entity.CategoryEntity
-import com.campusfold.tracker.data.entity.PersonEntity
-import com.campusfold.tracker.data.entity.TransactionType
-import com.campusfold.tracker.data.model.PersonWithBalance
-import com.campusfold.tracker.data.model.UnsettledBillItem
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.campusfold.tracker.data.entity.AccountEntity
+import com.campusfold.tracker.data.entity.PersonEntity
+import com.campusfold.tracker.data.entity.SplitDirection
+import com.campusfold.tracker.data.model.PersonWithBalance
+import com.campusfold.tracker.data.model.RepaymentResult
+import com.campusfold.tracker.data.model.UnsettledBillItem
 import com.campusfold.tracker.ui.TransactionViewModel
 import com.campusfold.tracker.ui.components.FoldCard
 import com.campusfold.tracker.ui.components.MonospaceCurrencyText
 import com.campusfold.tracker.ui.components.StatusPill
 import com.campusfold.tracker.ui.theme.*
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
 @Composable
-fun SplitsScreen(viewModel: TransactionViewModel) {
+fun SplitsScreen(
+    viewModel: TransactionViewModel,
+    onAddFriendPaidExpense: () -> Unit = {}
+) {
     val personsWithBalances by viewModel.personsWithBalances.collectAsStateWithLifecycle()
     val allUnsettledBills by viewModel.allUnsettledBills.collectAsStateWithLifecycle()
     val pendingSuggestions by viewModel.pendingSuggestions.collectAsStateWithLifecycle()
     val unallocatedCredits by viewModel.unallocatedHiddenSenderCredits.collectAsStateWithLifecycle()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
 
-    val totalOwedToMe = personsWithBalances.sumOf { it.totalOwedToMe }
-    val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val totalOwedToMe = personsWithBalances.sumOf { it.totalOwedToMePaise } / 100.0
+    val totalOwedByMe = personsWithBalances.sumOf { it.totalOwedByMePaise } / 100.0
 
     // Dialog states
     var showAddFriendDialog by remember { mutableStateOf(false) }
     var friendToEdit by remember { mutableStateOf<PersonEntity?>(null) }
-    var friendToLogShare by remember { mutableStateOf<PersonWithBalance?>(null) }
-
-    // Manual Settle Dialog state
-    var friendToSettle by remember { mutableStateOf<PersonWithBalance?>(null) }
+    var friendToReceiveFrom by remember { mutableStateOf<PersonWithBalance?>(null) }
+    var friendToRepay by remember { mutableStateOf<PersonWithBalance?>(null) }
     var overpaymentPrompt by remember { mutableStateOf<Pair<Double, String>?>(null) }
+    var repaymentFeedbackMessage by remember { mutableStateOf<String?>(null) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(OledBlack)
-    ) {
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(repaymentFeedbackMessage) {
+        repaymentFeedbackMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            repaymentFeedbackMessage = null
+        }
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = OledBlack
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
             Spacer(modifier = Modifier.height(16.dp))
@@ -84,58 +99,83 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                         color = TextMuted
                     )
                     Text(
-                        text = "Friend Balances",
+                        text = "Friend Balances & Debts",
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp,
                         color = TextPrimary
                     )
                 }
 
-                Button(
-                    onClick = { showAddFriendDialog = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = OledBlack),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.height(34.dp)
-                ) {
-                    Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("+ Add Friend", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        onClick = onAddFriendPaidExpense,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeonEmerald.copy(alpha = 0.2f),
+                            contentColor = NeonEmerald
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NeonEmerald.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(34.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Icon(Icons.Default.AddShoppingCart, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("+ Friend Paid", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = { showAddFriendDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = OledBlack),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(34.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("+ Friend", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 1-Tap Pending Settlement Confirmation Banners
+            // 1-Tap Pending Settlement Confirmation Banners (both OWED_TO_ME and OWED_BY_ME)
             if (pendingSuggestions.isNotEmpty()) {
                 pendingSuggestions.forEach { suggestion ->
                     val friend = personsWithBalances.find { it.id == suggestion.suggestedPersonId }
                     val friendName = friend?.name ?: "Friend"
-                    val pendingBalance = friend?.totalOwedToMe ?: 0.0
+                    val isRepayment = suggestion.direction == SplitDirection.OWED_BY_ME
 
                     FoldCard(
-                        containerColor = Color(0xFF0F261C),
-                        borderColor = NeonEmerald.copy(alpha = 0.6f)
+                        containerColor = if (isRepayment) Color(0xFF261A0F) else Color(0xFF0F261C),
+                        borderColor = (if (isRepayment) NeonAmber else NeonEmerald).copy(alpha = 0.6f)
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     Icons.Default.Verified,
                                     contentDescription = null,
-                                    tint = NeonEmerald,
+                                    tint = if (isRepayment) NeonAmber else NeonEmerald,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "SMART CREDIT SETTLEMENT MATCH",
+                                    text = if (isRepayment) "OUTGOING REPAYMENT SUGGESTION" else "SMART CREDIT SETTLEMENT MATCH",
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp,
-                                    color = NeonEmerald
+                                    color = if (isRepayment) NeonAmber else NeonEmerald
                                 )
                             }
                             Spacer(modifier = Modifier.height(4.dp))
+                            val messageText = if (isRepayment) {
+                                "Paid ₹${suggestion.amount} to '${suggestion.detectedSenderName}'. Mark debt to $friendName as repaid?"
+                            } else {
+                                val pendingBalance = friend?.totalOwedToMe ?: 0.0
+                                "Received ₹${suggestion.amount} from '${suggestion.detectedSenderName}'. Apply to $friendName's ₹${pendingBalance.toInt()} balance?"
+                            }
                             Text(
-                                text = "Received ₹${suggestion.amount} from '${suggestion.detectedSenderName}'. Apply to $friendName's ₹${pendingBalance.toInt()} balance?",
+                                text = messageText,
                                 fontSize = 12.sp,
                                 color = TextPrimary
                             )
@@ -145,13 +185,16 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                                     onClick = {
                                         viewModel.confirmAndSaveAlias(suggestion.id)
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isRepayment) NeonAmber else NeonEmerald,
+                                        contentColor = OledBlack
+                                    ),
                                     shape = RoundedCornerShape(8.dp),
                                     modifier = Modifier.height(32.dp)
                                 ) {
                                     Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("1-Tap Confirm & Save Alias", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text("Accept", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                                 OutlinedButton(
                                     onClick = { viewModel.dismissSettlementSuggestion(suggestion.id) },
@@ -161,7 +204,7 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                                         brush = androidx.compose.ui.graphics.SolidColor(BorderCharcoal)
                                     )
                                 ) {
-                                    Text("Dismiss", fontSize = 11.sp, color = TextSecondary)
+                                    Text("Decline", fontSize = 11.sp, color = TextSecondary)
                                 }
                             }
                         }
@@ -170,7 +213,7 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                 }
             }
 
-            // Case C: 1-Tap Unallocated Hidden Sender Gmail Credits Banner
+            // Unallocated Hidden Sender Gmail Credits Banner
             if (unallocatedCredits.isNotEmpty()) {
                 unallocatedCredits.forEach { credit ->
                     val unsettledFriends = personsWithBalances.filter { it.totalOwedToMe > 0 }
@@ -188,7 +231,7 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "AXIS GMAIL CREDIT (SENDER HIDDEN)",
+                                    text = "BANK GMAIL CREDIT (SENDER HIDDEN)",
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp,
@@ -197,7 +240,7 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "₹${credit.amount.toInt()} credited via Axis Gmail. Apply to a friend?",
+                                text = "₹${credit.amount.toInt()} credited via Bank Gmail. Apply to a friend?",
                                 fontSize = 12.sp,
                                 color = TextPrimary
                             )
@@ -227,25 +270,66 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                 }
             }
 
-            // Summary Card (Fold Money Style)
+            // Summary Card (Bidirectional Debt Summary)
             FoldCard {
-                Column(modifier = Modifier.padding(18.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "TOTAL NET OWED TO ME",
+                        text = "DEBT & BALANCE SUMMARY",
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextMuted
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    MonospaceCurrencyText(
-                        amount = totalOwedToMe,
-                        fontSize = 28.sp,
-                        color = NeonAmber
-                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Owed to you",
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            MonospaceCurrencyText(
+                                amount = totalOwedToMe,
+                                fontSize = 20.sp,
+                                color = if (totalOwedToMe > 0) NeonAmber else TextMuted
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(36.dp)
+                                .background(BorderCharcoal)
+                        )
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            Text(
+                                text = "You owe",
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            MonospaceCurrencyText(
+                                amount = totalOwedByMe,
+                                fontSize = 20.sp,
+                                color = if (totalOwedByMe > 0) NeonCrimson else TextMuted
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(10.dp))
                     Divider(color = BorderCharcoal, thickness = 1.dp)
                     Spacer(modifier = Modifier.height(8.dp))
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -257,7 +341,7 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                             color = TextMuted
                         )
                         Text(
-                            text = "${allUnsettledBills.size} open bill splits",
+                            text = "${allUnsettledBills.size} open split items",
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             color = TextSecondary
@@ -296,12 +380,8 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                         FriendBalanceCard(
                             personWithBalance = personWithBal,
                             unsettledBills = friendBills,
-                            onSettleCash = {
-                                friendToSettle = personWithBal
-                            },
-                            onLogPaidShare = {
-                                friendToLogShare = personWithBal
-                            },
+                            onTheyPaidMe = { friendToReceiveFrom = personWithBal },
+                            onIPaidThem = { friendToRepay = personWithBal },
                             onEdit = {
                                 friendToEdit = PersonEntity(
                                     id = personWithBal.id,
@@ -326,11 +406,11 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
         }
     }
 
-    // Manual Settle Cash / Custom Amount Dialog
-    friendToSettle?.let { friend ->
-        ManualSettleDialog(
+    // "They Paid Me" Settlement Dialog
+    friendToReceiveFrom?.let { friend ->
+        TheyPaidMeDialog(
             friend = friend,
-            onDismiss = { friendToSettle = null },
+            onDismiss = { friendToReceiveFrom = null },
             onConfirmSettle = { amount ->
                 viewModel.settleAmountForPerson(
                     personId = friend.id,
@@ -339,7 +419,27 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                         overpaymentPrompt = Pair(excess, friendName)
                     }
                 )
-                friendToSettle = null
+                friendToReceiveFrom = null
+            }
+        )
+    }
+
+    // "I Paid Them" Repayment Dialog
+    friendToRepay?.let { friend ->
+        RepayFriendDebtDialog(
+            friend = friend,
+            accounts = accounts,
+            onDismiss = { friendToRepay = null },
+            onConfirmRepay = { accountId, amount, date ->
+                viewModel.repayFriendDebt(
+                    personId = friend.id,
+                    accountId = accountId,
+                    amountToPayPaise = (amount * 100).toLong(),
+                    timestamp = date
+                ) { result ->
+                    repaymentFeedbackMessage = result.message
+                }
+                friendToRepay = null
             }
         )
     }
@@ -382,27 +482,6 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
         )
     }
 
-    // Log Paid Friend Share Dialog
-    friendToLogShare?.let { friend ->
-        LogFriendShareDialog(
-            friend = friend,
-            categories = categories,
-            onDismiss = { friendToLogShare = null },
-            onConfirm = { amount, categoryId, note ->
-                viewModel.addManualTransaction(
-                    amount = amount,
-                    vendorName = "Paid to ${friend.name} (My Share)",
-                    categoryId = categoryId,
-                    type = TransactionType.EXPENSE,
-                    paymentMode = "UPI/Cash",
-                    splits = emptyList(),
-                    description = note.ifBlank { "My share paid to ${friend.name}" }
-                )
-                friendToLogShare = null
-            }
-        )
-    }
-
     // Add / Edit Friend Dialog
     if (showAddFriendDialog) {
         AddEditPersonDialog(
@@ -412,10 +491,16 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
                 friendToEdit = null
             },
             onSave = { name, aliases ->
-                if (friendToEdit == null) {
-                    viewModel.addPerson(name, aliases)
+                if (friendToEdit != null) {
+                    viewModel.updatePerson(
+                        PersonEntity(
+                            id = friendToEdit!!.id,
+                            name = name,
+                            exactSmsAliases = aliases
+                        )
+                    )
                 } else {
-                    viewModel.editPerson(friendToEdit!!.id, name, aliases)
+                    viewModel.createPerson(name, aliases)
                 }
                 showAddFriendDialog = false
                 friendToEdit = null
@@ -424,58 +509,67 @@ fun SplitsScreen(viewModel: TransactionViewModel) {
     }
 }
 
+/**
+ * Friend Card with Net Balance & Expandable Bills in both directions
+ */
 @Composable
 fun FriendBalanceCard(
     personWithBalance: PersonWithBalance,
     unsettledBills: List<UnsettledBillItem>,
-    onSettleCash: () -> Unit,
-    onLogPaidShare: () -> Unit,
+    onTheyPaidMe: () -> Unit,
+    onIPaidThem: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val netPaise = personWithBalance.netBalancePaise
+    val theyOweMe = personWithBalance.totalOwedToMePaise > 0L
+    val iOweThem = personWithBalance.totalOwedByMePaise > 0L
 
     FoldCard {
         Column(modifier = Modifier.padding(14.dp)) {
-            // Friend Info Header
+            // Header Row: Avatar, Name, Aliases and Net Balance
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (personWithBalance.totalOwedToMe > 0) NeonAmber.copy(alpha = 0.15f)
-                            else NeonEmerald.copy(alpha = 0.15f)
-                        ),
-                    contentAlignment = Alignment.Center
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = null,
-                        tint = if (personWithBalance.totalOwedToMe > 0) NeonAmber else NeonEmerald,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = personWithBalance.name,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (personWithBalance.exactSmsAliases.isNotBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(BorderCharcoal),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = "Aliases: ${personWithBalance.exactSmsAliases}",
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
+                            text = personWithBalance.name.take(1).uppercase(),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = NeonCyan
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = personWithBalance.name,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = TextPrimary
+                        )
+                        val subtitle = if (theyOweMe && iOweThem) {
+                            "They owe ₹${(personWithBalance.totalOwedToMePaise / 100.0).toInt()} • You owe ₹${(personWithBalance.totalOwedByMePaise / 100.0).toInt()}"
+                        } else if (personWithBalance.exactSmsAliases.isNotBlank()) {
+                            "Alias: ${personWithBalance.exactSmsAliases}"
+                        } else {
+                            "No SMS alias configured"
+                        }
+                        Text(
+                            text = subtitle,
+                            fontSize = 11.sp,
                             color = TextMuted,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -483,18 +577,23 @@ fun FriendBalanceCard(
                     }
                 }
 
-                // Balance Display
+                // Net Balance Display
                 Column(horizontalAlignment = Alignment.End) {
+                    val (netText, netColor) = when {
+                        netPaise > 0L -> Pair("They owe you", NeonEmerald)
+                        netPaise < 0L -> Pair("You owe them", NeonCrimson)
+                        else -> Pair("Settled", TextSecondary)
+                    }
                     MonospaceCurrencyText(
-                        amount = personWithBalance.totalOwedToMe,
+                        amount = Math.abs(netPaise) / 100.0,
                         fontSize = 16.sp,
-                        color = if (personWithBalance.totalOwedToMe > 0) NeonAmber else NeonEmerald
+                        color = netColor
                     )
                     Text(
-                        text = if (personWithBalance.totalOwedToMe > 0) "Owed" else "Settled",
+                        text = netText,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
-                        color = if (personWithBalance.totalOwedToMe > 0) NeonAmber else NeonEmerald
+                        color = netColor
                     )
                 }
             }
@@ -503,17 +602,18 @@ fun FriendBalanceCard(
             Divider(color = BorderCharcoal, thickness = 1.dp)
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Unsettled Bills Expander
+            // Action row & expander
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded },
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { expanded = !expanded }
+                ) {
                     Text(
-                        text = "${unsettledBills.size} Unsettled Bills",
+                        text = "${unsettledBills.size} Bills",
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = TextSecondary
@@ -527,35 +627,37 @@ fun FriendBalanceCard(
                     )
                 }
 
-                // Actions: Settle Cash / Paid Share / Edit / Delete
+                // Actions: They Paid Me / I Paid Them / Edit / Delete
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (personWithBalance.totalOwedToMe > 0) {
+                    if (theyOweMe) {
                         Button(
-                            onClick = onSettleCash,
+                            onClick = onTheyPaidMe,
                             colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.height(28.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp)
                         ) {
-                            Text("Settle Cash", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text("They paid me", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                         Spacer(modifier = Modifier.width(4.dp))
                     }
 
-                    Button(
-                        onClick = onLogPaidShare,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = NeonAmber.copy(alpha = 0.18f),
-                            contentColor = NeonAmber
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.height(28.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, NeonAmber.copy(alpha = 0.5f))
-                    ) {
-                        Text("Paid Share", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    if (iOweThem) {
+                        Button(
+                            onClick = onIPaidThem,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = NeonCrimson.copy(alpha = 0.2f),
+                                contentColor = NeonCrimson
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(28.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NeonCrimson.copy(alpha = 0.5f))
+                        ) {
+                            Text("I paid them", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
 
                     IconButton(onClick = onEdit, modifier = Modifier.size(24.dp)) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit", tint = TextSecondary, modifier = Modifier.size(14.dp))
@@ -575,6 +677,7 @@ fun FriendBalanceCard(
                         val dateFormatted = dateFormat.format(Date(bill.createdAt))
                         val isPartial = bill.amountPaidSoFar > 0.0
                         val remaining = bill.amountOwed - bill.amountPaidSoFar
+                        val isOwedByMe = bill.direction == SplitDirection.OWED_BY_ME
 
                         Row(
                             modifier = Modifier
@@ -587,7 +690,7 @@ fun FriendBalanceCard(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = bill.vendorName,
+                                    text = if (isOwedByMe) "${bill.vendorName} (Friend paid)" else bill.vendorName,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextPrimary,
@@ -595,7 +698,7 @@ fun FriendBalanceCard(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "$dateFormatted • Bill Total: ₹${bill.transactionTotal.toInt()}",
+                                    text = "$dateFormatted • Total: ₹${bill.transactionTotal.toInt()}",
                                     fontSize = 10.sp,
                                     color = TextMuted
                                 )
@@ -605,7 +708,7 @@ fun FriendBalanceCard(
                                 MonospaceCurrencyText(
                                     amount = remaining,
                                     fontSize = 12.sp,
-                                    color = NeonAmber
+                                    color = if (isOwedByMe) NeonCrimson else NeonAmber
                                 )
                                 if (isPartial) {
                                     StatusPill(
@@ -616,9 +719,9 @@ fun FriendBalanceCard(
                                     )
                                 } else {
                                     StatusPill(
-                                        text = "Unsettled",
-                                        bgColor = PillBgExpense,
-                                        textColor = PillTextExpense,
+                                        text = if (isOwedByMe) "You owe" else "Owed to you",
+                                        bgColor = if (isOwedByMe) PillBgExpense else PillBgTransfer,
+                                        textColor = if (isOwedByMe) PillTextExpense else PillTextTransfer,
                                         fontSize = 8.sp
                                     )
                                 }
@@ -631,8 +734,11 @@ fun FriendBalanceCard(
     }
 }
 
+/**
+ * "They Paid Me" dialog (incoming settlement from friend)
+ */
 @Composable
-fun ManualSettleDialog(
+fun TheyPaidMeDialog(
     friend: PersonWithBalance,
     onDismiss: () -> Unit,
     onConfirmSettle: (amount: Double) -> Unit
@@ -644,7 +750,7 @@ fun ManualSettleDialog(
         containerColor = MatteCharcoal,
         title = {
             Text(
-                text = "SETTLE BALANCE: ${friend.name.uppercase()}",
+                text = "THEY PAID ME: ${friend.name.uppercase()}",
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
@@ -654,7 +760,7 @@ fun ManualSettleDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Total dynamically owed: ₹${friend.totalOwedToMe}. Amounts are settled in strict FIFO order (oldest split items first).",
+                    text = "${friend.name} owes you ₹${friend.totalOwedToMe}. Enter amount received; it will be applied FIFO to the oldest debts.",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -662,7 +768,7 @@ fun ManualSettleDialog(
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it },
-                    label = { Text("Settlement Amount (₹)", color = TextSecondary) },
+                    label = { Text("Amount Received (₹)", color = TextSecondary) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     textStyle = androidx.compose.ui.text.TextStyle(
                         fontFamily = FontFamily.Monospace,
@@ -691,7 +797,7 @@ fun ManualSettleDialog(
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald, contentColor = OledBlack)
             ) {
-                Text("Confirm FIFO Settlement", fontWeight = FontWeight.Bold)
+                Text("Confirm Received", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
@@ -702,55 +808,66 @@ fun ManualSettleDialog(
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * "I Paid Them" Repayment Dialog (repaying debt to friend from an account)
+ */
 @Composable
-fun LogFriendShareDialog(
+fun RepayFriendDebtDialog(
     friend: PersonWithBalance,
-    categories: List<CategoryEntity>,
+    accounts: List<AccountEntity>,
     onDismiss: () -> Unit,
-    onConfirm: (amount: Double, categoryId: Long?, description: String) -> Unit
+    onConfirmRepay: (accountId: Long, amount: Double, date: Long) -> Unit
 ) {
-    var amountText by remember { mutableStateOf("") }
-    var selectedCategoryId by remember { mutableStateOf(categories.firstOrNull()?.id) }
-    var descriptionText by remember { mutableStateOf("") }
+    var amountText by remember { mutableStateOf((friend.totalOwedByMePaise / 100.0).toString()) }
+    var selectedAccountId by remember { mutableStateOf(accounts.firstOrNull()?.id ?: 0L) }
+    var selectedDate by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    val context = LocalContext.current
+    val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    val calendar = remember(selectedDate) {
+        Calendar.getInstance().apply { timeInMillis = selectedDate }
+    }
+    val datePickerDialog = remember {
+        DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                val newCal = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, year)
+                    set(Calendar.MONTH, month)
+                    set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                }
+                selectedDate = newCal.timeInMillis
+            },
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH),
+            calendar.get(Calendar.DAY_OF_MONTH)
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MatteCharcoal,
         title = {
-            Column {
-                Text(
-                    text = "PAID FRIEND FOR MY SHARE",
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp,
-                    color = NeonAmber
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Pay Share to ${friend.name}",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = TextPrimary
-                )
-            }
+            Text(
+                text = "REPAY FRIEND: ${friend.name.uppercase()}",
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                color = TextPrimary
+            )
         },
         text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "When ${friend.name} paid the bill and you paid them back your personal share.",
+                    text = "You owe ${friend.name} ₹${(friend.totalOwedByMePaise / 100.0)}. Select the account paid from to record the payment and settle debts FIFO.",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
 
-                // Amount
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it },
-                    label = { Text("Amount Paid (₹)", color = TextSecondary) },
+                    label = { Text("Amount Repaid (₹)", color = TextSecondary) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     textStyle = androidx.compose.ui.text.TextStyle(
                         fontFamily = FontFamily.Monospace,
@@ -763,48 +880,59 @@ fun LogFriendShareDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = InputBg,
                         unfocusedContainerColor = InputBg,
-                        focusedBorderColor = NeonAmber,
+                        focusedBorderColor = NeonCrimson,
                         unfocusedBorderColor = BorderCharcoal
                     )
                 )
 
-                // Category
-                if (categories.isNotEmpty()) {
-                    Text("Expense Category:", fontSize = 11.sp, color = TextMuted)
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        categories.forEach { cat ->
-                            FilterChip(
-                                selected = selectedCategoryId == cat.id,
-                                onClick = { selectedCategoryId = cat.id },
-                                label = { Text(cat.name, fontSize = 11.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = NeonEmerald.copy(alpha = 0.2f),
-                                    selectedLabelColor = NeonEmerald
-                                )
+                // Paid From Account Chips
+                Text("Paid From Account:", fontSize = 11.sp, color = TextMuted)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedAccountId == 0L,
+                        onClick = { selectedAccountId = 0L },
+                        label = { Text("Cash / External", fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = NeonCyan.copy(alpha = 0.2f),
+                            selectedLabelColor = NeonCyan
+                        )
+                    )
+                    accounts.take(3).forEach { acc ->
+                        FilterChip(
+                            selected = selectedAccountId == acc.id,
+                            onClick = { selectedAccountId = acc.id },
+                            label = { Text("${acc.bankName} ••${acc.last4}", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = NeonCyan.copy(alpha = 0.2f),
+                                selectedLabelColor = NeonCyan
                             )
-                        }
+                        )
                     }
                 }
 
-                // Description
-                OutlinedTextField(
-                    value = descriptionText,
-                    onValueChange = { descriptionText = it },
-                    label = { Text("Why did you pay? (Optional)", color = TextSecondary) },
-                    placeholder = { Text("e.g. Dinner share at canteen, cab fare", color = TextMuted, fontSize = 11.sp) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        focusedBorderColor = NeonAmber,
-                        unfocusedBorderColor = BorderCharcoal
-                    )
-                )
+                // Date Picker
+                OutlinedCard(
+                    onClick = { datePickerDialog.show() },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Payment Date", fontSize = 10.sp, color = TextMuted)
+                            Text(dateFormatter.format(Date(selectedDate)), fontSize = 12.sp, color = TextPrimary)
+                        }
+                        Icon(Icons.Default.CalendarToday, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(16.dp))
+                    }
+                }
             }
         },
         confirmButton = {
@@ -812,13 +940,12 @@ fun LogFriendShareDialog(
                 onClick = {
                     val amount = amountText.toDoubleOrNull() ?: 0.0
                     if (amount > 0) {
-                        onConfirm(amount, selectedCategoryId, descriptionText.trim())
+                        onConfirmRepay(selectedAccountId, amount, selectedDate)
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = NeonAmber, contentColor = OledBlack),
-                shape = RoundedCornerShape(8.dp)
+                colors = ButtonDefaults.buttonColors(containerColor = NeonCrimson, contentColor = TextPrimary)
             ) {
-                Text("Record Expense", fontWeight = FontWeight.Bold)
+                Text("Confirm Repayment", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
@@ -879,7 +1006,7 @@ fun AddEditPersonDialog(
                     )
                 )
                 Text(
-                    text = "Incoming Axis XX2003 SMS exactly matching these aliases will auto-settle balances instantly.",
+                    text = "Incoming SMS or Outgoing payments matching these aliases will auto-suggest settlements.",
                     fontSize = 11.sp,
                     color = TextMuted
                 )

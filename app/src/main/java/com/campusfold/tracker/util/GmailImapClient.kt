@@ -36,19 +36,65 @@ object GmailImapClient {
     private const val IMAP_PORT = 993
 
     /**
+     * Tests IMAP connection and credentials with imap.gmail.com:993.
+     */
+    suspend fun testConnection(
+        emailAddress: String,
+        appPassword: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val cleanEmail = emailAddress.trim()
+        val cleanPassword = appPassword.replace(" ", "").trim()
+
+        if (cleanEmail.isBlank() || cleanPassword.isBlank()) {
+            return@withContext Result.failure(GmailImapException("Gmail address and App Password cannot be empty."))
+        }
+
+        val props = Properties().apply {
+            put("mail.store.protocol", "imaps")
+            put("mail.imaps.host", IMAP_HOST)
+            put("mail.imaps.port", IMAP_PORT.toString())
+            put("mail.imaps.ssl.enable", "true")
+            put("mail.imaps.ssl.checkserveridentity", "true")
+            put("mail.imaps.connectiontimeout", "15000")
+            put("mail.imaps.timeout", "15000")
+        }
+
+        var store: Store? = null
+        var folder: Folder? = null
+        try {
+            val session = Session.getInstance(props)
+            store = session.getStore("imaps")
+            store.connect(IMAP_HOST, IMAP_PORT, cleanEmail, cleanPassword)
+            folder = store.getFolder("INBOX")
+            folder.open(Folder.READ_ONLY)
+            val count = folder.messageCount
+            Result.success("Connected successfully! ($count messages in INBOX)")
+        } catch (e: AuthenticationFailedException) {
+            Result.failure(GmailImapException("Authentication failed. Check your Gmail address and 16-character App Password.", e))
+        } catch (e: Exception) {
+            Result.failure(GmailImapException(e.localizedMessage ?: "Connection failed.", e))
+        } finally {
+            try { folder?.close(false) } catch (_: Exception) {}
+            try { store?.close() } catch (_: Exception) {}
+        }
+    }
+
+    /**
      * Connects securely over TLS/SSL to imap.gmail.com:993, authenticates via Google App Password,
      * performs UID-based incremental sync with UIDVALIDITY tracking, matches Indian bank sender domains
      * and subject keywords from BankEmailSyncConfig, and parses quoted-printable, base64 and multipart MIME bodies.
+     * Uses FetchProfile for fast prefetching and processes in 100-msg chunks oldest-to-newest.
      */
-    suspend fun fetchBankEmails(
+    suspend fun fetchBankEmailsInChunks(
         emailAddress: String,
         appPassword: String,
         appPreferences: AppPreferences? = null,
         startDateMillis: Long? = null,
-        maxEmailsToFetch: Int = 200,
+        chunkSize: Int = 100,
         isCancelled: (() -> Boolean)? = null,
-        onProgress: ((current: Int, total: Int) -> Unit)? = null
-    ): List<FetchedEmail> = withContext(Dispatchers.IO) {
+        onProgress: ((current: Int, total: Int) -> Unit)? = null,
+        onChunkReady: suspend (chunk: List<FetchedEmail>, serverUidValidity: Long, chunkHighestUid: Long) -> Unit
+    ): Int = withContext(Dispatchers.IO) {
         val cleanEmail = emailAddress.trim()
         val cleanPassword = appPassword.replace(" ", "").trim()
 
@@ -61,14 +107,17 @@ object GmailImapClient {
             put("mail.imaps.host", IMAP_HOST)
             put("mail.imaps.port", IMAP_PORT.toString())
             put("mail.imaps.ssl.enable", "true")
-            put("mail.imaps.ssl.checkserveridentity", "true") // Enforce TLS certificate check
+            put("mail.imaps.ssl.checkserveridentity", "true")
             put("mail.imaps.connectiontimeout", "30000")
             put("mail.imaps.timeout", "30000")
         }
 
         var store: Store? = null
         var folder: IMAPFolder? = null
-        val fetchedList = mutableListOf<FetchedEmail>()
+        var totalFetchedCount = 0
+
+        val customSenders = appPreferences?.getCustomBankSendersSync() ?: emptySet()
+        val scanAllSenders = appPreferences?.isScanAllSendersSync() ?: false
 
         try {
             val session = Session.getInstance(props)
@@ -92,7 +141,6 @@ object GmailImapClient {
                 Pair(0L, 0L)
             }
 
-            // UIDVALIDITY state check & reset
             val effectiveLastUid = if (storedUidValidity != serverUidValidity) {
                 Log.d(TAG, "UIDVALIDITY changed ($storedUidValidity -> $serverUidValidity), resetting last UID.")
                 0L
@@ -121,58 +169,83 @@ object GmailImapClient {
 
             val totalCandidateCount = messagesToProcess.size
             Log.d(TAG, "Total candidate messages to inspect: $totalCandidateCount")
+            if (totalCandidateCount == 0) return@withContext 0
 
-            // Take up to maxEmailsToFetch (most recent first)
-            val sortedMessages = messagesToProcess.toList().reversed().take(maxEmailsToFetch)
-            var highestProcessedUid = effectiveLastUid
+            // Prefetch envelope, flags, and UIDs with FetchProfile
+            val fp = FetchProfile().apply {
+                add(FetchProfile.Item.ENVELOPE)
+                add(FetchProfile.Item.FLAGS)
+                add(UIDFolder.FetchProfileItem.UID)
+            }
+            folder.fetch(messagesToProcess, fp)
 
-            for ((index, msg) in sortedMessages.withIndex()) {
+            // Sort oldest to newest (by UID ASC) so we don't skip emails when committing UIDs
+            val sortedMessages = messagesToProcess.toList().sortedWith(compareBy({
+                try { folder.getUID(it) } catch (_: Exception) { 0L }
+            }, {
+                it.receivedDate?.time ?: it.sentDate?.time ?: 0L
+            }))
+
+            var processedIndex = 0
+            val chunks = sortedMessages.chunked(chunkSize)
+
+            for (chunk in chunks) {
                 if (isCancelled?.invoke() == true) {
                     Log.d(TAG, "Gmail sync cancelled.")
                     break
                 }
-                onProgress?.invoke(index + 1, sortedMessages.size)
 
-                try {
-                    val uid = folder.getUID(msg)
-                    if (uid > highestProcessedUid) {
-                        highestProcessedUid = uid
-                    }
+                val chunkFetchedEmails = mutableListOf<FetchedEmail>()
+                var chunkHighestUid = 0L
 
-                    val sender = msg.from?.firstOrNull()?.let {
-                        try { MimeUtility.decodeText(it.toString()) } catch (_: Exception) { it.toString() }
-                    } ?: ""
+                for (msg in chunk) {
+                    if (isCancelled?.invoke() == true) break
+                    processedIndex++
+                    onProgress?.invoke(processedIndex, sortedMessages.size)
 
-                    val subject = try {
-                        msg.subject?.let { MimeUtility.decodeText(it) } ?: ""
-                    } catch (_: Exception) {
-                        msg.subject ?: ""
-                    }
+                    try {
+                        val uid = folder.getUID(msg)
+                        if (uid > chunkHighestUid) {
+                            chunkHighestUid = uid
+                        }
 
-                    if (!BankEmailSyncConfig.matchesBankEmail(sender, subject)) {
-                        continue
-                    }
+                        val sender = msg.from?.firstOrNull()?.let {
+                            try { MimeUtility.decodeText(it.toString()) } catch (_: Exception) { it.toString() }
+                        } ?: ""
 
-                    val dateMillis = msg.receivedDate?.time ?: msg.sentDate?.time ?: System.currentTimeMillis()
-                    val body = MimeMessageDecoder.extractCleanBodyText(msg)
+                        val subject = try {
+                            msg.subject?.let { MimeUtility.decodeText(it) } ?: ""
+                        } catch (_: Exception) {
+                            msg.subject ?: ""
+                        }
 
-                    fetchedList.add(
-                        FetchedEmail(
-                            uid = uid,
-                            sender = sender,
-                            subject = subject,
-                            body = body,
-                            dateMillis = dateMillis
+                        if (!BankEmailSyncConfig.matchesBankEmail(sender, subject, customSenders, scanAllSenders)) {
+                            continue
+                        }
+
+                        val dateMillis = msg.receivedDate?.time ?: msg.sentDate?.time ?: System.currentTimeMillis()
+                        val body = MimeMessageDecoder.extractCleanBodyText(msg)
+
+                        chunkFetchedEmails.add(
+                            FetchedEmail(
+                                uid = uid,
+                                sender = sender,
+                                subject = subject,
+                                body = body,
+                                dateMillis = dateMillis
+                            )
                         )
-                    )
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error parsing message index $index", e)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error parsing message index $processedIndex", e)
+                    }
                 }
-            }
 
-            // Update UID sync state
-            if (appPreferences != null && highestProcessedUid > 0L) {
-                appPreferences.setGmailUidSyncState(serverUidValidity, highestProcessedUid)
+                if (chunkFetchedEmails.isNotEmpty()) {
+                    totalFetchedCount += chunkFetchedEmails.size
+                    onChunkReady(chunkFetchedEmails, serverUidValidity, chunkHighestUid)
+                } else if (chunkHighestUid > 0L) {
+                    appPreferences?.setGmailUidSyncState(serverUidValidity, chunkHighestUid)
+                }
             }
 
         } finally {
@@ -180,7 +253,32 @@ object GmailImapClient {
             try { store?.close() } catch (_: Exception) {}
         }
 
-        return@withContext fetchedList
+        return@withContext totalFetchedCount
+    }
+
+    suspend fun fetchBankEmails(
+        emailAddress: String,
+        appPassword: String,
+        appPreferences: AppPreferences? = null,
+        startDateMillis: Long? = null,
+        maxEmailsToFetch: Int = 200,
+        isCancelled: (() -> Boolean)? = null,
+        onProgress: ((current: Int, total: Int) -> Unit)? = null
+    ): List<FetchedEmail> = withContext(Dispatchers.IO) {
+        val result = mutableListOf<FetchedEmail>()
+        fetchBankEmailsInChunks(
+            emailAddress = emailAddress,
+            appPassword = appPassword,
+            appPreferences = appPreferences,
+            startDateMillis = startDateMillis,
+            chunkSize = 100,
+            isCancelled = isCancelled,
+            onProgress = onProgress,
+            onChunkReady = { chunk, _, _ ->
+                result.addAll(chunk)
+            }
+        )
+        return@withContext result.take(maxEmailsToFetch)
     }
 
     suspend fun fetchAxisBankEmails(

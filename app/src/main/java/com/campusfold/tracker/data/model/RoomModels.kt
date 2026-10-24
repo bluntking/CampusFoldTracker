@@ -3,22 +3,26 @@ package com.campusfold.tracker.data.model
 import androidx.room.Embedded
 import androidx.room.Relation
 import com.campusfold.tracker.data.entity.PersonEntity
+import com.campusfold.tracker.data.entity.SplitDirection
 import com.campusfold.tracker.data.entity.SplitItemEntity
 import com.campusfold.tracker.data.entity.TransactionEntity
 import com.campusfold.tracker.util.CurrencyUtils
 
 /**
- * Calculated projection for a Person and their dynamic balance owed to me.
+ * Calculated projection for a Person and their dynamic balance owed to me / owed by me.
  * Guaranteed never to drift out of sync with actual split item rows.
  */
 data class PersonWithBalance(
     val id: Long,
     val name: String,
     val exactSmsAliases: String,
-    val totalOwedToMePaise: Long
+    val totalOwedToMePaise: Long = 0L,
+    val totalOwedByMePaise: Long = 0L
 ) {
     val totalOwedToMe: Double get() = totalOwedToMePaise / 100.0
-    val netBalance: Double get() = totalOwedToMe
+    val totalOwedByMe: Double get() = totalOwedByMePaise / 100.0
+    val netBalancePaise: Long get() = totalOwedToMePaise - totalOwedByMePaise
+    val netBalance: Double get() = netBalancePaise / 100.0
 
     constructor(
         id: Long,
@@ -29,7 +33,22 @@ data class PersonWithBalance(
         id = id,
         name = name,
         exactSmsAliases = exactSmsAliases,
-        totalOwedToMePaise = CurrencyUtils.rupeesToPaise(totalOwedToMe)
+        totalOwedToMePaise = CurrencyUtils.rupeesToPaise(totalOwedToMe),
+        totalOwedByMePaise = 0L
+    )
+
+    constructor(
+        id: Long,
+        name: String,
+        exactSmsAliases: String,
+        totalOwedToMe: Double,
+        totalOwedByMe: Double
+    ) : this(
+        id = id,
+        name = name,
+        exactSmsAliases = exactSmsAliases,
+        totalOwedToMePaise = CurrencyUtils.rupeesToPaise(totalOwedToMe),
+        totalOwedByMePaise = CurrencyUtils.rupeesToPaise(totalOwedByMe)
     )
 }
 
@@ -45,7 +64,8 @@ data class UnsettledBillItem(
     val amountOwedPaise: Long,
     val amountPaidSoFarPaise: Long,
     val isSettled: Boolean,
-    val createdAt: Long
+    val createdAt: Long,
+    val direction: SplitDirection = SplitDirection.OWED_TO_ME
 ) {
     val transactionTotal: Double get() = transactionTotalPaise / 100.0
     val amountOwed: Double get() = amountOwedPaise / 100.0
@@ -70,7 +90,8 @@ data class UnsettledBillItem(
         amountOwedPaise = CurrencyUtils.rupeesToPaise(amountOwed),
         amountPaidSoFarPaise = CurrencyUtils.rupeesToPaise(amountPaidSoFar),
         isSettled = isSettled,
-        createdAt = createdAt
+        createdAt = createdAt,
+        direction = SplitDirection.OWED_TO_ME
     )
 }
 
@@ -101,6 +122,55 @@ data class SettlementResult(
         excessAmountPaise = CurrencyUtils.rupeesToPaise(excessAmount),
         updatedSplitCount = updatedSplitCount
     )
+}
+
+/**
+ * Result of repaying a friend debt FIFO ("I paid them").
+ */
+data class RepaymentResult(
+    val friendName: String,
+    val debtSettledPaise: Long,
+    val remainingDebtPaise: Long,
+    val excessAsExpensePaise: Long = 0L,
+    val updatedSplitCount: Int,
+    val transactionId: Long = 0L
+) {
+    val debtSettled: Double get() = debtSettledPaise / 100.0
+    val remainingDebt: Double get() = remainingDebtPaise / 100.0
+    val excessAsExpense: Double get() = excessAsExpensePaise / 100.0
+}
+
+/**
+ * Derived account balance calculation models (Part 6).
+ */
+data class DerivedAccountBalance(
+    val account: AccountEntity,
+    val derivedBalancePaise: Long,
+    val derivedOwedPaise: Long,
+    val availableCreditPaise: Long,
+    val hasDiscrepancy: Boolean = false,
+    val discrepancyBankBalancePaise: Long? = null
+) {
+    val derivedBalance: Double get() = derivedBalancePaise / 100.0
+    val derivedOwed: Double get() = derivedOwedPaise / 100.0
+    val availableCredit: Double get() = availableCreditPaise / 100.0
+    val discrepancyBankBalance: Double? get() = discrepancyBankBalancePaise?.let { it / 100.0 }
+}
+
+data class NetBalanceOverview(
+    val netAvailableBalancePaise: Long = 0L,
+    val totalSavingsBalancePaise: Long = 0L,
+    val totalCardOwedPaise: Long = 0L,
+    val totalOwedToFriendsPaise: Long = 0L,
+    val totalFriendsOweMePaise: Long = 0L,
+    val unanchoredAccountsCount: Int = 0,
+    val earliestTrackedTimestamp: Long = System.currentTimeMillis()
+) {
+    val netAvailableBalance: Double get() = netAvailableBalancePaise / 100.0
+    val totalSavingsBalance: Double get() = totalSavingsBalancePaise / 100.0
+    val totalCardOwed: Double get() = totalCardOwedPaise / 100.0
+    val totalOwedToFriends: Double get() = totalOwedToFriendsPaise / 100.0
+    val totalFriendsOweMe: Double get() = totalFriendsOweMePaise / 100.0
 }
 
 /**

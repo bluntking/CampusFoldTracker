@@ -223,7 +223,7 @@ fun RulesScreen(
                 shape = CircleShape,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(20.dp)
+                    .padding(bottom = 100.dp, end = 20.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,

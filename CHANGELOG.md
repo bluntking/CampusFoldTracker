@@ -4,7 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [2.1.0] - 2026-10-24
+
+### Added
+- **5-Slot Floating Navigation**: Refactored `FloatingPillBottomBar` to exactly five slots: Home, Analytics, Center Add (+), Splits, and Settings.
+- **Pushed Screens Architecture**: Added dedicated pushed `TransactionsScreen` (with search, category/vendor drill-down, date grouping, bulk actions) and full `AccountsScreen`; pushed screens keep the bar visible with Home highlighted and respect navigation-bar bottom padding.
+- **Full-Height Add Transaction Sheet**: Replaced the legacy dialog with a full-height sheet supporting Expense ("I paid" vs "A friend paid"), Income, CC Bill Payment, and Transfer with real account selections, backdating date/time pickers, and inline friend creation.
+- **Friend-Paid Expenses & True Spend**: Expenses paid by a friend now record zero account debit, set `transactions.paidByPersonId`, count toward personal true spend, and create `OWED_BY_ME` debts in Room DB without inflating gross spending.
+- **Bidirectional Splits & Repayments**: Top debt summary ("You owe ₹X" and "Owed to you ₹Y"), net balances per friend, expandable bills in both directions, "They paid me" (FIFO settlement), "I paid them" (account debit + FIFO repayment with excess-to-expense protection), and outgoing payment match suggestions.
+- **Anchor-Based Net Available Balance Engine**: Derived account balance calculation (`anchor + credits - debits` for savings, `anchorOwed + debits - credits` for cards); Net Available Balance is strictly `savings - credit card owed`; CC bill transfers and internal transfers leave net unchanged; added "Auto-use bank-reported balances" setting and discrepancy hints.
+- **Rebuilt Home Screen**: LazyColumn featuring 7 structured sections in order: Header (with non-interactive background sync indicator and AI Coach button), slim Needs-Attention strip, Net Balance Card, Total Spends tile (Month/Week toggle, period picker, True Spend gauge, Gross/Split breakdown), Recent Transactions tile (with "See All >"), My Accounts tile, and 14-week Activity Heatmap.
+- **Edge-to-Edge Theme Integration**: Eliminated the white status bar bug via `enableEdgeToEdge()` in `MainActivity.kt` with app-theme aware `SystemBarStyle`, dark NoActionBar window background in `themes.xml`, and clean removal of deprecated window color assignments in `Theme.kt`.
+- **Dedicated Settings Hub**: Replaced the overflowing 5-tab strip with clean navigation into pushed sub-screens: Sync & Data, Backup & Restore, Organize (Categories & Vendors, Review Queue with badge, Automation Rules), Accounts, AI Diagnostics, Appearance & Profile (Dark/Light/AMOLED, Dynamic Color, Display Name), and a guarded Danger Zone with typed "DELETE" confirmation for "Clear Transactions Only" vs "Reset Everything".
+- **Enhanced Sync Engine**: Replaced rejected `LIMIT`/`OFFSET` SMS pagination with keyset cursor pagination; Gmail auto-sync on open with 60s debounce, 100-msg batch ingestion with post-commit UID checkpointing, FetchProfile prefetching, RBI domain filtering (`.bank.in`, `.fin.in`), and editable custom bank senders.
+- **Database Migration 4 -> 5**: Automated migration adding anchor fields to accounts, `direction` to `split_items` and `pending_settlement_suggestions`, and `paidByPersonId` to `transactions`.
+- **Vendor Auto-Persistence**: Fixed empty categories/vendors root cause by auto-persisting extracted vendors directly to Room DB on resolution.
+- **Automated Unit Tests**: Comprehensive test suite covering Migration 4->5, Net Balance Engine, Friend-Paid & FIFO Repayment logic, Bank Email Filters, and Reset Data operations.
 
 ### Important Note Before Updating
 - Export a full JSON backup from your settings before installing this update to preserve your financial data.

@@ -86,6 +86,18 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE accountId = :accountId")
     suspend fun getTransactionsByAccountId(accountId: Long): List<TransactionEntity>
 
+    @Query("SELECT * FROM transactions WHERE accountId = :accountId AND timestamp >= :since ORDER BY timestamp ASC")
+    suspend fun getTransactionsForAccountSinceSync(accountId: Long, since: Long): List<TransactionEntity>
+
+    @Query("SELECT * FROM transactions WHERE accountId = :accountId ORDER BY timestamp ASC")
+    fun getTransactionsForAccount(accountId: Long): Flow<List<TransactionEntity>>
+
+    @Query("SELECT MIN(timestamp) FROM transactions")
+    fun getEarliestTransactionTimestamp(): Flow<Long?>
+
+    @Query("SELECT MIN(timestamp) FROM transactions")
+    suspend fun getEarliestTransactionTimestampSync(): Long?
+
     @Query("SELECT COUNT(*) FROM transactions WHERE accountId = :accountId")
     suspend fun countTransactionsByAccountId(accountId: Long): Int
 
@@ -135,7 +147,7 @@ interface TransactionDao {
     @Query("SELECT SUM(myActualSharePaise) FROM transactions WHERE type = 'EXPENSE'")
     fun getTotalMyExpensePaise(): Flow<Long?>
 
-    @Query("SELECT SUM(amountPaise) FROM transactions WHERE type = 'EXPENSE'")
+    @Query("SELECT SUM(amountPaise) FROM transactions WHERE type = 'EXPENSE' AND paidByPersonId IS NULL")
     fun getTotalGrossExpensePaise(): Flow<Long?>
 
     @Query("SELECT SUM(amountPaise) FROM transactions WHERE type = 'INCOME'")

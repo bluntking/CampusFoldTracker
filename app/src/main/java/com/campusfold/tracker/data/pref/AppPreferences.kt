@@ -35,6 +35,10 @@ class AppPreferences(private val context: Context) {
         private val THEME_MODE = stringPreferencesKey("theme_mode") // "SYSTEM", "LIGHT", "DARK"
         private val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         private val AMOLED_MODE = booleanPreferencesKey("amoled_mode")
+        private val SYNC_GMAIL_ON_OPEN = booleanPreferencesKey("sync_gmail_on_open")
+        private val AUTO_USE_BANK_BALANCES = booleanPreferencesKey("auto_use_bank_balances")
+        private val CUSTOM_BANK_SENDERS = stringSetPreferencesKey("custom_bank_senders")
+        private val SCAN_ALL_SENDERS = booleanPreferencesKey("scan_all_senders")
     }
 
     // ─── Onboarding & Appearance Preferences ──────────────────────────────────
@@ -285,6 +289,84 @@ class AppPreferences(private val context: Context) {
         val key = intPreferencesKey("alert_${yearMonth}_overall")
         context.dataStore.edit { preferences ->
             preferences[key] = threshold
+        }
+    }
+
+    // ─── Sync & Balance Engine Settings (Parts 6 & 7) ─────────────────────────
+
+    val syncGmailOnOpen: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[SYNC_GMAIL_ON_OPEN] ?: true
+    }
+
+    suspend fun isSyncGmailOnOpenSync(): Boolean {
+        val prefs = context.dataStore.data.first()
+        return prefs[SYNC_GMAIL_ON_OPEN] ?: true
+    }
+
+    suspend fun setSyncGmailOnOpen(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[SYNC_GMAIL_ON_OPEN] = enabled
+        }
+    }
+
+    val autoUseBankBalances: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[AUTO_USE_BANK_BALANCES] ?: false
+    }
+
+    suspend fun isAutoUseBankBalancesSync(): Boolean {
+        val prefs = context.dataStore.data.first()
+        return prefs[AUTO_USE_BANK_BALANCES] ?: false
+    }
+
+    suspend fun setAutoUseBankBalances(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[AUTO_USE_BANK_BALANCES] = enabled
+        }
+    }
+
+    val customBankSenders: Flow<Set<String>> = context.dataStore.data.map { preferences ->
+        preferences[CUSTOM_BANK_SENDERS] ?: emptySet()
+    }
+
+    suspend fun getCustomBankSendersSync(): Set<String> {
+        val prefs = context.dataStore.data.first()
+        return prefs[CUSTOM_BANK_SENDERS] ?: emptySet()
+    }
+
+    suspend fun addCustomBankSender(senderOrDomain: String) {
+        context.dataStore.edit { preferences ->
+            val current = preferences[CUSTOM_BANK_SENDERS]?.toMutableSet() ?: mutableSetOf()
+            current.add(senderOrDomain.trim().lowercase())
+            preferences[CUSTOM_BANK_SENDERS] = current
+        }
+    }
+
+    suspend fun removeCustomBankSender(senderOrDomain: String) {
+        context.dataStore.edit { preferences ->
+            val current = preferences[CUSTOM_BANK_SENDERS]?.toMutableSet() ?: mutableSetOf()
+            current.remove(senderOrDomain.trim().lowercase())
+            preferences[CUSTOM_BANK_SENDERS] = current
+        }
+    }
+
+    val scanAllSenders: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[SCAN_ALL_SENDERS] ?: false
+    }
+
+    suspend fun isScanAllSendersSync(): Boolean {
+        val prefs = context.dataStore.data.first()
+        return prefs[SCAN_ALL_SENDERS] ?: false
+    }
+
+    suspend fun setScanAllSenders(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[SCAN_ALL_SENDERS] = enabled
+        }
+    }
+
+    suspend fun clearAllPreferences() {
+        context.dataStore.edit { preferences ->
+            preferences.clear()
         }
     }
 }

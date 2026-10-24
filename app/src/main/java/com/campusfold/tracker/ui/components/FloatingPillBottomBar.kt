@@ -27,16 +27,20 @@ import com.campusfold.tracker.ui.theme.*
 
 /**
  * Floating Pill-shaped Bottom Navigation Bar.
- * Houses Home, Analytics, AI Coach, plus floating "+" (Add transaction) and Sync (Scan now) buttons.
+ * Exactly 5 slots in order: Home, Analytics, + (center), Splits, Settings.
+ * Selected item expands to show its text label.
+ * Pushed screens highlight Home.
  */
 @Composable
 fun FloatingPillBottomBar(
     currentScreen: AppNavScreen,
     onNavigate: (AppNavScreen) -> Unit,
     onAddTransaction: () -> Unit,
-    onSyncNow: () -> Unit,
+    isPushedScreenActive: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val isHomeActive = currentScreen == AppNavScreen.HOME || isPushedScreenActive
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -62,11 +66,11 @@ fun FloatingPillBottomBar(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 1. Home Tab
+                // 1. Home Tab (also highlighted on pushed screens)
                 PillNavItem(
                     label = "Home",
                     icon = Icons.Default.Home,
-                    isSelected = currentScreen == AppNavScreen.HOME,
+                    isSelected = isHomeActive,
                     onClick = { onNavigate(AppNavScreen.HOME) }
                 )
 
@@ -78,7 +82,7 @@ fun FloatingPillBottomBar(
                     onClick = { onNavigate(AppNavScreen.ANALYTICS) }
                 )
 
-                // 3. Floating Add (+) Action
+                // 3. Center Floating Add (+) Action
                 Box(
                     modifier = Modifier
                         .size(46.dp)
@@ -95,25 +99,20 @@ fun FloatingPillBottomBar(
                     )
                 }
 
-                // 4. Sync Now Action
-                IconButton(
-                    onClick = onSyncNow,
-                    modifier = Modifier.size(42.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Sync,
-                        contentDescription = "Sync Now",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // 5. AI Coach Tab
+                // 4. Splits Tab
                 PillNavItem(
-                    label = "AI Coach",
-                    icon = Icons.Default.AutoAwesome,
-                    isSelected = currentScreen == AppNavScreen.AI_COACH,
-                    onClick = { onNavigate(AppNavScreen.AI_COACH) }
+                    label = "Splits",
+                    icon = Icons.Default.CallSplit,
+                    isSelected = currentScreen == AppNavScreen.SPLITS,
+                    onClick = { onNavigate(AppNavScreen.SPLITS) }
+                )
+
+                // 5. Settings Tab
+                PillNavItem(
+                    label = "Settings",
+                    icon = Icons.Default.Settings,
+                    isSelected = currentScreen == AppNavScreen.SETTINGS,
+                    onClick = { onNavigate(AppNavScreen.SETTINGS) }
                 )
             }
         }

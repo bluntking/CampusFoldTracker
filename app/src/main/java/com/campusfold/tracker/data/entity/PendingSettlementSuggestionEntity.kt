@@ -44,7 +44,8 @@ data class PendingSettlementSuggestionEntity(
     val suggestedPersonId: Long,
     val detectedSenderName: String,
     val amountPaise: Long,
-    val status: SettlementSuggestionStatus = SettlementSuggestionStatus.PENDING
+    val status: SettlementSuggestionStatus = SettlementSuggestionStatus.PENDING,
+    val direction: SplitDirection = SplitDirection.OWED_TO_ME
 ) {
     // Backward-compatibility accessor
     val amount: Double get() = amountPaise / 100.0

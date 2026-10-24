@@ -36,10 +36,22 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import android.app.DatePickerDialog
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalContext
+import java.util.Calendar
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccountsScreen(viewModel: TransactionViewModel) {
+fun AccountsScreen(
+    viewModel: TransactionViewModel,
+    onBack: () -> Unit = {}
+) {
+    BackHandler { onBack() }
+
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val derivedBalances by viewModel.derivedAccountBalances.collectAsStateWithLifecycle()
+    val netOverview by viewModel.netBalanceOverview.collectAsStateWithLifecycle()
     val showArchived by viewModel.showArchivedAccounts.collectAsStateWithLifecycle()
     val latestAutoMerge by viewModel.latestAutoMergeLog.collectAsStateWithLifecycle()
     val dismissedAutoMergeId by viewModel.dismissedAutoMergeLogId.collectAsStateWithLifecycle()
@@ -65,38 +77,52 @@ fun AccountsScreen(viewModel: TransactionViewModel) {
         }
     }
 
+    val trackedSinceFormatter = remember {
+        SimpleDateFormat("d MMM yyyy", Locale.getDefault())
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = Dimensions.Padding.content)
         ) {
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Reference Style Top Bar Header
+            // Top Bar Header with Back Arrow
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "ACCOUNTS & CARDS",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        ),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "Manage Accounts",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
+                    }
+
+                    Column {
+                        Text(
+                            text = "ACCOUNTS & CARDS",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Manage Accounts",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -146,6 +172,20 @@ fun AccountsScreen(viewModel: TransactionViewModel) {
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Status Line: Tracked since <date>
+            val trackedDate = if (netOverview.earliestTrackedTimestamp > 0L) {
+                trackedSinceFormatter.format(Date(netOverview.earliestTrackedTimestamp))
+            } else "recently"
+            Text(
+                text = "Tracked since $trackedDate",
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 48.dp)
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -250,11 +290,21 @@ fun AccountsScreen(viewModel: TransactionViewModel) {
 
                         items(bankAccounts, key = { it.id }) { account ->
                             val activeMergeLog = allActiveMergeLogs.find { it.survivingAccountId == account.id }
+                            val derived = derivedBalances.find { it.account.id == account.id }
                             AccountReferenceCard(
                                 account = account,
+                                derived = derived,
                                 activeMergeLog = activeMergeLog,
                                 currencyFormatter = currencyFormatter,
                                 onUpdateBalance = { accountForManualBalance = account },
+                                onUseBankBalance = {
+                                    viewModel.updateAccountAnchor(
+                                        account.id,
+                                        account.balancePaise,
+                                        account.balancePaise,
+                                        account.balanceAsOf
+                                    )
+                                },
                                 onEdit = {
                                     accountToEdit = account
                                     showAddAccountDialog = true
@@ -288,11 +338,21 @@ fun AccountsScreen(viewModel: TransactionViewModel) {
 
                         items(creditCards, key = { it.id }) { card ->
                             val activeMergeLog = allActiveMergeLogs.find { it.survivingAccountId == card.id }
+                            val derived = derivedBalances.find { it.account.id == card.id }
                             AccountReferenceCard(
                                 account = card,
+                                derived = derived,
                                 activeMergeLog = activeMergeLog,
                                 currencyFormatter = currencyFormatter,
                                 onUpdateBalance = { accountForManualBalance = card },
+                                onUseBankBalance = {
+                                    viewModel.updateAccountAnchor(
+                                        card.id,
+                                        card.balancePaise,
+                                        card.balancePaise,
+                                        card.balanceAsOf
+                                    )
+                                },
                                 onEdit = {
                                     accountToEdit = card
                                     showAddAccountDialog = true
@@ -374,13 +434,13 @@ fun AccountsScreen(viewModel: TransactionViewModel) {
         )
     }
 
-    // Set Manual Balance Dialog
+    // Set Manual Balance / Anchor Dialog
     accountForManualBalance?.let { acc ->
         SetManualBalanceDialog(
             account = acc,
             onDismiss = { accountForManualBalance = null },
-            onSave = { amount ->
-                viewModel.setAccountBalanceManually(acc.id, amount)
+            onSaveAnchor = { balancePaise, owedPaise, asOf ->
+                viewModel.updateAccountAnchor(acc.id, balancePaise, owedPaise, asOf)
                 accountForManualBalance = null
             }
         )
@@ -391,16 +451,19 @@ fun AccountsScreen(viewModel: TransactionViewModel) {
  * Restyled Account Card matching Reference Design:
  * - Bank Icon on left
  * - "Bank Name ••1234"
- * - Balance on right
+ * - Derived Balance on right
+ * - Discrepancy indicator with "Use bank balance"
  * - Outlined "Update Balance" button
  * - 3-dot overflow menu
  */
 @Composable
 fun AccountReferenceCard(
     account: AccountEntity,
+    derived: com.campusfold.tracker.data.model.DerivedAccountBalance? = null,
     activeMergeLog: MergeLogEntity? = null,
     currencyFormatter: NumberFormat,
     onUpdateBalance: () -> Unit,
+    onUseBankBalance: () -> Unit = {},
     onEdit: () -> Unit,
     onClearManualBalance: () -> Unit,
     onToggleArchive: () -> Unit,
@@ -409,13 +472,11 @@ fun AccountReferenceCard(
     onDelete: () -> Unit
 ) {
     val isCreditCard = account.type == AccountType.CREDIT_CARD
-    val isKnown = isAccountBalanceKnown(account)
-    val amountRupees = if (isCreditCard) account.creditLimitPaise / 100.0 else account.balancePaise / 100.0
 
     var menuExpanded by remember { mutableStateOf(false) }
 
     val asOfFormatter = remember {
-        SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+        SimpleDateFormat("d MMM yyyy", Locale.getDefault())
     }
 
     Card(
@@ -506,21 +567,63 @@ fun AccountReferenceCard(
 
                 // Right: Balance & Status Label
                 Column(horizontalAlignment = Alignment.End) {
-                    if (!isKnown) {
+                    if (isCreditCard) {
                         Text(
-                            text = "Balance not detected yet",
-                            style = MaterialTheme.typography.bodySmall,
+                            text = "Owed: ${currencyFormatter.format(derived?.derivedOwed ?: 0.0)}",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = if ((derived?.derivedOwedPaise ?: 0L) > 0) NeonAmber else MaterialTheme.colorScheme.onSurface
+                        )
+                        if (account.creditLimitPaise > 0L) {
+                            Text(
+                                text = "Avl: ${currencyFormatter.format(derived?.availableCredit ?: 0.0)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeonEmerald
+                            )
+                        }
+                    } else {
+                        val bal = derived?.derivedBalance ?: (account.balancePaise / 100.0)
+                        Text(
+                            text = currencyFormatter.format(bal),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (account.anchorSet) "Derived Balance" else "No anchor set",
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    } else {
-                        Text(
-                            text = currencyFormatter.format(amountRupees),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = if (isCreditCard) NeonCyan else MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (isCreditCard) "Available Credit" else "Balance",
-                            style = MaterialTheme.typography.labelSmall,
+                    }
+                }
+            }
+
+            // Discrepancy Alert Strip (Part 6)
+            if (derived?.hasDiscrepancy == true && derived.discrepancyBankBalance != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(NeonAmber.copy(alpha = 0.12f))
+                        .border(1.dp, NeonAmber.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Bank reported: ${currencyFormatter.format(derived.discrepancyBankBalance)}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = NeonAmber
+                    )
+                    TextButton(
+                        onClick = onUseBankBalance,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        modifier = Modifier.height(26.dp)
+                    ) {
+                        Text("Use bank balance", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NeonAmber)
+                    }
+                }
+            }
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -804,54 +907,122 @@ fun AddEditAccountDialog(
 fun SetManualBalanceDialog(
     account: AccountEntity,
     onDismiss: () -> Unit,
-    onSave: (Double) -> Unit
+    onSaveAnchor: (balancePaise: Long, owedPaise: Long, asOf: Long) -> Unit
 ) {
+    val isCreditCard = account.accountType == AccountType.CREDIT_CARD
+    val context = LocalContext.current
+    val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+
     var amountInput by remember {
-        mutableStateOf(if (account.balancePaise > 0L) (account.balancePaise / 100.0).toString() else "")
+        val initialAmt = if (isCreditCard) {
+            if (account.openingOwedPaise > 0L) account.openingOwedPaise / 100.0
+            else if (account.balancePaise > 0L) account.balancePaise / 100.0 else 0.0
+        } else {
+            if (account.openingBalancePaise > 0L) account.openingBalancePaise / 100.0
+            else if (account.balancePaise > 0L) account.balancePaise / 100.0 else 0.0
+        }
+        mutableStateOf(if (initialAmt > 0.0) initialAmt.toString() else "")
+    }
+
+    var selectedAsOf by remember {
+        mutableStateOf(if (account.openingAsOf > 0L) account.openingAsOf else System.currentTimeMillis())
+    }
+
+    val calendar = remember(selectedAsOf) {
+        Calendar.getInstance().apply { timeInMillis = selectedAsOf }
+    }
+
+    val datePickerDialog = remember {
+        DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                val newCal = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, year)
+                    set(Calendar.MONTH, month)
+                    set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                }
+                selectedAsOf = newCal.timeInMillis
+            },
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH),
+            calendar.get(Calendar.DAY_OF_MONTH)
+        )
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                "Update Balance Manually",
+                if (isCreditCard) "Set Card Opening / Owed Balance" else "Set Account Opening Balance",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Set current balance for ${account.displayName.ifEmpty { account.bankName }} (••${account.last4}).",
+                    text = "Anchor balance for ${account.displayName.ifEmpty { account.bankName }} (••${account.last4}). All transactions on or after this date will be tracked against this balance.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text(
-                    text = "This balance will be labeled 'entered manually'. Automatic message updates will not overwrite it until you clear it.",
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = NeonCyan
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
 
                 OutlinedTextField(
                     value = amountInput,
                     onValueChange = { amountInput = it },
-                    label = { Text("Current Balance (₹)") },
-                    placeholder = { Text("e.g. 15000") },
+                    label = { Text(if (isCreditCard) "Current Amount Owed (₹)" else "Opening Balance (₹)") },
+                    placeholder = { Text(if (isCreditCard) "e.g. 15000" else "e.g. 25000") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                // Date Picker trigger
+                OutlinedCard(
+                    onClick = { datePickerDialog.show() },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                "As of date",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                dateFormatter.format(Date(selectedAsOf)),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Icon(
+                            Icons.Default.CalendarToday,
+                            contentDescription = "Pick date",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    val amt = amountInput.toDoubleOrNull() ?: 0.0
-                    onSave(amt)
+                    val amtDouble = amountInput.toDoubleOrNull() ?: 0.0
+                    val amtPaise = (amtDouble * 100).toLong().coerceAtLeast(0L)
+                    if (isCreditCard) {
+                        onSaveAnchor(0L, amtPaise, selectedAsOf)
+                    } else {
+                        onSaveAnchor(amtPaise, 0L, selectedAsOf)
+                    }
                 }
             ) {
-                Text("Save Balance")
+                Text("Save Anchor")
             }
         },
         dismissButton = {

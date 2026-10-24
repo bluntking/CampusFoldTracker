@@ -1,6 +1,7 @@
 package com.campusfold.tracker.data.dao
 
 import androidx.room.*
+import com.campusfold.tracker.data.entity.SplitDirection
 import com.campusfold.tracker.data.entity.SplitItemEntity
 import com.campusfold.tracker.data.model.UnsettledBillItem
 import kotlinx.coroutines.flow.Flow
@@ -19,6 +20,9 @@ interface SplitItemDao {
 
     @Query("SELECT * FROM split_items WHERE personId = :personId AND isSettled = 0 ORDER BY createdAt ASC")
     suspend fun getUnsettledSplitsForPersonSync(personId: Long): List<SplitItemEntity>
+
+    @Query("SELECT * FROM split_items WHERE personId = :personId AND direction = :direction AND isSettled = 0 ORDER BY createdAt ASC")
+    suspend fun getUnsettledSplitsForPersonAndDirectionSync(personId: Long, direction: SplitDirection): List<SplitItemEntity>
 
     @Query("SELECT * FROM split_items WHERE isSettled = 0 ORDER BY createdAt DESC")
     fun getAllUnsettledSplits(): Flow<List<SplitItemEntity>>
@@ -45,7 +49,8 @@ interface SplitItemDao {
             s.amountOwedPaise AS amountOwedPaise,
             s.amountPaidSoFarPaise AS amountPaidSoFarPaise,
             s.isSettled AS isSettled,
-            s.createdAt AS createdAt
+            s.createdAt AS createdAt,
+            s.direction AS direction
         FROM split_items s
         INNER JOIN transactions t ON s.transactionId = t.id
         WHERE s.personId = :personId AND s.isSettled = 0
@@ -63,7 +68,8 @@ interface SplitItemDao {
             s.amountOwedPaise AS amountOwedPaise,
             s.amountPaidSoFarPaise AS amountPaidSoFarPaise,
             s.isSettled AS isSettled,
-            s.createdAt AS createdAt
+            s.createdAt AS createdAt,
+            s.direction AS direction
         FROM split_items s
         INNER JOIN transactions t ON s.transactionId = t.id
         WHERE s.isSettled = 0

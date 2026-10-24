@@ -43,4 +43,7 @@ interface ReviewItemDao {
 
     @Query("DELETE FROM review_items WHERE id = :id")
     suspend fun deleteReviewItemById(id: Long)
+
+    @Query("DELETE FROM review_items")
+    suspend fun clearAll()
 }

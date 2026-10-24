@@ -7,6 +7,11 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.campusfold.tracker.util.CurrencyUtils
 
+enum class SplitDirection {
+    OWED_TO_ME,
+    OWED_BY_ME
+}
+
 @Entity(
     tableName = "split_items",
     foreignKeys = [
@@ -39,7 +44,8 @@ data class SplitItemEntity(
     val amountOwedPaise: Long,
     val amountPaidSoFarPaise: Long = 0L,
     val isSettled: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val direction: SplitDirection = SplitDirection.OWED_TO_ME
 ) {
     // Backward-compatibility accessors
     val amountOwed: Double get() = amountOwedPaise / 100.0

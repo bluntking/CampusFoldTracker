@@ -28,7 +28,7 @@ import com.campusfold.tracker.data.entity.*
         AiCacheEntity::class,
         ScanHistoryEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -453,6 +453,36 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Accounts: openingBalancePaise, openingOwedPaise, openingAsOf, anchorSet
+                db.execSQL("ALTER TABLE `accounts` ADD COLUMN `openingBalancePaise` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `accounts` ADD COLUMN `openingOwedPaise` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `accounts` ADD COLUMN `openingAsOf` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `accounts` ADD COLUMN `anchorSet` INTEGER NOT NULL DEFAULT 0")
+
+                // Convert existing MANUAL balances to anchors
+                db.execSQL("""
+                    UPDATE `accounts`
+                    SET `openingBalancePaise` = CASE WHEN `type` != 'CREDIT_CARD' THEN `balancePaise` ELSE 0 END,
+                        `openingOwedPaise` = CASE WHEN `type` = 'CREDIT_CARD' THEN `balancePaise` ELSE 0 END,
+                        `openingAsOf` = `balanceAsOf`,
+                        `anchorSet` = CASE WHEN `balanceSource` = 'MANUAL' THEN 1 ELSE 0 END
+                    WHERE `balanceSource` = 'MANUAL'
+                """.trimIndent())
+
+                // 2. Split Items: direction
+                db.execSQL("ALTER TABLE `split_items` ADD COLUMN `direction` TEXT NOT NULL DEFAULT 'OWED_TO_ME'")
+
+                // 3. Transactions: paidByPersonId
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `paidByPersonId` INTEGER DEFAULT NULL REFERENCES `persons`(`id`) ON UPDATE CASCADE ON DELETE SET NULL")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_paidByPersonId` ON `transactions` (`paidByPersonId`)")
+
+                // 4. Pending Settlement Suggestions: direction
+                db.execSQL("ALTER TABLE `pending_settlement_suggestions` ADD COLUMN `direction` TEXT NOT NULL DEFAULT 'OWED_TO_ME'")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -460,7 +490,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "campus_fold_tracker.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .addCallback(DatabaseCallback())
                     .build()

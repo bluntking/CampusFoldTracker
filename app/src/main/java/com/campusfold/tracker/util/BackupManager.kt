@@ -76,6 +76,10 @@ object BackupManager {
                         put("creditLimitPaise", acc.creditLimitPaise)
                         put("isArchived", acc.isArchived)
                         put("editedFields", acc.editedFields)
+                        put("openingBalancePaise", acc.openingBalancePaise)
+                        put("openingOwedPaise", acc.openingOwedPaise)
+                        put("openingAsOf", acc.openingAsOf)
+                        put("anchorSet", acc.anchorSet)
                         // Backward-compatibility keys for older versions
                         put("name", acc.displayName)
                         put("accountType", acc.type.name)
@@ -162,6 +166,7 @@ object BackupManager {
                         put("confidence", tx.confidence)
                         put("rawMessageHash", tx.rawMessageHash ?: JSONObject.NULL)
                         put("editedFields", tx.editedFields)
+                        put("paidByPersonId", tx.paidByPersonId ?: JSONObject.NULL)
                         // Backward-compatibility keys
                         put("amount", tx.amount)
                         put("myActualShare", tx.myActualShare)
@@ -180,6 +185,7 @@ object BackupManager {
                         put("amountPaidSoFarPaise", s.amountPaidSoFarPaise)
                         put("isSettled", s.isSettled)
                         put("createdAt", s.createdAt)
+                        put("direction", s.direction.name)
                         // Backward-compatibility keys
                         put("amountOwed", s.amountOwed)
                         put("amountPaidSoFar", s.amountPaidSoFar)
@@ -197,6 +203,7 @@ object BackupManager {
                         put("detectedSenderName", s.detectedSenderName)
                         put("amountPaise", s.amountPaise)
                         put("status", s.status.name)
+                        put("direction", s.direction.name)
                         // Backward-compatibility keys
                         put("amount", s.amount)
                     })
@@ -343,6 +350,22 @@ object BackupManager {
                             BalanceSource.MANUAL
                         }
 
+                        val balanceAsOf = obj.optLong("balanceAsOf", System.currentTimeMillis())
+                        val openingBalancePaise = if (obj.has("openingBalancePaise")) {
+                            obj.getLong("openingBalancePaise")
+                        } else if (balanceSource == BalanceSource.MANUAL && type != AccountType.CREDIT_CARD) {
+                            balancePaise
+                        } else 0L
+
+                        val openingOwedPaise = if (obj.has("openingOwedPaise")) {
+                            obj.getLong("openingOwedPaise")
+                        } else if (balanceSource == BalanceSource.MANUAL && type == AccountType.CREDIT_CARD) {
+                            balancePaise
+                        } else 0L
+
+                        val openingAsOf = obj.optLong("openingAsOf", if (balanceSource == BalanceSource.MANUAL) balanceAsOf else 0L)
+                        val anchorSet = obj.optBoolean("anchorSet", balanceSource == BalanceSource.MANUAL && (openingBalancePaise > 0L || openingOwedPaise > 0L || obj.has("openingAsOf")))
+
                         list.add(
                             AccountEntity(
                                 id = obj.optLong("id", 0),
@@ -353,11 +376,15 @@ object BackupManager {
                                 displayName = displayName,
                                 color = obj.optString("color", obj.optString("colorHex", "#10B981")),
                                 balancePaise = balancePaise,
-                                balanceAsOf = obj.optLong("balanceAsOf", System.currentTimeMillis()),
+                                balanceAsOf = balanceAsOf,
                                 balanceSource = balanceSource,
                                 creditLimitPaise = creditLimitPaise,
                                 isArchived = obj.optBoolean("isArchived", false),
-                                editedFields = obj.optString("editedFields", "[]")
+                                editedFields = obj.optString("editedFields", "[]"),
+                                openingBalancePaise = openingBalancePaise,
+                                openingOwedPaise = openingOwedPaise,
+                                openingAsOf = openingAsOf,
+                                anchorSet = anchorSet
                             )
                         )
                     }
@@ -476,6 +503,7 @@ object BackupManager {
                         val description = if (obj.isNull("description")) null else obj.optString("description")
                         val accountId = if (obj.has("accountId") && !obj.isNull("accountId")) obj.optLong("accountId") else null
                         val reference = if (obj.has("reference") && !obj.isNull("reference")) obj.optString("reference") else null
+                        val paidByPersonId = if (obj.has("paidByPersonId") && !obj.isNull("paidByPersonId")) obj.optLong("paidByPersonId") else null
 
                         list.add(
                             TransactionEntity(
@@ -496,7 +524,8 @@ object BackupManager {
                                 source = source,
                                 confidence = obj.optDouble("confidence", 1.0).toFloat(),
                                 rawMessageHash = if (obj.has("rawMessageHash") && !obj.isNull("rawMessageHash")) obj.optString("rawMessageHash") else null,
-                                editedFields = obj.optString("editedFields", "[]")
+                                editedFields = obj.optString("editedFields", "[]"),
+                                paidByPersonId = paidByPersonId
                             )
                         )
                     }
@@ -524,6 +553,13 @@ object BackupManager {
                             CurrencyUtils.rupeesToPaise(obj.optDouble("amountPaidSoFar", 0.0))
                         }
 
+                        val directionStr = obj.optString("direction", "OWED_TO_ME")
+                        val splitDirection = try {
+                            SplitDirection.valueOf(directionStr)
+                        } catch (_: Exception) {
+                            SplitDirection.OWED_TO_ME
+                        }
+
                         list.add(
                             SplitItemEntity(
                                 id = obj.optLong("id", 0),
@@ -532,7 +568,8 @@ object BackupManager {
                                 amountOwedPaise = owedPaise,
                                 amountPaidSoFarPaise = paidPaise,
                                 isSettled = obj.optBoolean("isSettled", false),
-                                createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                                createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                                direction = splitDirection
                             )
                         )
                     }
@@ -562,6 +599,13 @@ object BackupManager {
                             CurrencyUtils.rupeesToPaise(obj.getDouble("amount"))
                         }
 
+                        val directionStr = obj.optString("direction", "OWED_TO_ME")
+                        val suggestionDirection = try {
+                            SplitDirection.valueOf(directionStr)
+                        } catch (_: Exception) {
+                            SplitDirection.OWED_TO_ME
+                        }
+
                         list.add(
                             PendingSettlementSuggestionEntity(
                                 id = obj.optLong("id", 0),
@@ -569,7 +613,8 @@ object BackupManager {
                                 suggestedPersonId = obj.getLong("suggestedPersonId"),
                                 detectedSenderName = obj.optString("detectedSenderName", ""),
                                 amountPaise = amtPaise,
-                                status = status
+                                status = status,
+                                direction = suggestionDirection
                             )
                         )
                     }

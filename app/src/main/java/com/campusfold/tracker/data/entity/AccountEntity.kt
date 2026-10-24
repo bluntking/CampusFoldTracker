@@ -27,7 +27,11 @@ data class AccountEntity(
     val balanceSource: BalanceSource = BalanceSource.MANUAL,
     val creditLimitPaise: Long = 0L,
     val isArchived: Boolean = false,
-    val editedFields: String = "[]"
+    val editedFields: String = "[]",
+    val openingBalancePaise: Long = 0L,
+    val openingOwedPaise: Long = 0L,
+    val openingAsOf: Long = 0L,
+    val anchorSet: Boolean = false
 ) {
     // Backward-compatibility accessors
     val name: String get() = displayName
