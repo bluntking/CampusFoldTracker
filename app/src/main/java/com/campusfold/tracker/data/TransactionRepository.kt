@@ -960,7 +960,7 @@ class TransactionRepository(
 
             val desc = buildString {
                 if (totalBillPaise != null && totalBillPaise > mySharePaise) {
-                    append("Total bill: ₹${CurrencyUtils.formatPaiseCompact(totalBillPaise)}. ")
+                    append("Total bill: ${CurrencyUtils.formatInr(totalBillPaise, includeSymbol = true)}. ")
                 }
                 if (note.isNotBlank()) {
                     append(note)

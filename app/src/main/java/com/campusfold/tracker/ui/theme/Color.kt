@@ -18,6 +18,7 @@ val NeonEmerald = Color(0xFF10B981)
 val NeonCyan = Color(0xFF06B6D4)
 val NeonAmber = Color(0xFFF59E0B)
 val NeonCrimson = Color(0xFFEF4444)
+val NeonRose = Color(0xFFF43F5E)
 val NeonViolet = Color(0xFF8B5CF6)
 val NeonPurple = Color(0xFF8B5CF6)
 
@@ -27,6 +28,9 @@ val PillTextExpense = Color(0xFFFF6B6B)
 
 val PillBgIncome = Color(0xFF0D2818)
 val PillTextIncome = Color(0xFF22C55E)
+
+val PillBgTransfer = Color(0xFF1E1E2C)
+val PillTextTransfer = Color(0xFF818CF8)
 
 val PillBgCcBill = Color(0xFF0F2236)
 val PillTextCcBill = Color(0xFF38BDF8)

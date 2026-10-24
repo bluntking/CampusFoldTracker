@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.campusfold.tracker.data.entity.*
 import com.campusfold.tracker.util.CurrencyUtils
 import org.json.JSONArray
@@ -35,6 +36,47 @@ import com.campusfold.tracker.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TransactionDetailBottomSheet(
+    transaction: TransactionEntity,
+    viewModel: com.campusfold.tracker.ui.TransactionViewModel,
+    onDismiss: () -> Unit
+) {
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val vendorMappings by viewModel.vendorMappings.collectAsStateWithLifecycle()
+    val allPersons by viewModel.allPersons.collectAsStateWithLifecycle()
+    val allTransactions by viewModel.allTransactions.collectAsStateWithLifecycle()
+    val splits by viewModel.getSplitsForTransaction(transaction.id).collectAsStateWithLifecycle(initialValue = emptyList())
+
+    TransactionDetailBottomSheet(
+        transaction = transaction,
+        categories = categories,
+        accounts = accounts,
+        vendorMappings = vendorMappings,
+        allPersons = allPersons,
+        allTransactions = allTransactions,
+        initialSplits = splits,
+        onDismiss = onDismiss,
+        onSaveTransaction = { updatedTx, updatedSplits ->
+            viewModel.updateTransactionWithSplits(updatedTx, updatedSplits)
+            onDismiss()
+        },
+        onToggleCcBill = {
+            viewModel.toggleCcBillTransfer(transaction.id)
+            onDismiss()
+        },
+        onSaveVendorMapping = { rawVendor, cleanVendor, categoryId ->
+            viewModel.saveVendorMapping(rawVendor, cleanVendor, categoryId)
+        },
+        onDelete = {
+            viewModel.deleteTransaction(transaction)
+            onDismiss()
+        }
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

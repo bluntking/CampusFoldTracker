@@ -1027,9 +1027,7 @@ fun SyncAndDataSubScreen(
                                     labelColor = NeonCyan,
                                     trailingIconColor = TextSecondary
                                 ),
-                                border = InputChipDefaults.inputChipBorder(
-                                    borderColor = BorderCharcoal
-                                )
+                                border = androidx.compose.foundation.BorderStroke(1.dp, BorderCharcoal)
                             )
                         }
                     }

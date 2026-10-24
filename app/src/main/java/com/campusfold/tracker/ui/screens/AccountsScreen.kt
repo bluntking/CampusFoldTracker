@@ -624,11 +624,6 @@ fun AccountReferenceCard(
                     }
                 }
             }
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
 
             // Middle Status Bar: Balance source / As of timestamp / Merge tag
             Spacer(modifier = Modifier.height(8.dp))

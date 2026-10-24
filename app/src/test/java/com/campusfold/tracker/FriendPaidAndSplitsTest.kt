@@ -54,9 +54,11 @@ class FriendPaidAndSplitsTest {
 
         return Pair(
             RepaymentResult(
-                settledPaise = settledDebtPaise,
-                excessExpensePaise = excessExpensePaise,
-                message = message
+                friendName = friendName,
+                debtSettledPaise = settledDebtPaise,
+                remainingDebtPaise = maxOf(0L, totalOwedBeforePaise - amountToPayPaise),
+                excessAsExpensePaise = excessExpensePaise,
+                updatedSplitCount = updatedItems.size
             ),
             updatedItems
         )
@@ -125,8 +127,8 @@ class FriendPaidAndSplitsTest {
         // Repay Rs 400
         val (result, updated) = simulateRepayFriendDebt(listOf(item1, item2), 400_00L, "Rahul")
 
-        assertEquals(400_00L, result.settledPaise)
-        assertEquals(0L, result.excessExpensePaise)
+        assertEquals(400_00L, result.debtSettledPaise)
+        assertEquals(0L, result.excessAsExpensePaise)
 
         // Item 1 should be fully settled (Rs 300)
         assertTrue(updated[0].isSettled)
@@ -153,8 +155,8 @@ class FriendPaidAndSplitsTest {
         // Repay Rs 300 (Rs 50 overpayment)
         val (result, updated) = simulateRepayFriendDebt(listOf(item), 300_00L, "Rahul")
 
-        assertEquals(250_00L, result.settledPaise)
-        assertEquals(50_00L, result.excessExpensePaise)
+        assertEquals(250_00L, result.debtSettledPaise)
+        assertEquals(50_00L, result.excessAsExpensePaise)
         assertTrue(updated[0].isSettled)
         assertTrue(result.message.contains("Excess ₹50.0 recorded as normal expense"))
     }

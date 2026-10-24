@@ -2,6 +2,7 @@ package com.campusfold.tracker.data.model
 
 import androidx.room.Embedded
 import androidx.room.Relation
+import com.campusfold.tracker.data.entity.AccountEntity
 import com.campusfold.tracker.data.entity.PersonEntity
 import com.campusfold.tracker.data.entity.SplitDirection
 import com.campusfold.tracker.data.entity.SplitItemEntity
@@ -138,6 +139,12 @@ data class RepaymentResult(
     val debtSettled: Double get() = debtSettledPaise / 100.0
     val remainingDebt: Double get() = remainingDebtPaise / 100.0
     val excessAsExpense: Double get() = excessAsExpensePaise / 100.0
+    val message: String
+        get() = if (excessAsExpensePaise > 0L) {
+            "Settled ₹$debtSettled debt to $friendName. Excess ₹$excessAsExpense recorded as normal expense."
+        } else {
+            "Settled ₹$debtSettled debt to $friendName."
+        }
 }
 
 /**

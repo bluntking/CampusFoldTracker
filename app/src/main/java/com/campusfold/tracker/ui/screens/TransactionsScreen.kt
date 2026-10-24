@@ -186,7 +186,7 @@ fun TransactionsScreen(
                             Icon(Icons.Default.AccountBalance, contentDescription = "Move Account", tint = NeonCyan)
                         }
                         IconButton(onClick = { showDeleteConfirmDialog = true }, enabled = selectedIds.isNotEmpty()) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = NeonRose)
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = NeonCrimson)
                         }
                         IconButton(onClick = {
                             isSelectionMode = false
@@ -271,14 +271,14 @@ fun TransactionsScreen(
                             AssistChip(
                                 onClick = { selectedCategoryFilter = null },
                                 label = { Text("Category: $catName ✕", fontSize = 11.sp, color = NeonEmerald) },
-                                border = AssistChipDefaults.assistChipBorder(borderColor = NeonEmerald)
+                                border = androidx.compose.foundation.BorderStroke(1.dp, NeonEmerald)
                             )
                         }
                         selectedVendorFilter?.let { vendor ->
                             AssistChip(
                                 onClick = { selectedVendorFilter = null },
                                 label = { Text("Vendor: $vendor ✕", fontSize = 11.sp, color = NeonCyan) },
-                                border = AssistChipDefaults.assistChipBorder(borderColor = NeonCyan)
+                                border = androidx.compose.foundation.BorderStroke(1.dp, NeonCyan)
                             )
                         }
                     }
@@ -442,7 +442,7 @@ fun TransactionsScreen(
                         isSelectionMode = false
                         selectedIds.clear()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeonRose)
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonCrimson)
                 ) {
                     Text("Delete")
                 }

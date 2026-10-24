@@ -8,6 +8,7 @@ import com.campusfold.tracker.data.TransactionRepository
 import com.campusfold.tracker.data.entity.*
 import com.campusfold.tracker.data.model.*
 import com.campusfold.tracker.data.pref.AppPreferences
+import com.campusfold.tracker.util.GmailImapClient
 import com.campusfold.tracker.util.SmsReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -807,6 +808,14 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun createPerson(name: String, exactSmsAliases: String = "") {
+        addPerson(name, exactSmsAliases)
+    }
+
+    fun updatePerson(person: PersonEntity) {
+        editPerson(person.id, person.name, person.exactSmsAliases)
+    }
+
     fun deletePerson(person: PersonEntity) {
         viewModelScope.launch {
             repository.deletePerson(person)
@@ -994,6 +1003,10 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         scanInbox(monthsBack * 30)
     }
 
+    fun rescanSms() {
+        scanInbox(90)
+    }
+
     // ─── Direct Axis Bank Gmail IMAP Sync ─────────────────────────────────────
 
     fun syncAxisFromGmail(
@@ -1073,6 +1086,10 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         } catch (e: Exception) {
             android.util.Log.e("TransactionViewModel", "Silent Gmail auto-sync check error", e)
         }
+    }
+
+    fun syncGmailOnAppOpen() {
+        checkAndAutoSyncGmail()
     }
 
     /**
@@ -1407,6 +1424,46 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun bulkDeleteTransactions(ids: List<Long>, onComplete: (() -> Unit)? = null) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val deleted = repository.bulkDeleteTransactions(ids)
+                deletedTransactionsStash = deleted
+                _statusMessage.value = "Deleted ${deleted.size} transaction(s)."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error deleting transactions: ${e.message}"
+            }
+        }
+    }
+
+    fun bulkRecategorizeTransactions(ids: List<Long>, categoryId: Long?, onComplete: (() -> Unit)? = null) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                repository.bulkRecategorizeTransactions(ids, categoryId)
+                _statusMessage.value = "Recategorized ${ids.size} transaction(s)."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error recategorizing: ${e.message}"
+            }
+        }
+    }
+
+    fun bulkMoveTransactionsToAccount(ids: List<Long>, accountId: Long, onComplete: (() -> Unit)? = null) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                repository.bulkMoveTransactionsToAccount(ids, accountId)
+                _statusMessage.value = "Moved ${ids.size} transaction(s) to account."
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error moving transactions: ${e.message}"
+            }
+        }
+    }
+
     // ─── Single Transaction Manual Actions & Undo ─────────────────────────────
     fun deleteTransactionWithUndo(tx: TransactionEntity, onComplete: (() -> Unit)? = null) {
         viewModelScope.launch {
@@ -1672,10 +1729,8 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     fun addCustomBankSender(sender: String) {
         viewModelScope.launch {
             val prefs = AppPreferences(getApplication())
-            val current = prefs.getCustomBankSendersSync().toMutableSet()
             if (sender.isNotBlank()) {
-                current.add(sender.trim().lowercase())
-                prefs.setCustomBankSenders(current)
+                prefs.addCustomBankSender(sender)
             }
         }
     }
@@ -1683,9 +1738,7 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     fun removeCustomBankSender(sender: String) {
         viewModelScope.launch {
             val prefs = AppPreferences(getApplication())
-            val current = prefs.getCustomBankSendersSync().toMutableSet()
-            current.remove(sender.trim().lowercase())
-            prefs.setCustomBankSenders(current)
+            prefs.removeCustomBankSender(sender)
         }
     }
 

@@ -264,7 +264,7 @@ fun AddTransactionSheet(
                     AssistChip(
                         onClick = { showAddFriendDialog = true },
                         label = { Text("+ Add friend", fontSize = 12.sp, color = NeonEmerald) },
-                        border = AssistChipDefaults.assistChipBorder(borderColor = NeonEmerald.copy(alpha = 0.5f))
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NeonEmerald.copy(alpha = 0.5f))
                     )
                 }
 
