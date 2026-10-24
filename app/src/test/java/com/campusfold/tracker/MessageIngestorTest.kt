@@ -169,6 +169,49 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun testDedupeTypeCorrectionOnOppositeDirection() = runBlocking {
+        val refNumber = "UPI998877665544"
+        val timestamp = 1700000000000L
+
+        // Old row was saved incorrectly as EXPENSE
+        val oldWrongTx = TransactionEntity(
+            id = 101,
+            amountPaise = 2000L,
+            myActualSharePaise = 2000L,
+            type = TransactionType.EXPENSE,
+            paymentMode = "Axis Bank XX2003",
+            rawMerchant = "Axis Bank Debit",
+            friendlyVendorName = "Axis Bank Debit",
+            reference = refNumber,
+            upiRef = refNumber,
+            timestamp = timestamp
+        )
+        fakeDb.transactionDaoInstance.transactions[101L] = oldWrongTx
+
+        // New email arrives for the same UPI ref, but clearly indicating CREDIT / INCOME
+        val creditEmail = RawMessage(
+            source = MessageSource.EMAIL,
+            sender = "alerts@axis.bank.in",
+            subject = "INR 20.00 was credited to your A/c.",
+            body = """
+                Dear Customer,
+                Amount Credited: INR 20.00
+                Account Number: XX2003
+                Transaction Info: UPI/P2A/$refNumber/ALEX MORGAN/HDFC/Sent
+            """.trimIndent(),
+            timestamp = timestamp + 2000L,
+            sourceId = "EMAIL_UID_2026"
+        )
+
+        val result = ingestor.ingest(creditEmail)
+        assertTrue(result is IngestResult.Enriched)
+
+        val correctedTx = fakeDb.transactionDaoInstance.transactions[101L]!!
+        assertEquals("Wrong EXPENSE type must be corrected to INCOME", TransactionType.INCOME, correctedTx.type)
+        assertEquals("ALEX MORGAN", correctedTx.friendlyVendorName)
+    }
+
+    @Test
     fun testCrossSourceDeduplication_Within2MinutesWindow() = runBlocking {
         val t0 = 1700000000000L
 

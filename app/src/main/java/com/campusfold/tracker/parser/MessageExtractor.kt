@@ -147,8 +147,38 @@ object MessageExtractor {
         // If email or HTML, try CampusFold Specialized Parsers (AxisBankEmailParser) first
         val isEmailOrHtml = rawMessage.source == MessageSource.EMAIL || cleanBody.contains("<html>", ignoreCase = true) || rawMessage.sender.contains("@")
         if (isEmailOrHtml) {
-            val emailTx = tryCampusFoldParsers(rawMessage, knownAccounts)
-            if (emailTx != null) {
+            val emailParsed = AxisBankEmailParser.parse(
+                subject = rawMessage.subject ?: "",
+                body = cleanBody,
+                emailTimestamp = rawMessage.timestamp,
+                accounts = knownAccounts
+            )
+            if (emailParsed != null) {
+                if (emailParsed.isConflict) {
+                    return ExtractionResult.Unparsed(rawMessage, "Conflicting debit/credit signals in Axis Bank email")
+                }
+                val tx = emailParsed.transaction
+                val direction = if (emailParsed.isCredit) Direction.CREDIT else Direction.DEBIT
+                val last4 = extractLast4Digits(tx.paymentMode)
+                val bank = CampusSmsParser.detectBankName(cleanBody, rawMessage.sender) ?: "Bank"
+
+                val emailTx = ExtractedTransaction(
+                    amountPaise = tx.amountPaise,
+                    direction = direction,
+                    type = tx.type,
+                    bankName = bank,
+                    accountLast4 = last4,
+                    instrumentType = if (emailParsed.isUpi) "UPI" else "ACCOUNT",
+                    merchantRaw = tx.rawMerchant,
+                    counterpartyName = tx.friendlyVendorName,
+                    reference = tx.upiRef,
+                    timestamp = tx.timestamp,
+                    balancePaise = null,
+                    availableCreditPaise = null,
+                    currency = "INR",
+                    confidence = 0.90f,
+                    parserId = "campusfold:AxisBankEmailParser"
+                )
                 val adjusted = checkOwnTransfer(emailTx, cleanBody, knownAccounts, recentTransactions)
                 return ExtractionResult.Transaction(adjusted)
             }
@@ -631,6 +661,7 @@ object MessageExtractor {
         }
 
         // Condition C: Matching opposite transaction with same amount within 10 minutes
+        // Crucial: Only applies when the two legs are on two distinct accounts belonging to the user!
         if (recentTransactions.isNotEmpty()) {
             val tenMinutesMs = 10 * 60 * 1000L
             val isMatchingOpposite = recentTransactions.any { recent ->
@@ -641,7 +672,16 @@ object MessageExtractor {
                     val oppositeDirection = (extracted.direction == Direction.DEBIT && recentIsCredit) ||
                             (extracted.direction == Direction.CREDIT && recentIsDebit)
 
-                    oppositeDirection
+                    if (!oppositeDirection) return@any false
+
+                    val recentAccount = knownAccounts.find { it.id == recent.accountId || (recent.paymentMode.isNotBlank() && it.displayName.equals(recent.paymentMode, ignoreCase = true)) }
+                    val extractedAccount = knownAccounts.find {
+                        (extracted.accountLast4 != null && it.last4.isNotBlank() && it.last4.endsWith(extracted.accountLast4)) ||
+                        (extracted.bankName != null && it.bankName.equals(extracted.bankName, ignoreCase = true))
+                    }
+                    val isDifferentOwnAccounts = recentAccount != null && extractedAccount != null && recentAccount.id != extractedAccount.id
+
+                    isDifferentOwnAccounts
                 } else {
                     false
                 }

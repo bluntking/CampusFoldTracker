@@ -299,6 +299,32 @@ class MessageIngestor(
                 if (existingTx != null) {
                     // Enrich existing transaction
                     val editedFields = existingTx.editedFields
+
+                    // Check if direction was previously wrong (e.g. credit saved as expense) and not user-edited
+                    val existingIsDebit = existingTx.type == TransactionType.EXPENSE || existingTx.type == TransactionType.ATM || existingTx.type == TransactionType.EMI || existingTx.type == TransactionType.CC_BILL_TRANSFER
+                    val existingIsCredit = existingTx.type == TransactionType.INCOME || existingTx.type == TransactionType.REFUND || existingTx.type == TransactionType.SPLIT_SETTLEMENT
+                    val extractedIsCredit = extracted.direction == Direction.CREDIT || extracted.type == TransactionType.INCOME
+                    val extractedIsDebit = extracted.direction == Direction.DEBIT || extracted.type == TransactionType.EXPENSE
+                    val isOppositeDirection = (existingIsDebit && extractedIsCredit) || (existingIsCredit && extractedIsDebit)
+
+                    val newType = if (isOppositeDirection && !editedFields.contains("type")) {
+                        extracted.type
+                    } else {
+                        existingTx.type
+                    }
+
+                    val newVendor = if (isOppositeDirection && !editedFields.contains("friendlyVendorName") && (existingTx.friendlyVendorName.isBlank() || existingTx.friendlyVendorName.contains("Debit") || existingTx.friendlyVendorName.contains("Credit") || existingTx.friendlyVendorName == "Merchant")) {
+                        vendorName
+                    } else existingTx.friendlyVendorName
+
+                    val newMerchant = if (isOppositeDirection && !editedFields.contains("rawMerchant") && (existingTx.rawMerchant.isBlank() || existingTx.rawMerchant.contains("Debit") || existingTx.rawMerchant.contains("Credit") || existingTx.rawMerchant == "Merchant")) {
+                        extracted.merchantRaw ?: extracted.bankName ?: "Merchant"
+                    } else existingTx.rawMerchant
+
+                    val newSharePaise = if (isOppositeDirection && !editedFields.contains("myActualSharePaise")) {
+                        extracted.amountPaise
+                    } else existingTx.myActualSharePaise
+
                     val newRef = if (!editedFields.contains("reference") && existingTx.reference.isNullOrBlank()) extracted.reference else existingTx.reference
                     val newUpi = if (!editedFields.contains("upiRef") && existingTx.upiRef.isNullOrBlank()) extracted.reference else existingTx.upiRef
                     val newSms = if (!editedFields.contains("rawSms") && existingTx.rawSms.isNullOrBlank() && rawMessage.source == MessageSource.SMS) rawMessage.body else existingTx.rawSms
@@ -310,6 +336,10 @@ class MessageIngestor(
                     val newHash = existingTx.rawMessageHash ?: bodyHash
 
                     val enriched = existingTx.copy(
+                        type = newType,
+                        friendlyVendorName = newVendor,
+                        rawMerchant = newMerchant,
+                        myActualSharePaise = newSharePaise,
                         reference = newRef,
                         upiRef = newUpi,
                         rawSms = newSms,
@@ -319,6 +349,11 @@ class MessageIngestor(
                         rawMessageHash = newHash
                     )
                     db.transactionDao().updateTransaction(enriched)
+
+                    // If type changed to INCOME, handle income settlement
+                    if (isOppositeDirection && newType == TransactionType.INCOME && repository != null) {
+                        handleIncomeSettlement(existingTx.id, enriched)
+                    }
 
                     // Bank reported balance handling (Part 6)
                     if (extracted.balancePaise != null) {

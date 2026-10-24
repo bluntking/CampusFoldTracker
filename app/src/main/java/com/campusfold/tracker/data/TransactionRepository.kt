@@ -463,7 +463,7 @@ class TransactionRepository(
             val credits = txsSinceAnchor.filter {
                 it.type == TransactionType.INCOME ||
                 it.type == TransactionType.REFUND ||
-                (it.type == TransactionType.SPLIT_SETTLEMENT && (it.friendlyVendorName.contains("Settlement from", ignoreCase = true) || it.rawMerchant.contains("Credit", ignoreCase = true))) ||
+                (it.type == TransactionType.SPLIT_SETTLEMENT && (it.friendlyVendorName.contains("Settlement from", ignoreCase = true) || it.friendlyVendorName.contains("Reimbursement", ignoreCase = true) || it.rawMerchant.contains("Credit", ignoreCase = true) || it.description?.contains("LINKED_TO_EXPENSE") == true)) ||
                 (it.type == TransactionType.OWN_TRANSFER && (it.friendlyVendorName.contains("from", ignoreCase = true) || it.rawMerchant.contains("Inflow", ignoreCase = true) || it.description?.contains("INCOMING", ignoreCase = true) == true))
             }.sumOf { it.amountPaise }
 
@@ -472,7 +472,7 @@ class TransactionRepository(
                 it.type == TransactionType.ATM ||
                 it.type == TransactionType.EMI ||
                 it.type == TransactionType.CC_BILL_TRANSFER ||
-                (it.type == TransactionType.SPLIT_SETTLEMENT && !it.friendlyVendorName.contains("Settlement from", ignoreCase = true)) ||
+                (it.type == TransactionType.SPLIT_SETTLEMENT && !it.friendlyVendorName.contains("Settlement from", ignoreCase = true) && !it.friendlyVendorName.contains("Reimbursement", ignoreCase = true) && it.description?.contains("LINKED_TO_EXPENSE") != true) ||
                 (it.type == TransactionType.OWN_TRANSFER && !it.friendlyVendorName.contains("from", ignoreCase = true) && !it.rawMerchant.contains("Inflow", ignoreCase = true) && it.description?.contains("INCOMING", ignoreCase = true) != true)
             }.sumOf { it.amountPaise }
 
@@ -1706,9 +1706,19 @@ class TransactionRepository(
             val offsetPaise = customOffsetAmountPaise ?: incomeTx.amountPaise
             val newMySharePaise = maxOf(0L, expenseTx.myActualSharePaise - offsetPaise)
 
+            // Store metadata in description to allow unambiguous unlinking
+            val linkMetaIncome = "[LINKED_TO_EXPENSE:${expenseTx.id}|OFFSET:$offsetPaise|PREV_SHARE:${expenseTx.myActualSharePaise}]"
+            val linkMetaExpense = "[LINKED_INCOME:${incomeTx.id}|OFFSET:$offsetPaise]"
+
+            val updatedIncomeDesc = if (incomeTx.description.isNullOrBlank()) linkMetaIncome else "${incomeTx.description} $linkMetaIncome"
+            val updatedExpenseDesc = if (expenseTx.description.isNullOrBlank()) linkMetaExpense else "${expenseTx.description} $linkMetaExpense"
+
             // 1. Update expense with reduced true personal spend
             transactionDao.updateTransaction(
-                expenseTx.copy(myActualSharePaise = newMySharePaise)
+                expenseTx.copy(
+                    myActualSharePaise = newMySharePaise,
+                    description = updatedExpenseDesc
+                )
             )
 
             // 2. Mark income as SPLIT_SETTLEMENT
@@ -1720,7 +1730,8 @@ class TransactionRepository(
             transactionDao.updateTransaction(
                 incomeTx.copy(
                     type = TransactionType.SPLIT_SETTLEMENT,
-                    friendlyVendorName = "Reimbursement for $expenseLabel"
+                    friendlyVendorName = "Reimbursement for $expenseLabel",
+                    description = updatedIncomeDesc
                 )
             )
 
@@ -1743,6 +1754,77 @@ class TransactionRepository(
                         )
                         remainingPaise -= paying
                     }
+                }
+            }
+        }
+    }
+
+    suspend fun unlinkTransaction(transactionId: Long) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val tx = transactionDao.getTransactionByIdSync(transactionId) ?: return@withTransaction
+            val desc = tx.description ?: ""
+
+            val incomeLinkMatch = Regex("""\[LINKED_TO_EXPENSE:(\d+)\|OFFSET:(\d+)(?:\|PREV_SHARE:(\d+))?\]""").find(desc)
+            if (incomeLinkMatch != null || (tx.type == TransactionType.SPLIT_SETTLEMENT && tx.friendlyVendorName.startsWith("Reimbursement for", ignoreCase = true))) {
+                val expenseId = incomeLinkMatch?.groupValues?.get(1)?.toLongOrNull()
+                    ?: run {
+                        val label = tx.friendlyVendorName.removePrefix("Reimbursement for ").trim()
+                        val all = transactionDao.getAllTransactionsSync()
+                        all.firstOrNull { it.type == TransactionType.EXPENSE && (it.friendlyVendorName == label || it.rawMerchant == label) }?.id
+                    }
+                val offsetPaise = incomeLinkMatch?.groupValues?.get(2)?.toLongOrNull() ?: tx.amountPaise
+                val prevSharePaise = incomeLinkMatch?.groupValues?.getOrNull(3)?.toLongOrNull()
+
+                if (expenseId != null) {
+                    val expenseTx = transactionDao.getTransactionByIdSync(expenseId)
+                    if (expenseTx != null) {
+                        val restoredShare = prevSharePaise ?: minOf(expenseTx.amountPaise, expenseTx.myActualSharePaise + offsetPaise)
+                        val cleanedExpenseDesc = (expenseTx.description ?: "").replace(Regex("""\[LINKED_INCOME:\d+\|OFFSET:\d+\]"""), "").trim().ifBlank { null }
+                        transactionDao.updateTransaction(
+                            expenseTx.copy(
+                                myActualSharePaise = restoredShare,
+                                description = cleanedExpenseDesc
+                            )
+                        )
+
+                        // Revert splits
+                        val splits = splitDao.getSplitsForTransactionSync(expenseId)
+                        for (split in splits) {
+                            if (split.amountPaidSoFarPaise > 0L) {
+                                val newPaid = maxOf(0L, split.amountPaidSoFarPaise - offsetPaise)
+                                splitDao.updateSplitItem(
+                                    split.copy(
+                                        amountPaidSoFarPaise = newPaid,
+                                        isSettled = newPaid >= split.amountOwedPaise
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Restore Income
+                val cleanedIncomeDesc = desc.replace(Regex("""\[LINKED_TO_EXPENSE:\d+\|OFFSET:\d+(?:\|PREV_SHARE:\d+)?\]"""), "").trim().ifBlank { null }
+                val restoredVendor = if (tx.friendlyVendorName.startsWith("Reimbursement for", ignoreCase = true)) {
+                    tx.rawMerchant.ifBlank { "Income" }
+                } else tx.friendlyVendorName
+
+                transactionDao.updateTransaction(
+                    tx.copy(
+                        type = TransactionType.INCOME,
+                        friendlyVendorName = restoredVendor,
+                        description = cleanedIncomeDesc
+                    )
+                )
+                return@withTransaction
+            }
+
+            // Check if this tx is the Expense leg
+            val expenseLinkMatch = Regex("""\[LINKED_INCOME:(\d+)\|OFFSET:(\d+)\]""").find(desc)
+            if (expenseLinkMatch != null) {
+                val incomeId = expenseLinkMatch.groupValues[1].toLongOrNull()
+                if (incomeId != null) {
+                    unlinkTransaction(incomeId)
                 }
             }
         }

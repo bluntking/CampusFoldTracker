@@ -464,4 +464,34 @@ class MessageExtractorTest {
         assertEquals("9988", tx.accountLast4)
         assertTrue(tx.confidence >= 0.60f)
     }
+
+    @Test
+    fun testCheckOwnTransferConditionCRequiresDifferentAccounts() {
+        val t0 = 1000000L
+        val accountAxis = sampleKnownAccounts.first { it.last4 == "2003" }
+
+        // Previous transaction was an EXPENSE of Rs 20 on Axis ••2003
+        val recentExpense = TransactionEntity(
+            id = 5,
+            amountPaise = 2000L,
+            type = TransactionType.EXPENSE,
+            paymentMode = accountAxis.displayName,
+            accountId = accountAxis.id,
+            timestamp = t0
+        )
+
+        // Incoming transfer of Rs 20 on the SAME Axis account within 5 minutes (friend paying back)
+        val incomingRaw = RawMessage(
+            source = MessageSource.EMAIL,
+            sender = "alerts@axis.bank.in",
+            subject = "INR 20.00 was credited to your A/c.",
+            body = "Amount Credited: INR 20.00\nAccount Number: XX2003\nTransaction Info: UPI/P2A/112233/FRIEND/Sent",
+            timestamp = t0 + 300_000L
+        )
+
+        val result = MessageExtractor.extract(incomingRaw, listOf(accountAxis), listOf(recentExpense))
+        assertTrue(result is ExtractionResult.Transaction)
+        val tx = (result as ExtractionResult.Transaction).transaction
+        assertEquals("Friend paying back on same account must NOT be swallowed as OWN_TRANSFER", TransactionType.INCOME, tx.type)
+    }
 }

@@ -68,6 +68,16 @@ fun TransactionDetailBottomSheet(
             viewModel.toggleCcBillTransfer(transaction.id)
             onDismiss()
         },
+        onLinkIncomeToExpense = { incomeId, expenseId, offsetAmount ->
+            viewModel.linkIncomeToExpense(incomeId, expenseId, offsetAmount)
+        },
+        onUnlinkTransaction = {
+            viewModel.unlinkTransaction(transaction.id)
+            onDismiss()
+        },
+        onMergeWithDuplicate = { survivingId, duplicateId ->
+            viewModel.mergeTransactions(survivingId, duplicateId)
+        },
         onSaveVendorMapping = { rawVendor, cleanVendor, categoryId ->
             viewModel.saveVendorMapping(rawVendor, cleanVendor, categoryId)
         },
@@ -91,8 +101,9 @@ fun TransactionDetailBottomSheet(
     onDismiss: () -> Unit,
     onSaveTransaction: (updatedTx: TransactionEntity, splits: List<SplitItemEntity>) -> Unit,
     onToggleCcBill: () -> Unit,
-    onLinkIncomeToExpense: ((incomeId: Long, expenseId: Long, offsetAmount: Double) -> Unit)? = null,
-    onMergeWithDuplicate: ((targetId: Long, duplicateId: Long) -> Unit)? = null,
+    onLinkIncomeToExpense: (incomeId: Long, expenseId: Long, offsetAmount: Double) -> Unit,
+    onMergeWithDuplicate: (targetId: Long, duplicateId: Long) -> Unit,
+    onUnlinkTransaction: () -> Unit = {},
     onSaveVendorMapping: (rawKeyword: String, friendlyName: String, categoryId: Long?) -> Unit,
     onAddPersonInline: (name: String, aliases: String) -> Unit = { _, _ -> },
     onDeletePersonInline: (PersonEntity) -> Unit = {},
@@ -266,7 +277,7 @@ fun TransactionDetailBottomSheet(
             }
 
             // Map Income to Expense / Offset with Income Card
-            if (onLinkIncomeToExpense != null && allTransactions.isNotEmpty()) {
+            if (allTransactions.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(10.dp))
                 if (selectedType == TransactionType.INCOME) {
                     FoldCard(
@@ -349,8 +360,52 @@ fun TransactionDetailBottomSheet(
                 }
             }
 
+            // Unlink Reimbursement Card (when already linked)
+            val isLinkedIncome = selectedType == TransactionType.SPLIT_SETTLEMENT &&
+                    (transaction.description?.contains("LINKED_TO_EXPENSE") == true || transaction.friendlyVendorName.startsWith("Reimbursement for", ignoreCase = true))
+            val isLinkedExpense = selectedType == TransactionType.EXPENSE &&
+                    transaction.description?.contains("LINKED_INCOME") == true
+
+            if (isLinkedIncome || isLinkedExpense) {
+                Spacer(modifier = Modifier.height(10.dp))
+                FoldCard(
+                    containerColor = InputBg,
+                    borderColor = NeonRose.copy(alpha = 0.5f),
+                    onClick = {
+                        onUnlinkTransaction()
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LinkOff,
+                            contentDescription = null,
+                            tint = NeonRose
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Unlink Reimbursement",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = if (isLinkedIncome) "Restore this row to normal Income and reinstate original expense share." else "Remove income offset and restore full share on this expense.",
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+
             // Mark as Duplicate & Merge Card
-            if (onMergeWithDuplicate != null && allTransactions.size > 1) {
+            if (allTransactions.size > 1) {
                 Spacer(modifier = Modifier.height(10.dp))
                 FoldCard(
                     containerColor = InputBg,

@@ -65,4 +65,62 @@ class IncomeExpenseMappingTest {
 
         assertEquals(0.0, updatedExpenseShare, 0.001)
     }
+
+    @Test
+    fun testUnlinkRestoresExpenseShareAndIncomeType() {
+        val originalExpense = TransactionEntity(
+            id = 30,
+            amountPaise = 150000L,
+            myActualSharePaise = 150000L,
+            type = TransactionType.EXPENSE,
+            paymentMode = "Axis Bank XX2003",
+            rawMerchant = "Dinner",
+            friendlyVendorName = "Dinner",
+            timestamp = 1000L
+        )
+
+        val incomeTx = TransactionEntity(
+            id = 31,
+            amountPaise = 50000L,
+            myActualSharePaise = 50000L,
+            type = TransactionType.INCOME,
+            paymentMode = "UPI",
+            rawMerchant = "Alex Morgan",
+            friendlyVendorName = "Alex Morgan",
+            timestamp = 2000L
+        )
+
+        // Perform link
+        val offsetPaise = 50000L
+        val linkedExpense = originalExpense.copy(
+            myActualSharePaise = originalExpense.myActualSharePaise - offsetPaise,
+            description = "[LINKED_INCOME:${incomeTx.id}|OFFSET:$offsetPaise]"
+        )
+        val linkedIncome = incomeTx.copy(
+            type = TransactionType.SPLIT_SETTLEMENT,
+            friendlyVendorName = "Reimbursement for ${originalExpense.friendlyVendorName}",
+            description = "[LINKED_TO_EXPENSE:${originalExpense.id}|OFFSET:$offsetPaise|PREV_SHARE:${originalExpense.myActualSharePaise}]"
+        )
+
+        assertEquals(100000L, linkedExpense.myActualSharePaise)
+        assertEquals(TransactionType.SPLIT_SETTLEMENT, linkedIncome.type)
+
+        // Perform unlink logic
+        val incomeLinkMatch = Regex("""\[LINKED_TO_EXPENSE:(\d+)\|OFFSET:(\d+)(?:\|PREV_SHARE:(\d+))?\]""").find(linkedIncome.description!!)
+        assertNotNull(incomeLinkMatch)
+        val prevShare = incomeLinkMatch!!.groupValues[3].toLong()
+        val restoredExpense = linkedExpense.copy(
+            myActualSharePaise = prevShare,
+            description = null
+        )
+        val restoredIncome = linkedIncome.copy(
+            type = TransactionType.INCOME,
+            friendlyVendorName = linkedIncome.rawMerchant,
+            description = null
+        )
+
+        assertEquals("Expense share must be restored to original share", 150000L, restoredExpense.myActualSharePaise)
+        assertEquals("Income type must be restored to INCOME", TransactionType.INCOME, restoredIncome.type)
+        assertEquals("Vendor name must be restored to original raw merchant", "Alex Morgan", restoredIncome.friendlyVendorName)
+    }
 }

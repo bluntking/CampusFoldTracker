@@ -12,16 +12,19 @@ data class ParsedEmailTransaction(
     val transaction: TransactionEntity,
     val senderOrMerchant: String,
     val isCredit: Boolean,
-    val isUpi: Boolean
+    val isUpi: Boolean,
+    val isConflict: Boolean = false
 )
+
+private enum class SignalDirection { CREDIT, DEBIT, CONFLICT, NONE }
 
 object AxisBankEmailParser {
 
     // Amount patterns
-    private val AMOUNT_DEBITED_PATTERN = Pattern.compile("Amount\\s+Debited:?\\s*INR\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE)
-    private val AMOUNT_CREDITED_PATTERN = Pattern.compile("Amount\\s+Credited:?\\s*INR\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE)
-    private val SUBJECT_DEBIT_PATTERN = Pattern.compile("INR\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*was\\s+debited", Pattern.CASE_INSENSITIVE)
-    private val SUBJECT_CREDIT_PATTERN = Pattern.compile("INR\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*was\\s+credited", Pattern.CASE_INSENSITIVE)
+    private val AMOUNT_DEBITED_PATTERN = Pattern.compile("Amount\\s+Debited:?\\s*(?:INR|Rs\\.?|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE)
+    private val AMOUNT_CREDITED_PATTERN = Pattern.compile("Amount\\s+Credited:?\\s*(?:INR|Rs\\.?|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE)
+    private val SUBJECT_DEBIT_PATTERN = Pattern.compile("(?:INR|Rs\\.?|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)?\\s*was\\s+debited", Pattern.CASE_INSENSITIVE)
+    private val SUBJECT_CREDIT_PATTERN = Pattern.compile("(?:INR|Rs\\.?|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)?\\s*was\\s+credited", Pattern.CASE_INSENSITIVE)
     private val GENERIC_AMOUNT_PATTERN = Pattern.compile("(?:INR|Rs\\.?|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE)
 
     // Account patterns
@@ -54,20 +57,72 @@ object AxisBankEmailParser {
     ): ParsedEmailTransaction? {
         val cleanSubject = decodeMimeHeader(subject)
         val cleanBody = stripHtmlAndNormalize(body)
-        val combined = "$cleanSubject\n$cleanBody"
+        val primaryBody = removeBoilerplateAndFooter(cleanBody)
 
-        // Determine if Debit or Credit
-        val isDebit = combined.contains("was debited", ignoreCase = true) ||
-                combined.contains("Amount Debited", ignoreCase = true) ||
-                combined.contains("debited from your", ignoreCase = true)
+        // Primary Signal Evaluation (in order of priority):
+        // 1. Labelled field: "Amount Credited" vs "Amount Debited"
+        val hasLabelCredit = AMOUNT_CREDITED_PATTERN.matcher(cleanBody).find() ||
+                Regex("""(?i)\bAmount\s+Credited\b""").containsMatchIn(cleanBody)
+        val hasLabelDebit = AMOUNT_DEBITED_PATTERN.matcher(cleanBody).find() ||
+                Regex("""(?i)\bAmount\s+Debited\b""").containsMatchIn(cleanBody)
 
-        val isCredit = combined.contains("was credited", ignoreCase = true) ||
-                combined.contains("Amount Credited", ignoreCase = true) ||
-                combined.contains("credited to your", ignoreCase = true)
+        // 2. Subject sentence: "was credited" / "credited to your" vs "was debited" / "debited from your"
+        val hasSubjCredit = cleanSubject.contains("was credited", ignoreCase = true) ||
+                cleanSubject.contains("credited to your", ignoreCase = true)
+        val hasSubjDebit = cleanSubject.contains("was debited", ignoreCase = true) ||
+                cleanSubject.contains("debited from your", ignoreCase = true)
 
-        if (!isDebit && !isCredit) {
+        // 3. Body sentence in primary body (excluding boilerplate/footer)
+        val hasBodyCredit = primaryBody.contains("was credited", ignoreCase = true) ||
+                primaryBody.contains("credited to your", ignoreCase = true)
+        val hasBodyDebit = primaryBody.contains("was debited", ignoreCase = true) ||
+                primaryBody.contains("debited from your", ignoreCase = true)
+
+        // Check for genuine conflicts between signals
+        val labelSignal = when {
+            hasLabelCredit && hasLabelDebit -> SignalDirection.CONFLICT
+            hasLabelCredit -> SignalDirection.CREDIT
+            hasLabelDebit -> SignalDirection.DEBIT
+            else -> SignalDirection.NONE
+        }
+
+        val subjSignal = when {
+            hasSubjCredit && hasSubjDebit -> SignalDirection.CONFLICT
+            hasSubjCredit -> SignalDirection.CREDIT
+            hasSubjDebit -> SignalDirection.DEBIT
+            else -> SignalDirection.NONE
+        }
+
+        val bodySignal = when {
+            hasBodyCredit && hasBodyDebit -> SignalDirection.CONFLICT
+            hasBodyCredit -> SignalDirection.CREDIT
+            hasBodyDebit -> SignalDirection.DEBIT
+            else -> SignalDirection.NONE
+        }
+
+        if (labelSignal == SignalDirection.CONFLICT || subjSignal == SignalDirection.CONFLICT || bodySignal == SignalDirection.CONFLICT) {
+            val dummyTx = TransactionEntity(amountPaise = 0L, type = TransactionType.EXPENSE)
+            return ParsedEmailTransaction(transaction = dummyTx, senderOrMerchant = "", isCredit = false, isUpi = false, isConflict = true)
+        }
+
+        if (labelSignal != SignalDirection.NONE && subjSignal != SignalDirection.NONE && labelSignal != subjSignal) {
+            val dummyTx = TransactionEntity(amountPaise = 0L, type = TransactionType.EXPENSE)
+            return ParsedEmailTransaction(transaction = dummyTx, senderOrMerchant = "", isCredit = false, isUpi = false, isConflict = true)
+        }
+
+        val chosenDirection = when {
+            labelSignal != SignalDirection.NONE -> labelSignal
+            subjSignal != SignalDirection.NONE -> subjSignal
+            bodySignal != SignalDirection.NONE -> bodySignal
+            else -> SignalDirection.NONE
+        }
+
+        if (chosenDirection == SignalDirection.NONE) {
             return null
         }
+
+        val isCredit = (chosenDirection == SignalDirection.CREDIT)
+        val isDebit = !isCredit
 
         // 1. Extract Amount
         var amount: Double? = null
@@ -77,7 +132,7 @@ object AxisBankEmailParser {
                 amount = m.group(1)?.replace(",", "")?.toDoubleOrNull()
             }
             if (amount == null) {
-                val sm = SUBJECT_DEBIT_PATTERN.matcher(subject)
+                val sm = SUBJECT_DEBIT_PATTERN.matcher(cleanSubject)
                 if (sm.find()) {
                     amount = sm.group(1)?.replace(",", "")?.toDoubleOrNull()
                 }
@@ -88,7 +143,7 @@ object AxisBankEmailParser {
                 amount = m.group(1)?.replace(",", "")?.toDoubleOrNull()
             }
             if (amount == null) {
-                val sm = SUBJECT_CREDIT_PATTERN.matcher(subject)
+                val sm = SUBJECT_CREDIT_PATTERN.matcher(cleanSubject)
                 if (sm.find()) {
                     amount = sm.group(1)?.replace(",", "")?.toDoubleOrNull()
                 }
@@ -96,7 +151,7 @@ object AxisBankEmailParser {
         }
 
         if (amount == null) {
-            val gm = GENERIC_AMOUNT_PATTERN.matcher(combined)
+            val gm = GENERIC_AMOUNT_PATTERN.matcher(primaryBody.ifBlank { cleanBody })
             if (gm.find()) {
                 amount = gm.group(1)?.replace(",", "")?.toDoubleOrNull()
             }
@@ -189,7 +244,7 @@ object AxisBankEmailParser {
             }
         }
 
-        val txType = if (isDebit) TransactionType.EXPENSE else TransactionType.INCOME
+        val txType = if (isCredit) TransactionType.INCOME else TransactionType.EXPENSE
         val friendlyName = rawMerchant
 
         val tx = TransactionEntity(
@@ -209,8 +264,15 @@ object AxisBankEmailParser {
             transaction = tx,
             senderOrMerchant = rawMerchant,
             isCredit = isCredit,
-            isUpi = upiRef != null
+            isUpi = upiRef != null,
+            isConflict = false
         )
+    }
+
+    fun removeBoilerplateAndFooter(body: String): String {
+        val cutoffRegex = Regex("""(?i)\b(Call us at:|To block UPI:|Feel free to connect|Footerimg|\*\*\*\*This is a system generated|Reach us at:|Please do not share your Internet Banking|RBI never deals|This email is confidential|If this transaction was not initiated by you)""")
+        val match = cutoffRegex.find(body)
+        return if (match != null) body.substring(0, match.range.first) else body
     }
 
     private fun parseDateTimeString(raw: String?): Long? {

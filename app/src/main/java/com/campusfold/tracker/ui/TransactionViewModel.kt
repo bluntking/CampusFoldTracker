@@ -1134,6 +1134,18 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun unlinkTransaction(transactionId: Long, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                repository.unlinkTransaction(transactionId)
+                _statusMessage.value = "✓ Successfully unlinked reimbursement!"
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                _statusMessage.value = "Error unlinking transaction: ${e.message}"
+            }
+        }
+    }
+
     // ─── Rules Management ─────────────────────────────────────────────────────
 
     fun addRule(rule: RuleEntity, onComplete: ((Long) -> Unit)? = null) {

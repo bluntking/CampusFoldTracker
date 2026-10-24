@@ -150,4 +150,109 @@ class AxisBankEmailParserTest {
         assertEquals("CITY CAFE", tx.counterpartyName)
         assertEquals("777112233445", tx.reference)
     }
+
+    @Test
+    fun testAxisBankCreditNotificationRealPdfStructure() {
+        val subject = "INR 20.00 was credited to your A/c."
+        val fullBody = """
+            Alex Morgan <fakeuser@gmail.com>INR 20.00 was credited to your A/c.1 messageAxis Bank Alerts <alerts@axis.bank.in> 21 October 2026 at 13:46To: FAKEUSER@gmail.com
+            21-10-2026Dear Alex Morgan,Here's the summary of your transaction:Amount Credited:INR 20.00Account Number:XX9876Date & Time:21-10-26, 13:46:29 ISTTransaction Info:UPI/P2A/218606473101/JORDAN LEE/HDFC/Sent
+            Gmail - INR 20.00 was credited to your A/c. https://mail.google.com/mail/u/1/?ik=a070fc7d84&view=pt&search=al...
+            1 of 222-10-2026, 19:56
+
+            Call us at:18001035577(Toll Free)18604195555(Charges Applicable)Feel free to connect with us for any clarification.Always open to help you.Regards,Axis Bank Ltd.Footerimg****This is a system generated email and does not require signature. ****E003598117_09_2024Reach us at: 
+            CHAT WEB Support Mobile app INTERNET BANKING WHATSAPP BRANCH LOCATORCopyright Axis Bank Ltd. All rights reserved. Terms & Conditions apply.Please do not share your Internet Banking details, such as user ID/password or your Credit/Debit Card number/CVV/OTPwith anyone, either over phone or through email.RBI never deals with individuals for Savings Account, Current Account, Credit Card, Debit Card, etc. Don't be victim to suchoffers coming to you on phone or email in the name of RBI.Do not click on Links from unknown/unsecure Sources that seek your confidential information.This email is confidential. It may also be legally privileged. If you are not the addressee, you may not copy, forward,disclose or use any part of it. Internet communications cannot be guaranteed to be timely, secure, error or virus-free.The sender does not accept liability for any errors or omissions. We maintain strict security standards and procedures toprevent unauthorised access to information about you. Know more >>
+            Gmail - INR 20.00 was credited to your A/c. https://mail.google.com/mail/u/1/?ik=a070fc7d84&view=pt&search=al...
+            2 of 222-10-2026, 19:56
+        """.trimIndent()
+
+        val parsed = AxisBankEmailParser.parse(subject, fullBody)
+        assertNotNull(parsed)
+        val tx = parsed!!.transaction
+        assertEquals(20.0, tx.amount, 0.001)
+        assertEquals(TransactionType.INCOME, tx.type)
+        assertEquals("JORDAN LEE", tx.rawMerchant)
+        assertEquals("218606473101", tx.upiRef)
+        assertTrue(parsed.isCredit)
+    }
+
+    @Test
+    fun testAxisBankDebitNotificationRealPdfStructure() {
+        val subject = "INR 120.00 was debited from your A/c no. XX9876."
+        val fullBody = """
+            Alex Morgan <fakeuser@gmail.com>INR 120.00 was debited from your A/c no. XX9876.1 messagealerts@axis.bank.in <alerts@axis.bank.in> 22 October 2026 at 20:36To: FAKEUSER@gmail.com
+            22-10-2026Dear Alex Morgan,Here's the summary of your transaction:Amount Debited:INR 120.00Account Number:XX9876Date & Time:22-10-26, 20:36:32 ISTTransaction Info:UPI/P2M/666113532290/DD STORE
+            Gmail - INR 120.00 was debited from your A/c no. XX9876. https://mail.google.com/mail/u/1/?ik=a070fc7d84&view=pt&search=al...
+            1 of 223-10-2026, 00:03
+
+            Call us at:18001035577(Toll Free)18604195555(Charges Applicable)To block UPI:SMS BLOCKUPI <Customer ID> to +919951860002from your registered mobile number.If this transaction was not initiated by you:Always open to help you.Regards,Axis Bank Ltd.Footerimg ****This is a system generated communication and does not require signature. ****E003598217_09_2024Reach us at: 
+            CHAT WEB Support Mobile app INTERNET BANKING WHATSAPP BRANCH LOCATORCopyright Axis Bank Ltd. All rights reserved. Terms & Conditions apply.Please do not share your Internet Banking details, such as user ID/password or your Credit/Debit Card number/CVV/OTPwith anyone, either over phone or through email.RBI never deals with individuals for Savings Account, Current Account, Credit Card, Debit Card, etc. Don't be victim to suchoffers coming to you on phone or email in the name of RBI.Do not click on Links from unknown/unsecure Sources that seek your confidential information.This email is confidential. It may also be legally privileged. If you are not the addressee, you may not copy, forward,disclose or use any part of it. Internet communications cannot be guaranteed to be timely, secure, error or virus-free.The sender does not accept liability for any errors or omissions. We maintain strict security standards and procedures toprevent unauthorised access to information about you. Know more >>
+            Gmail - INR 120.00 was debited from your A/c no. XX9876. https://mail.google.com/mail/u/1/?ik=a070fc7d84&view=pt&search=al...
+            2 of 223-10-2026, 00:03
+        """.trimIndent()
+
+        val parsed = AxisBankEmailParser.parse(subject, fullBody)
+        assertNotNull(parsed)
+        val tx = parsed!!.transaction
+        assertEquals(120.0, tx.amount, 0.001)
+        assertEquals(TransactionType.EXPENSE, tx.type)
+        assertEquals("DD STORE", tx.rawMerchant)
+        assertEquals("666113532290", tx.upiRef)
+        assertFalse(parsed.isCredit)
+    }
+
+    @Test
+    fun testAxisBankCreditEmailWithDebitBoilerplateInFooter() {
+        val subject = "INR 20.00 was credited to your A/c."
+        val bodyWithDebitDisclaimer = """
+            Dear Alex Morgan,
+            Here's the summary of your transaction:
+            Amount Credited:
+            INR 20.00
+            Account Number:
+            XX9876
+            Date & Time:
+            21-10-26, 13:46:29 IST
+            Transaction Info:
+            UPI/P2A/218606473101/JORDAN LEE/HDFC/Sent
+
+            Call us at: 18001035577 (Toll Free)
+            Feel free to connect with us for any clarification.
+            Always open to help you.
+            Regards, Axis Bank Ltd.
+            ****This is a system generated email and does not require signature. ****
+            Please do not share your Internet Banking details, such as user ID/password or your Credit/Debit Card number/CVV/OTP with anyone, either over phone or through email.
+            RBI never deals with individuals for Savings Account, Current Account, Credit Card, Debit Card, etc.
+            If this transaction was not initiated by you and an amount was debited from your account, please click here to dispute.
+        """.trimIndent()
+
+        val parsed = AxisBankEmailParser.parse(subject, bodyWithDebitDisclaimer)
+        assertNotNull("Should parse credit email", parsed)
+        val tx = parsed!!.transaction
+        assertEquals("Primary signal is credit, so type must be INCOME despite boilerplate debit wording", TransactionType.INCOME, tx.type)
+        assertTrue(parsed.isCredit)
+    }
+
+    @Test
+    fun testAxisBankConflictingSignalsSentToReviewQueue() {
+        // Labelled field says Amount Debited, but subject says was credited
+        val subject = "INR 20.00 was credited to your A/c."
+        val body = """
+            Dear Alex Morgan,
+            Amount Debited:
+            INR 20.00
+            Account Number:
+            XX9876
+            Transaction Info: UPI/P2M/111222333444/MERCHANT
+        """.trimIndent()
+
+        val raw = RawMessage(
+            source = MessageSource.EMAIL,
+            sender = "alerts@axis.bank.in",
+            body = body,
+            subject = subject
+        )
+        val result = MessageExtractor.extract(raw)
+        assertTrue("Conflicting debit/credit signals must be routed to Review/Unparsed, not guessed", result is ExtractionResult.Unparsed)
+    }
 }

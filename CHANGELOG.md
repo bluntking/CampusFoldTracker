@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.1] - 2026-10-24
+
+### Fixed & Enhanced
+- **Axis Bank Credit Email Direction & Type Synchronization**:
+  - **Deterministic Primary Signal Parsing**: Primary direction is now strictly resolved in order of priority: Labelled field (`Amount Credited:` / `Amount Debited:`), then subject sentence (`was credited` / `was debited`), then body sentence. Boilerplate disclaimers and footers (e.g., dispute links with "was debited") are explicitly stripped before sentence evaluation.
+  - **Single Source of Truth**: Both `Direction` and `TransactionType` are derived from the single primary signal, guaranteeing they can never disagree.
+  - **Genuine Conflict Routing**: If labelled fields and subject sentences genuinely contradict each other, the message is safely routed to the Review Queue (`ExtractionResult.Unparsed`) rather than guessing.
+  - **Deduplication Type Correction in MessageIngestor**: Re-syncing (such as "Sync from date" for 21 Oct 2026 on Axis ••2003) now corrects previously misclassified transactions whose direction was inverted, preserving user manual edits while re-aligning vendor names, share values, and triggering income settlements.
+  - **Condition C Account Ownership Guard in checkOwnTransfer**: Opposite transactions with the same amount within a 10-minute window are now converted to `OWN_TRANSFER` ONLY if they belong to two distinct accounts owned by the user. A friend reimbursing an expense on the same account is preserved as `INCOME`.
+- **Restored "Map to an Expense" (Reimbursement) & Duplicate Merging**:
+  - **Callback Wire-Up**: Wired `onLinkIncomeToExpense` and `onMergeWithDuplicate` from `TransactionViewModel` through the outer `TransactionDetailBottomSheet` wrapper.
+  - **Type-Safety Constraint**: Marked both callbacks non-nullable in the inner composable signature to prevent them from silently disappearing.
+  - **Bidirectional Linking & Editable Offsets**: Supported mapping income to an expense and offsetting an expense with incoming transfers, with an editable offset amount, updating user shares and split balances.
+  - **Unlink Option**: Added an "Unlink Reimbursement" action on linked rows that restores original expense shares, split item settlement states, and returns the income leg back to standard `TransactionType.INCOME`.
+  - **Account Balance Accuracy**: Reimbursed income credited to bank accounts is accounted for in savings account derived balances, keeping Net Available Balance exact.
+
 ## [2.0.0] - 2026-10-24
 
 ### Fixed & Enhanced (v2.0.0 Release)
