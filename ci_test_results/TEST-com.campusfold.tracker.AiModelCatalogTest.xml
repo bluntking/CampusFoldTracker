@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.campusfold.tracker.AiModelCatalogTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-24T09:45:21.331Z" hostname="runnervm8k3b6" time="0.004">
+  <properties/>
+  <testcase name="testModelCatalogOrderOfPreference" classname="com.campusfold.tracker.AiModelCatalogTest" time="0.002"/>
+  <testcase name="testQwen05BMainBranchLitertlmVerification" classname="com.campusfold.tracker.AiModelCatalogTest" time="0.001"/>
+  <testcase name="testQwen15BModelIntegrityConfig" classname="com.campusfold.tracker.AiModelCatalogTest" time="0.0"/>
+  <testcase name="testGemma31BIsGated" classname="com.campusfold.tracker.AiModelCatalogTest" time="0.0"/>
+  <testcase name="testRamValidation" classname="com.campusfold.tracker.AiModelCatalogTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

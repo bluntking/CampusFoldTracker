@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.campusfold.tracker.MessageIngestorTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-10-24T09:45:21.686Z" hostname="runnervm8k3b6" time="0.059">
+  <properties/>
+  <testcase name="testDistinctTransactions_MoreThan2MinutesApartNotDeduplicated" classname="com.campusfold.tracker.MessageIngestorTest" time="0.026"/>
+  <testcase name="testMimeDecoding_Base64" classname="com.campusfold.tracker.MessageIngestorTest" time="0.009"/>
+  <testcase name="testBalanceUpdate_ManualAccountNeverOverwritten" classname="com.campusfold.tracker.MessageIngestorTest" time="0.003"/>
+  <testcase name="testMimeDecoding_QuotedPrintable" classname="com.campusfold.tracker.MessageIngestorTest" time="0.001"/>
+  <testcase name="testUidSyncStateHandling" classname="com.campusfold.tracker.MessageIngestorTest" time="0.0"/>
+  <testcase name="testCrossSourceDeduplication_Within2MinutesWindow" classname="com.campusfold.tracker.MessageIngestorTest" time="0.004"/>
+  <testcase name="testIngestionIdempotence_SameMessageSkippedOnSecondRun" classname="com.campusfold.tracker.MessageIngestorTest" time="0.004"/>
+  <testcase name="testCrossSourceDeduplication_SameReferenceEnrichesExistingRow" classname="com.campusfold.tracker.MessageIngestorTest" time="0.005"/>
+  <testcase name="testMimeDecoding_HtmlToPlainText" classname="com.campusfold.tracker.MessageIngestorTest" time="0.001"/>
+  <testcase name="testBalanceUpdate_AutoAccountUpdatesBalance" classname="com.campusfold.tracker.MessageIngestorTest" time="0.002"/>
+  <testcase name="testDedupeTypeCorrectionOnOppositeDirection" classname="com.campusfold.tracker.MessageIngestorTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

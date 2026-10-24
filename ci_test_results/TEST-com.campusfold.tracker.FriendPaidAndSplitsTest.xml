@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.campusfold.tracker.FriendPaidAndSplitsTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-24T09:45:21.553Z" hostname="runnervm8k3b6" time="0.006">
+  <properties/>
+  <testcase name="testFriendPaidExpenseStructure" classname="com.campusfold.tracker.FriendPaidAndSplitsTest" time="0.002"/>
+  <testcase name="testFifoRepaymentWithExcessRecordedAsExpense" classname="com.campusfold.tracker.FriendPaidAndSplitsTest" time="0.003"/>
+  <testcase name="testFifoRepaymentExactSettlement" classname="com.campusfold.tracker.FriendPaidAndSplitsTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

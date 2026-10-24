@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.campusfold.tracker.AccountMergeTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-24T09:45:21.212Z" hostname="runnervm8k3b6" time="0.115">
+  <properties/>
+  <testcase name="testNegativeConstraint_AiMatchNeverAutoMerged" classname="com.campusfold.tracker.AccountMergeTest" time="0.058"/>
+  <testcase name="testSuggestedMerge_MissingLast4VsPresentLast4" classname="com.campusfold.tracker.AccountMergeTest" time="0.006"/>
+  <testcase name="testNegativeConstraint_NotSamePairNeverAutoMergedOrSuggested" classname="com.campusfold.tracker.AccountMergeTest" time="0.001"/>
+  <testcase name="testMergeExecution_BalanceResolution_ManualOverAuto" classname="com.campusfold.tracker.AccountMergeTest" time="0.008"/>
+  <testcase name="testSerializationAndSimilarity" classname="com.campusfold.tracker.AccountMergeTest" time="0.002"/>
+  <testcase name="testUndoMerge_ExactRestorationOfAccountAndTransactions" classname="com.campusfold.tracker.AccountMergeTest" time="0.004"/>
+  <testcase name="testSuggestedMerge_TypeDivergence" classname="com.campusfold.tracker.AccountMergeTest" time="0.006"/>
+  <testcase name="testAutoMerge_HighConfidence_SharedTransactionReferences" classname="com.campusfold.tracker.AccountMergeTest" time="0.004"/>
+  <testcase name="testAutoMerge_HighConfidence_ExistingAliasLink" classname="com.campusfold.tracker.AccountMergeTest" time="0.001"/>
+  <testcase name="testManualMerge_UserCustomOverrides" classname="com.campusfold.tracker.AccountMergeTest" time="0.001"/>
+  <testcase name="testAutoMerge_HighConfidence_SameBankKeyLast4AndType" classname="com.campusfold.tracker.AccountMergeTest" time="0.001"/>
+  <testcase name="testNegativeConstraint_EditedFieldsDowngradedToMedium" classname="com.campusfold.tracker.AccountMergeTest" time="0.001"/>
+  <testcase name="testSuggestedMerge_SimilarNamesOnSameBank" classname="com.campusfold.tracker.AccountMergeTest" time="0.003"/>
+  <testcase name="testMergeExecution_TransactionReparentingAndAliasMovement" classname="com.campusfold.tracker.AccountMergeTest" time="0.01"/>
+  <testcase name="testPickSurvivingAccount_Heuristics" classname="com.campusfold.tracker.AccountMergeTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

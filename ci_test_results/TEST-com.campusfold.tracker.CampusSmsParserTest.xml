@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.campusfold.tracker.CampusSmsParserTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-10-24T09:45:21.455Z" hostname="runnervm8k3b6" time="0.027">
+  <properties/>
+  <testcase name="testAxisBankOutboundCcBillPaymentPnbCard" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.003"/>
+  <testcase name="testPnbCreditCard8598Debit" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.001"/>
+  <testcase name="testPnbSavingsAccountDebit" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.015"/>
+  <testcase name="testAxisBankOutboundCcBillPaymentBilldesk" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.001"/>
+  <testcase name="testAxisSavingsAccountDebit" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.001"/>
+  <testcase name="testAxisBankOutboundCcBillPaymentCred" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.001"/>
+  <testcase name="testJupiterFederalAccountDebit" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.001"/>
+  <testcase name="testWordBoundaryNoFalsePositiveOnCredited" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.001"/>
+  <testcase name="testOtpMessageIgnored" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.001"/>
+  <testcase name="testAxisBankXX2003Debit" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.0"/>
+  <testcase name="testPnbCreditCardBillConfirmation" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.001"/>
+  <testcase name="testDeterministicDedupeHash" classname="com.campusfold.tracker.CampusSmsParserTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

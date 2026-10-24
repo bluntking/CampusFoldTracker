@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.campusfold.tracker.Migration3To4Test" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-24T09:45:21.747Z" hostname="runnervm8k3b6" time="0.004">
+  <properties/>
+  <testcase name="testMigrationVersion" classname="com.campusfold.tracker.Migration3To4Test" time="0.0"/>
+  <testcase name="testCategoryBudgetConversionLogic" classname="com.campusfold.tracker.Migration3To4Test" time="0.0"/>
+  <testcase name="testVendorMappingKeyNormalization" classname="com.campusfold.tracker.Migration3To4Test" time="0.0"/>
+  <testcase name="testTransactionToAccountLinkingLogic" classname="com.campusfold.tracker.Migration3To4Test" time="0.0"/>
+  <testcase name="testBankKeyNormalizationLogic" classname="com.campusfold.tracker.Migration3To4Test" time="0.001"/>
+  <testcase name="testAccountTypeMappingLogic" classname="com.campusfold.tracker.Migration3To4Test" time="0.0"/>
+  <testcase name="testAccountBalancesRoutingLogic" classname="com.campusfold.tracker.Migration3To4Test" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

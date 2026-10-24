@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.campusfold.tracker.EntityResolverAndRulesTest" tests="14" skipped="0" failures="0" errors="0" timestamp="2026-10-24T09:45:21.500Z" hostname="runnervm8k3b6" time="0.033">
+  <properties/>
+  <testcase name="testVendorResolver_CleanMerchantString" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.003"/>
+  <testcase name="testDefaultEntityResolver_PrecedenceOrder" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.009"/>
+  <testcase name="testAccountNormalizer_BankNames" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.0"/>
+  <testcase name="testAccountNormalizer_FormatDisplayName" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.001"/>
+  <testcase name="testDefaultEntityResolver_AccountAliasAndUnassigned" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.005"/>
+  <testcase name="testAiFallbackService_OfflineAndNoModelGracefulHandling" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.002"/>
+  <testcase name="testRuleEngine_ConditionEvaluationAndChaining" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.003"/>
+  <testcase name="testAccountNormalizer_Last4" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.0"/>
+  <testcase name="testRuleEngine_EditedFieldsProtection" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.001"/>
+  <testcase name="testVendorResolver_WholeWordMatching_RejectsSubstring" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.0"/>
+  <testcase name="testDefaultEntityResolver_CategoryCreationSetsBudgetPaiseNull" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.002"/>
+  <testcase name="testRuleEngine_BlockAction" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.0"/>
+  <testcase name="testAiFallbackService_JsonSchemaValidation" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.001"/>
+  <testcase name="testAccountNormalizer_InferType" classname="com.campusfold.tracker.EntityResolverAndRulesTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

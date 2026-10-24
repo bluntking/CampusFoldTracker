@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.campusfold.tracker.MessageExtractorTest" tests="26" skipped="0" failures="0" errors="0" timestamp="2026-10-24T09:45:21.574Z" hostname="runnervm8k3b6" time="0.107">
+  <properties/>
+  <testcase name="testAxisHtmlEmailParsing" classname="com.campusfold.tracker.MessageExtractorTest" time="0.002"/>
+  <testcase name="testMandateReminderIgnored" classname="com.campusfold.tracker.MessageExtractorTest" time="0.001"/>
+  <testcase name="testOwnTransferViaAccountNaming" classname="com.campusfold.tracker.MessageExtractorTest" time="0.058"/>
+  <testcase name="testCheckOwnTransferConditionCRequiresDifferentAccounts" classname="com.campusfold.tracker.MessageExtractorTest" time="0.001"/>
+  <testcase name="testPasswordResetNotificationIgnored" classname="com.campusfold.tracker.MessageExtractorTest" time="0.0"/>
+  <testcase name="testKotakRefundReceived" classname="com.campusfold.tracker.MessageExtractorTest" time="0.002"/>
+  <testcase name="testBankOfBarodaDebitCardSpend" classname="com.campusfold.tracker.MessageExtractorTest" time="0.003"/>
+  <testcase name="testIciciAtmCashWithdrawal" classname="com.campusfold.tracker.MessageExtractorTest" time="0.003"/>
+  <testcase name="testFederalBankBalanceOnlyAlert" classname="com.campusfold.tracker.MessageExtractorTest" time="0.001"/>
+  <testcase name="testGenericRegexFallbackSpend" classname="com.campusfold.tracker.MessageExtractorTest" time="0.002"/>
+  <testcase name="testAxisOutboundCcBillPaymentCred" classname="com.campusfold.tracker.MessageExtractorTest" time="0.001"/>
+  <testcase name="testBillDueReminderIgnored" classname="com.campusfold.tracker.MessageExtractorTest" time="0.001"/>
+  <testcase name="testAxisEmiPayment" classname="com.campusfold.tracker.MessageExtractorTest" time="0.002"/>
+  <testcase name="testAsbaIpoBlockingIgnored" classname="com.campusfold.tracker.MessageExtractorTest" time="0.006"/>
+  <testcase name="testPromotionalOfferIgnored" classname="com.campusfold.tracker.MessageExtractorTest" time="0.0"/>
+  <testcase name="testPnbInboundCcBillConfirmation" classname="com.campusfold.tracker.MessageExtractorTest" time="0.007"/>
+  <testcase name="testIndusIndDebitUpi" classname="com.campusfold.tracker.MessageExtractorTest" time="0.002"/>
+  <testcase name="testOwnTransferBatchPairing" classname="com.campusfold.tracker.MessageExtractorTest" time="0.001"/>
+  <testcase name="testCanaraBankSalaryCredit" classname="com.campusfold.tracker.MessageExtractorTest" time="0.002"/>
+  <testcase name="testPnbFormat1CardDebit" classname="com.campusfold.tracker.MessageExtractorTest" time="0.002"/>
+  <testcase name="testAxisOutboundCcBillPaymentBilldesk" classname="com.campusfold.tracker.MessageExtractorTest" time="0.001"/>
+  <testcase name="testOtpMessageIgnored" classname="com.campusfold.tracker.MessageExtractorTest" time="0.0"/>
+  <testcase name="testSbiAccountDebitUpi" classname="com.campusfold.tracker.MessageExtractorTest" time="0.002"/>
+  <testcase name="testHdfcCreditCardSpendWithLimit" classname="com.campusfold.tracker.MessageExtractorTest" time="0.001"/>
+  <testcase name="testAxisFormat2MultilineUpiDebit" classname="com.campusfold.tracker.MessageExtractorTest" time="0.002"/>
+  <testcase name="testOwnTransferViaSelfTransferKeyword" classname="com.campusfold.tracker.MessageExtractorTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
