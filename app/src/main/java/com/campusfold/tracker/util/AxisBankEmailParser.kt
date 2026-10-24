@@ -106,14 +106,7 @@ object AxisBankEmailParser {
             return null
         }
 
-        val detectedBank = when {
-            combined.contains("axis", ignoreCase = true) -> "Axis Bank"
-            combined.contains("hdfc", ignoreCase = true) -> "HDFC Bank"
-            combined.contains("icici", ignoreCase = true) -> "ICICI Bank"
-            combined.contains("sbi", ignoreCase = true) || combined.contains("state bank", ignoreCase = true) -> "SBI"
-            combined.contains("pnb", ignoreCase = true) || combined.contains("punjab national", ignoreCase = true) -> "PNB"
-            else -> "Axis Bank"
-        }
+        val detectedBank = "Axis Bank"
 
         // 2. Extract Account Tail (e.g. 2003)
         var accountTail: String? = null
