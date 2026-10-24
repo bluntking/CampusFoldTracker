@@ -67,17 +67,17 @@ jobs:
       - name: Prepare Versioned APK
         if: success()
         run: |
-          VERSION="1.0.${{ github.run_number }}"
+          VERSION="2.0.0"
           mkdir -p release-apk
           for apk in app/build/outputs/apk/debug/*.apk; do
-            cp "$apk" "release-apk/CampusFold-1.0.${{ github.run_number }}.apk"
+            cp "$apk" "release-apk/CampusFold-2.0.0.apk"
           done
 
       - name: Upload Versioned APK Artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: CampusFold-1.0.${{ github.run_number }}
+          name: CampusFold-2.0.0
           path: release-apk/*.apk
           retention-days: 14
 
@@ -107,12 +107,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v1.0.${{ github.run_number }}"
-          APK_FILE="release-apk/CampusFold-1.0.${{ github.run_number }}.apk"
+          TAG="v2.0.0"
+          APK_FILE="release-apk/CampusFold-2.0.0.apk"
           if [ -f "$APK_FILE" ]; then
             echo "Publishing release $TAG with direct APK and changelog..."
             REPO="${{ github.repository }}"
-            APK_URL="https://github.com/$REPO/releases/download/$TAG/CampusFold-1.0.${{ github.run_number }}.apk"
+            APK_URL="https://github.com/$REPO/releases/download/$TAG/CampusFold-2.0.0.apk"
 
             git fetch --tags --force 2>/dev/null || true
             PREV_TAG=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
@@ -136,7 +136,7 @@ jobs:
               ' CHANGELOG.md | sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba')
             fi
 
-            echo "## 🚀 What's New in CampusFold v1.0.${{ github.run_number }}" > release_notes.md
+            echo "## 🚀 What's New in CampusFold v2.0.0" > release_notes.md
             echo "" >> release_notes.md
 
             if [ -n "$CHANGELOG_SECTION" ]; then
@@ -149,7 +149,7 @@ jobs:
             echo "---" >> release_notes.md
             echo "### 📱 Direct APK Download (No ZIP)" >> release_notes.md
             echo "Download directly to your Android device without unzipping:" >> release_notes.md
-            echo "- [CampusFold-1.0.${{ github.run_number }}.apk]($APK_URL)" >> release_notes.md
+            echo "- [CampusFold-2.0.0.apk]($APK_URL)" >> release_notes.md
             echo "- **In-Place Update:** Installs smoothly over your existing installation preserving all local databases and configurations." >> release_notes.md
             echo "" >> release_notes.md
 
@@ -162,13 +162,13 @@ jobs:
             fi
 
             gh release create "$TAG" "$APK_FILE" \
-              --title "CampusFold v1.0.${{ github.run_number }}" \
+              --title "CampusFold v2.0.0" \
               --notes-file release_notes.md \
               --latest || gh release upload "$TAG" "$APK_FILE" --clobber || true
 
             echo "## 📱 Direct APK Download (No ZIP)" >> $GITHUB_STEP_SUMMARY
             echo "Download directly to your Android device without unzipping:" >> $GITHUB_STEP_SUMMARY
-            echo "[Download CampusFold-1.0.${{ github.run_number }}.apk]($APK_URL)" >> $GITHUB_STEP_SUMMARY
+            echo "[Download CampusFold-2.0.0.apk]($APK_URL)" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Push Artifacts to Debug Branch

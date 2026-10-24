@@ -5,5 +5,6 @@ data class RawMessage(
     val sender: String,
     val body: String,
     val timestamp: Long = System.currentTimeMillis(),
-    val sourceId: String? = null
+    val sourceId: String? = null,
+    val subject: String? = null
 )

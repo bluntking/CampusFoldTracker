@@ -4,7 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.1.0] - 2026-10-24
+## [2.0.0] - 2026-10-24
+
+### Fixed & Enhanced (v2.0.0 Release)
+- **Gmail IMAP Sync Restoration**:
+  - **OTP False-Positive Drop Resolved**: Emails with completed money movement (`debited`, `credited`, `spent`) are no longer falsely classified as OTPs due to security footer disclaimers ("never share OTP/password").
+  - **Subject Field Propagation**: Added `subject` to `RawMessage` model and propagated email subject to `AxisBankEmailParser`.
+  - **Axis Bank Alert Support**: Full parser support for Axis Bank debit and credit notifications (`alerts@axis.bank.in`, `UPI/P2M/<RRN>/<Merchant>`, `UPI/P2A/<RRN>/<Merchant>/<Bank>/Sent`), matching existing accounts without duplicates.
+  - **Post-Commit UID Checkpoint Safety**: Checkpoint advances only for emails that are safely ingested, updated, or stored in the Review Queue.
+  - **60-Second Sync Debounce**: Failed or empty sync runs no longer lock out subsequent sync attempts; auto-sync debounce set to 60 seconds.
+  - **Keystore Decryption Failure Detection**: Detects if an Android Keystore key changed after an app update/reinstall and prevents sending raw ciphertext to IMAP, displaying a clear prompt in Settings > Sync & Data to re-enter the App Password.
+  - **"Last sync" Panel in Settings**: Added real-time sync metrics panel under Settings > Sync & Data showing sync time, emails fetched, filtered out, parsed, sent to Review Queue, saved, and the last error in plain words.
+- **UI Bug Fixes**:
+  - **Manage Accounts Header**: Balanced title with flexible weight so "Manage Accounts" never collides with the Merge button; enlarged `+` button with a 20dp icon.
+  - **Account Card Subtitles**: Removed duplicate "Axis Bank ••2003" subtitles, replacing them with clean account type labels ("Savings Account", "Credit Card").
+  - **Credit Card Balance Squeezing**: Placed credit card balance and owed amounts on their own dedicated row, giving full card width to long names ("Punjab National Bank ••8598") so they are never truncated against "Owed: ₹0".
+  - **Source Tag Accuracy**: Corrected "entered manually" tag condition to strictly require `anchorSet && balanceSource == MANUAL`.
+  - **Theme Background Consistency**: Set `#0A0A0C` background across `themes.xml`, `Theme.kt`, and all screen containers in OLED dark mode.
+  - **Splits Header & Clearer Icons**: Balanced "Friend Balances & Debts" header to prevent touching action buttons; replaced shopping cart icon with receipt icon (`Icons.Default.ReceiptLong`, 18dp) on "+ Friend Paid"; enlarged Add Friend icon (`Icons.Default.PersonAdd`, 20dp).
+  - **Readable ₹0.00 Summary Values**: Made ₹0.00 values in Splits summary card readable using high-contrast text color rather than dim muted grey.
+  - **Splits Content Layout**: Constrained empty state Box and LazyColumn with `weight(1f)` bounds to eliminate spurious scrollbar thumbs.
+  - **Mathematically Centered Bottom Bar**: Flanked the center `+` button between two equal-weighted 50% sub-rows in `FloatingPillBottomBar`, ensuring the `+` button remains dead-centered on every screen regardless of which tab is expanded.
 
 ### Added
 - **5-Slot Floating Navigation**: Refactored `FloatingPillBottomBar` to exactly five slots: Home, Analytics, Center Add (+), Splits, and Settings.

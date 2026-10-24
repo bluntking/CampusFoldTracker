@@ -122,11 +122,14 @@ fun CampusFoldTrackerTheme(
         else -> LightColorScheme
     }
 
-    if (darkTheme && isAmoledMode) {
+    if (darkTheme) {
+        val darkBg = if (isAmoledMode) amoled_background else OledBlack
+        val darkSurface = if (isAmoledMode) amoled_surface else Color(0xFF121216)
+        val darkSurfaceVariant = if (isAmoledMode) amoled_surfaceVariant else Color(0xFF1E1E24)
         colorScheme = colorScheme.copy(
-            background = amoled_background,
-            surface = amoled_surface,
-            surfaceVariant = amoled_surfaceVariant
+            background = darkBg,
+            surface = darkSurface,
+            surfaceVariant = darkSurfaceVariant
         )
     }
 

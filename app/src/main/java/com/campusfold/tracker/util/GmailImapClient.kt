@@ -93,7 +93,7 @@ object GmailImapClient {
         chunkSize: Int = 100,
         isCancelled: (() -> Boolean)? = null,
         onProgress: ((current: Int, total: Int) -> Unit)? = null,
-        onChunkReady: suspend (chunk: List<FetchedEmail>, serverUidValidity: Long, chunkHighestUid: Long) -> Unit
+        onChunkReady: suspend (chunk: List<FetchedEmail>, serverUidValidity: Long, chunkHighestUid: Long, chunkFilteredCount: Int) -> Unit
     ): Int = withContext(Dispatchers.IO) {
         val cleanEmail = emailAddress.trim()
         val cleanPassword = appPassword.replace(" ", "").trim()
@@ -148,23 +148,48 @@ object GmailImapClient {
                 storedLastUid
             }
 
-            val messagesToProcess: Array<out Message> = if (effectiveLastUid > 0L) {
+            var messagesToProcess: Array<out Message> = if (effectiveLastUid > 0L) {
                 Log.d(TAG, "Incremental sync: fetching messages with UID > $effectiveLastUid")
                 try {
                     folder.getMessagesByUID(effectiveLastUid + 1, UIDFolder.LASTUID)
                 } catch (e: Exception) {
                     Log.w(TAG, "getMessagesByUID failed, falling back to date query", e)
-                    val date = if (startDateMillis != null && startDateMillis > 0) Date(startDateMillis) else Date(System.currentTimeMillis() - 30L * 86400000L)
+                    val date = if (startDateMillis != null && startDateMillis > 0) Date(startDateMillis - 86400000L) else Date(System.currentTimeMillis() - 30L * 86400000L)
                     folder.search(ReceivedDateTerm(ComparisonTerm.GE, date))
                 }
             } else {
                 val filterDate = if (startDateMillis != null && startDateMillis > 0) {
-                    Date(startDateMillis)
+                    Date(startDateMillis - 86400000L)
                 } else {
                     Date(System.currentTimeMillis() - 30L * 86400000L)
                 }
                 Log.d(TAG, "Initial sync: fetching messages since $filterDate")
                 folder.search(ReceivedDateTerm(ComparisonTerm.GE, filterDate))
+            }
+
+            // Fallback to All Mail if INBOX returned 0 messages
+            if (messagesToProcess.isEmpty()) {
+                try {
+                    val allMailFolder = store.getFolder("[Gmail]/All Mail") as? IMAPFolder
+                    if (allMailFolder != null && allMailFolder.exists()) {
+                        allMailFolder.open(Folder.READ_ONLY)
+                        val filterDate = if (startDateMillis != null && startDateMillis > 0) {
+                            Date(startDateMillis - 86400000L)
+                        } else {
+                            Date(System.currentTimeMillis() - 30L * 86400000L)
+                        }
+                        val allMailMessages = allMailFolder.search(ReceivedDateTerm(ComparisonTerm.GE, filterDate))
+                        if (allMailMessages.isNotEmpty()) {
+                            try { folder.close(false) } catch (_: Exception) {}
+                            folder = allMailFolder
+                            messagesToProcess = allMailMessages
+                        } else {
+                            try { allMailFolder.close(false) } catch (_: Exception) {}
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed searching All Mail folder fallback", e)
+                }
             }
 
             val totalCandidateCount = messagesToProcess.size
@@ -197,6 +222,7 @@ object GmailImapClient {
 
                 val chunkFetchedEmails = mutableListOf<FetchedEmail>()
                 var chunkHighestUid = 0L
+                var chunkFilteredCount = 0
 
                 for (msg in chunk) {
                     if (isCancelled?.invoke() == true) break
@@ -220,6 +246,7 @@ object GmailImapClient {
                         }
 
                         if (!BankEmailSyncConfig.matchesBankEmail(sender, subject, customSenders, scanAllSenders)) {
+                            chunkFilteredCount++
                             continue
                         }
 
@@ -242,7 +269,7 @@ object GmailImapClient {
 
                 if (chunkFetchedEmails.isNotEmpty()) {
                     totalFetchedCount += chunkFetchedEmails.size
-                    onChunkReady(chunkFetchedEmails, serverUidValidity, chunkHighestUid)
+                    onChunkReady(chunkFetchedEmails, serverUidValidity, chunkHighestUid, chunkFilteredCount)
                 } else if (chunkHighestUid > 0L) {
                     appPreferences?.setGmailUidSyncState(serverUidValidity, chunkHighestUid)
                 }
@@ -274,7 +301,7 @@ object GmailImapClient {
             chunkSize = 100,
             isCancelled = isCancelled,
             onProgress = onProgress,
-            onChunkReady = { chunk, _, _ ->
+            onChunkReady = { chunk, _, _, _ ->
                 result.addAll(chunk)
             }
         )

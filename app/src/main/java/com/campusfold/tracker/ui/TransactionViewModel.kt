@@ -58,6 +58,8 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     val gmailSyncEmail: StateFlow<String?>
     val gmailSyncAppPassword: StateFlow<String?>
     val gmailLastSyncTimestamp: StateFlow<Long>
+    val gmailSyncStats: StateFlow<com.campusfold.tracker.data.model.GmailSyncStats?>
+    val keystoreDecryptionFailed: StateFlow<Boolean>
 
     // Gmail IMAP Sync State
     private val _isGmailSyncing = MutableStateFlow(false)
@@ -281,6 +283,18 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
             0L
+        )
+
+        gmailSyncStats = prefs.gmailSyncStats.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            null
+        )
+
+        keystoreDecryptionFailed = prefs.isKeystoreDecryptionFailed.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            false
         )
 
         accounts = repository.allAccounts.stateIn(
@@ -1075,7 +1089,7 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
 
     /**
      * Silent auto-sync on app open / foreground.
-     * Triggers a Gmail sync via WorkManager if last sync was > 15 minutes ago.
+     * Triggers a Gmail sync via WorkManager if last sync was > 60 seconds ago.
      */
     fun checkAndAutoSyncGmail() {
         try {
@@ -1084,8 +1098,8 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             if (email.isNullOrBlank() || password.isNullOrBlank()) return
 
             val lastSync = gmailLastSyncTimestamp.value
-            val fifteenMinutesMillis = 15L * 60L * 1000L
-            if (lastSync > 0L && (System.currentTimeMillis() - lastSync) <= fifteenMinutesMillis) {
+            val debounceMillis = 60L * 1000L // 60s debounce
+            if (lastSync > 0L && (System.currentTimeMillis() - lastSync) <= debounceMillis) {
                 return
             }
 

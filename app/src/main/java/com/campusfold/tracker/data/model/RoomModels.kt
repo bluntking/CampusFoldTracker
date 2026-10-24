@@ -359,14 +359,22 @@ data class WeekOverWeekSpike(
 }
 
 /**
- * Summary stats from a Gmail IMAP sync operation for Axis Bank.
+ * Summary stats from a Gmail IMAP sync operation.
+ * Used for Settings > Sync & Data "Last sync" panel and historical tracking.
  */
 data class GmailSyncStats(
-    val totalFound: Int,
-    val importedDebits: Int,
-    val importedCredits: Int,
-    val autoSettledCredits: Int,
-    val pendingSuggestionsCreated: Int,
-    val skippedDuplicates: Int,
-    val errorMessage: String? = null
+    val timestamp: Long = System.currentTimeMillis(),
+    val emailsFetched: Int = 0,
+    val filteredOut: Int = 0,
+    val parsed: Int = 0,
+    val sentToReview: Int = 0,
+    val saved: Int = 0,
+    val lastError: String? = null,
+    val totalFound: Int = emailsFetched,
+    val importedDebits: Int = saved,
+    val importedCredits: Int = 0,
+    val autoSettledCredits: Int = 0,
+    val pendingSuggestionsCreated: Int = 0,
+    val skippedDuplicates: Int = 0,
+    val errorMessage: String? = lastError
 )

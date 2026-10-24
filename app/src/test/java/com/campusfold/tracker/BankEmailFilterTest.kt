@@ -18,6 +18,8 @@ class BankEmailFilterTest {
     @Test
     fun testRbiSpecialDomainsMatch() {
         // RBI reserved financial TLDs (.bank.in and .fin.in)
+        assertTrue(BankEmailSyncConfig.isBankSender("alerts@axis.bank.in"))
+        assertTrue(BankEmailSyncConfig.isBankSender("Axis Bank Alerts <alerts@axis.bank.in>"))
         assertTrue(BankEmailSyncConfig.isBankSender("alerts@sbi.bank.in"))
         assertTrue(BankEmailSyncConfig.isBankSender("State Bank <noreply@statebank.bank.in>"))
         assertTrue(BankEmailSyncConfig.isBankSender("statements@cred.fin.in"))

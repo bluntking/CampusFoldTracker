@@ -12,9 +12,8 @@ android {
         applicationId = "com.campusfold.tracker"
         minSdk = 26
         targetSdk = 34
-        val runNum = System.getenv("GITHUB_RUN_NUMBER") ?: "local"
-        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()?.plus(100) ?: 1
-        versionName = "1.0.$runNum"
+        versionCode = 200
+        versionName = "2.0.0"
         manifestPlaceholders["appName"] = "CampusFold"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

@@ -775,6 +775,8 @@ fun SyncAndDataSubScreen(
     val isScanningSms by viewModel.isScanning.collectAsStateWithLifecycle()
     val gmailLastSync by viewModel.gmailLastSyncTimestamp.collectAsStateWithLifecycle()
     val smsLastSync by viewModel.lastSmsSyncTimestamp.collectAsStateWithLifecycle()
+    val syncStats by viewModel.gmailSyncStats.collectAsStateWithLifecycle()
+    val keystoreDecryptionFailed by viewModel.keystoreDecryptionFailed.collectAsStateWithLifecycle()
 
     var emailInput by remember(savedEmail) { mutableStateOf(savedEmail ?: "") }
     var passwordInput by remember(savedPassword) { mutableStateOf(savedPassword ?: "") }
@@ -793,7 +795,7 @@ fun SyncAndDataSubScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(OledBlack)
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp)
@@ -822,6 +824,31 @@ fun SyncAndDataSubScreen(
                         fontSize = 18.sp,
                         color = TextPrimary
                     )
+                }
+            }
+        }
+
+        if (keystoreDecryptionFailed) {
+            item {
+                Surface(
+                    color = NeonCrimson.copy(alpha = 0.15f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NeonCrimson.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = NeonCrimson, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Gmail App Password could not be decrypted (Keystore key changed after app update/reinstall). Please re-enter your 16-character App Password below.",
+                            fontSize = 12.sp,
+                            color = NeonCrimson,
+                            lineHeight = 16.sp
+                        )
+                    }
                 }
             }
         }
@@ -1086,6 +1113,94 @@ fun SyncAndDataSubScreen(
                         "Last synced: ${dateFormatter.format(Date(gmailLastSync))}"
                     } else "Never synced"
                     Text(gmailStatusText, fontSize = 12.sp, color = TextSecondary)
+
+                    // Last Sync Panel
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "LAST SYNC METRICS",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextMuted
+                                )
+                                if (syncStats != null) {
+                                    Text(
+                                        text = if (syncStats?.lastError == null) "COMPLETED" else "FAILED",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (syncStats?.lastError == null) NeonEmerald else NeonCrimson
+                                    )
+                                }
+                            }
+
+                            if (syncStats != null) {
+                                val s = syncStats!!
+                                val timeText = if (s.timestamp > 0L) dateFormatter.format(Date(s.timestamp)) else "N/A"
+                                Text("Time: $timeText", fontSize = 11.sp, color = TextPrimary)
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Fetched", fontSize = 10.sp, color = TextSecondary)
+                                        Text("${s.emailsFetched}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    }
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Filtered", fontSize = 10.sp, color = TextSecondary)
+                                        Text("${s.filteredOut}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextSecondary)
+                                    }
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Parsed", fontSize = 10.sp, color = TextSecondary)
+                                        Text("${s.parsed}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NeonEmerald)
+                                    }
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Review", fontSize = 10.sp, color = TextSecondary)
+                                        Text("${s.sentToReview}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NeonAmber)
+                                    }
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Saved", fontSize = 10.sp, color = TextSecondary)
+                                        Text("${s.saved}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NeonCyan)
+                                    }
+                                }
+
+                                if (!s.lastError.isNullOrBlank()) {
+                                    Text(
+                                        text = "Last error: ${s.lastError}",
+                                        fontSize = 11.sp,
+                                        color = NeonCrimson,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Last error: None",
+                                        fontSize = 11.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = "No sync has been recorded yet.",
+                                    fontSize = 11.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),

@@ -31,6 +31,7 @@ object AxisBankEmailParser {
     // UPI info: e.g. UPI/P2M/666113532290/DD STORE or UPI/P2A/218606473101/KAVYA KOH/KKBK/Sent
     private val UPI_INFO_PATTERN = Pattern.compile("UPI/(?:P2M|P2A|P2P)/(\\d+)/([^/\\r\\n<]+)", Pattern.CASE_INSENSITIVE)
     private val UPI_REF_ONLY_PATTERN = Pattern.compile("(?:UPI\\s+Ref(?:\\s+no)?|Ref\\s+no|RRN)\\.?\\s*:?\\s*(\\d{9,})", Pattern.CASE_INSENSITIVE)
+    private val AVAILABLE_BAL_PATTERN = Pattern.compile("(?:Available\\s+Balance|Avl\\s+Bal(?:ance)?):?\\s*(?:INR|Rs\\.?|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE)
 
     // Date & Time pattern: e.g. 22-10-26, 20:36:32 IST or 21-10-2026
     private val DATE_TIME_PATTERN = Pattern.compile("Date\\s*&\\s*Time:?\\s*([0-9]{2}-[0-9]{2}-[0-9]{2,4}[^\\r\\n<]*)", Pattern.CASE_INSENSITIVE)
@@ -154,11 +155,14 @@ object AxisBankEmailParser {
             val txLineM = TX_INFO_LINE_PATTERN.matcher(cleanBody)
             if (txLineM.find()) {
                 val fullInfo = txLineM.group(1)?.trim() ?: ""
-                // Might look like "UPI/P2M/666113532290/DD STORE" or "NEFT/..."
+                // Might look like "UPI/P2M/666113532290/DD STORE" or "UPI/P2A/218606473101/KAVYA KOH/KKBK/Sent"
                 val parts = fullInfo.split("/").map { it.trim() }.filter { it.isNotEmpty() }
-                if (parts.size >= 3) {
+                if (parts.size >= 4 && parts[0].equals("UPI", ignoreCase = true)) {
+                    if (upiRef == null && parts[2].all { it.isDigit() }) upiRef = parts[2]
+                    rawMerchant = parts[3]
+                } else if (parts.size >= 3) {
                     if (upiRef == null && parts[1].all { it.isDigit() }) upiRef = parts[1]
-                    rawMerchant = parts.last()
+                    rawMerchant = if (parts[0].equals("UPI", ignoreCase = true)) parts[2] else parts.last()
                 } else if (parts.size == 2) {
                     rawMerchant = parts[1]
                 } else if (fullInfo.isNotBlank()) {
@@ -174,6 +178,8 @@ object AxisBankEmailParser {
                 rawMerchant = m.group(1)?.trim()
             }
         }
+
+        rawMerchant = rawMerchant?.trim()?.removeSuffix("/Sent")?.removeSuffix("/sent")?.trim()
 
         if (rawMerchant.isNullOrBlank()) {
             rawMerchant = if (isDebit) "$detectedBank Debit" else "$detectedBank Credit"

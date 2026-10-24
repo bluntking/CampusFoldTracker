@@ -50,6 +50,8 @@ fun FloatingPillBottomBar(
     ) {
         Surface(
             modifier = Modifier
+                .widthIn(max = 440.dp)
+                .fillMaxWidth()
                 .shadow(elevation = 12.dp, shape = RoundedCornerShape(32.dp))
                 .border(
                     1.dp,
@@ -62,27 +64,32 @@ fun FloatingPillBottomBar(
         ) {
             Row(
                 modifier = Modifier
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 1. Home Tab (also highlighted on pushed screens)
-                PillNavItem(
-                    label = "Home",
-                    icon = Icons.Default.Home,
-                    isSelected = isHomeActive,
-                    onClick = { onNavigate(AppNavScreen.HOME) }
-                )
+                // Left Wing: Home & Analytics (strictly 50% left space)
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PillNavItem(
+                        label = "Home",
+                        icon = Icons.Default.Home,
+                        isSelected = isHomeActive,
+                        onClick = { onNavigate(AppNavScreen.HOME) }
+                    )
 
-                // 2. Analytics Tab
-                PillNavItem(
-                    label = "Analytics",
-                    icon = Icons.Default.PieChart,
-                    isSelected = currentScreen == AppNavScreen.ANALYTICS,
-                    onClick = { onNavigate(AppNavScreen.ANALYTICS) }
-                )
+                    PillNavItem(
+                        label = "Analytics",
+                        icon = Icons.Default.PieChart,
+                        isSelected = currentScreen == AppNavScreen.ANALYTICS,
+                        onClick = { onNavigate(AppNavScreen.ANALYTICS) }
+                    )
+                }
 
-                // 3. Center Floating Add (+) Action
+                // Center Floating Add (+) Action: mathematically centered at 50% width on every screen
                 Box(
                     modifier = Modifier
                         .size(46.dp)
@@ -99,21 +106,26 @@ fun FloatingPillBottomBar(
                     )
                 }
 
-                // 4. Splits Tab
-                PillNavItem(
-                    label = "Splits",
-                    icon = Icons.Default.CallSplit,
-                    isSelected = currentScreen == AppNavScreen.SPLITS,
-                    onClick = { onNavigate(AppNavScreen.SPLITS) }
-                )
+                // Right Wing: Splits & Settings (strictly 50% right space)
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PillNavItem(
+                        label = "Splits",
+                        icon = Icons.Default.CallSplit,
+                        isSelected = currentScreen == AppNavScreen.SPLITS,
+                        onClick = { onNavigate(AppNavScreen.SPLITS) }
+                    )
 
-                // 5. Settings Tab
-                PillNavItem(
-                    label = "Settings",
-                    icon = Icons.Default.Settings,
-                    isSelected = currentScreen == AppNavScreen.SETTINGS,
-                    onClick = { onNavigate(AppNavScreen.SETTINGS) }
-                )
+                    PillNavItem(
+                        label = "Settings",
+                        icon = Icons.Default.Settings,
+                        isSelected = currentScreen == AppNavScreen.SETTINGS,
+                        onClick = { onNavigate(AppNavScreen.SETTINGS) }
+                    )
+                }
             }
         }
     }

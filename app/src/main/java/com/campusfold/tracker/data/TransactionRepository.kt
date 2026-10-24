@@ -1638,7 +1638,8 @@ class TransactionRepository(
                 sender = emailItem.sender,
                 body = emailItem.body,
                 timestamp = emailItem.dateMillis,
-                sourceId = emailItem.uid.toString()
+                sourceId = emailItem.uid.toString(),
+                subject = emailItem.subject
             )
         }
 

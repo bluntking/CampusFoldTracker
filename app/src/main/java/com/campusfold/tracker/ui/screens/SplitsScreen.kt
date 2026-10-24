@@ -74,7 +74,7 @@ fun SplitsScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        containerColor = OledBlack
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(
             modifier = Modifier
@@ -86,53 +86,71 @@ fun SplitsScreen(
 
             // Top Header
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "CAMPUS SPLITS",
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextMuted
+                        color = MaterialTheme.colorScheme.primary
                     )
                     Text(
                         text = "Friend Balances & Debts",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = TextPrimary
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedButton(
                         onClick = onAddFriendPaidExpense,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = NeonEmerald.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.height(38.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = NeonEmerald
                         ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, NeonEmerald.copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.height(34.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp)
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NeonEmerald.copy(alpha = 0.5f))
                     ) {
-                        Icon(Icons.Default.AddShoppingCart, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(
+                            Icons.Default.ReceiptLong,
+                            contentDescription = "Friend Paid",
+                            modifier = Modifier.size(18.dp)
+                        )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("+ Friend Paid", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "+ Friend Paid",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
-                    Button(
+                    FilledIconButton(
                         onClick = { showAddFriendDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = OledBlack),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.height(34.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp)
+                        modifier = Modifier.size(38.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = NeonCyan,
+                            contentColor = OledBlack
+                        )
                     ) {
-                        Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("+ Friend", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Icon(
+                            Icons.Default.PersonAdd,
+                            contentDescription = "Add Friend",
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
@@ -297,7 +315,7 @@ fun SplitsScreen(
                             MonospaceCurrencyText(
                                 amount = totalOwedToMe,
                                 fontSize = 20.sp,
-                                color = if (totalOwedToMe > 0) NeonAmber else TextMuted
+                                color = if (totalOwedToMe > 0) NeonAmber else TextPrimary
                             )
                         }
 
@@ -321,7 +339,7 @@ fun SplitsScreen(
                             MonospaceCurrencyText(
                                 amount = totalOwedByMe,
                                 fontSize = 20.sp,
-                                color = if (totalOwedByMe > 0) NeonCrimson else TextMuted
+                                color = if (totalOwedByMe > 0) NeonCrimson else TextPrimary
                             )
                         }
                     }
@@ -355,7 +373,9 @@ fun SplitsScreen(
             // Friends List with Item-by-item unsettled bills
             if (personsWithBalances.isEmpty()) {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -371,7 +391,9 @@ fun SplitsScreen(
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(bottom = 90.dp)
                 ) {

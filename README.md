@@ -87,7 +87,7 @@
 ## 📲 Setup Guide
 
 ### Step 1: Install the APK
-1. Download the latest `CampusFold-1.0.XX.apk` from [GitHub Releases](https://github.com/bluntking/CampusFoldTracker/releases).
+1. Download the latest `CampusFold-2.0.0.apk` from [GitHub Releases](https://github.com/bluntking/CampusFoldTracker/releases).
 2. Open the downloaded APK on your Android device to install or update in-place.
 
 ### Step 2: Permissions

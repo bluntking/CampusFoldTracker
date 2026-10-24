@@ -73,6 +73,8 @@ class GmailScanWorker(
         var totalAdded = 0
         var totalDuplicates = 0
         var totalUnparsed = 0
+        var totalFilteredOut = 0
+        var totalParsed = 0
 
         try {
             setProgress(
@@ -101,33 +103,76 @@ class GmailScanWorker(
                         )
                     )
                 },
-                onChunkReady = { chunkEmails, serverUidValidity, chunkHighestUid ->
+                onChunkReady = { chunkEmails, serverUidValidity, chunkHighestUid, chunkFilteredCount ->
+                    totalFilteredOut += chunkFilteredCount
                     totalRead += chunkEmails.size
-                    val rawMessages = chunkEmails.map { emailItem ->
-                        RawMessage(
+
+                    var lastHandledUid = 0L
+
+                    for (emailItem in chunkEmails) {
+                        val rawMessage = RawMessage(
                             source = MessageSource.EMAIL,
                             sender = emailItem.sender,
                             body = emailItem.body,
                             timestamp = emailItem.dateMillis,
-                            sourceId = emailItem.uid.toString()
+                            sourceId = emailItem.uid.toString(),
+                            subject = emailItem.subject
                         )
-                    }
 
-                    val ingestResults = ingestor.ingestBatch(rawMessages)
-                    for (res in ingestResults) {
-                        when (res) {
-                            is IngestResult.Imported -> totalAdded++
-                            is IngestResult.Enriched,
-                            is IngestResult.SkippedAlreadyProcessed -> totalDuplicates++
-                            is IngestResult.Unparsed -> totalUnparsed++
-                            is IngestResult.Ignored,
-                            is IngestResult.BalanceUpdated -> {}
+                        try {
+                            val res = ingestor.ingest(rawMessage)
+                            when (res) {
+                                is IngestResult.Imported -> {
+                                    totalAdded++
+                                    totalParsed++
+                                }
+                                is IngestResult.Enriched -> {
+                                    totalDuplicates++
+                                    totalParsed++
+                                }
+                                is IngestResult.SkippedAlreadyProcessed -> {
+                                    totalDuplicates++
+                                }
+                                is IngestResult.Unparsed -> {
+                                    totalUnparsed++
+                                }
+                                is IngestResult.BalanceUpdated -> {
+                                    totalParsed++
+                                }
+                                is IngestResult.Ignored -> {}
+                            }
+                            lastHandledUid = maxOf(lastHandledUid, emailItem.uid)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed ingesting email UID ${emailItem.uid}", e)
+                            try {
+                                val payload = org.json.JSONObject().apply {
+                                    put("rawText", emailItem.body)
+                                    put("sender", emailItem.sender)
+                                    put("subject", emailItem.subject)
+                                    put("timestamp", emailItem.dateMillis)
+                                    put("error", e.localizedMessage ?: "Ingestion error")
+                                }.toString()
+                                db.reviewItemDao().insertReviewItem(
+                                    com.campusfold.tracker.data.entity.ReviewItemEntity(
+                                        payloadJson = payload,
+                                        reason = "Gmail ingest error: ${e.localizedMessage ?: "Unknown error"}",
+                                        confidence = 0.0f,
+                                        origin = com.campusfold.tracker.data.entity.ReviewOrigin.MANUAL,
+                                        status = com.campusfold.tracker.data.entity.ReviewStatus.PENDING
+                                    )
+                                )
+                                totalUnparsed++
+                                lastHandledUid = maxOf(lastHandledUid, emailItem.uid)
+                            } catch (_: Exception) {
+                                // If even review item insertion failed, do not advance UID past this email!
+                                break
+                            }
                         }
                     }
 
-                    // Commit UID only after successful ingestion of chunk
-                    if (chunkHighestUid > 0L) {
-                        prefs.setGmailUidSyncState(serverUidValidity, chunkHighestUid)
+                    // Advance UID checkpoint ONLY for emails that were safely handled
+                    if (lastHandledUid > 0L) {
+                        prefs.setGmailUidSyncState(serverUidValidity, lastHandledUid)
                     }
                 }
             )
@@ -146,7 +191,20 @@ class GmailScanWorker(
                 )
             }
 
-            prefs.setGmailLastSyncTimestamp(System.currentTimeMillis())
+            val finalStats = com.campusfold.tracker.data.model.GmailSyncStats(
+                timestamp = System.currentTimeMillis(),
+                emailsFetched = totalRead,
+                filteredOut = totalFilteredOut,
+                parsed = totalParsed,
+                sentToReview = totalUnparsed,
+                saved = totalAdded,
+                lastError = null
+            )
+            prefs.setGmailSyncStats(finalStats)
+
+            if (totalRead > 0) {
+                prefs.setGmailLastSyncTimestamp(System.currentTimeMillis())
+            }
             try {
                 repo.runAutoMergePass()
             } catch (_: Exception) {}
@@ -183,6 +241,18 @@ class GmailScanWorker(
                     )
                 )
             }
+
+            val errStats = com.campusfold.tracker.data.model.GmailSyncStats(
+                timestamp = System.currentTimeMillis(),
+                emailsFetched = totalRead,
+                filteredOut = totalFilteredOut,
+                parsed = totalParsed,
+                sentToReview = totalUnparsed,
+                saved = totalAdded,
+                lastError = e.localizedMessage ?: "Gmail IMAP scan failed"
+            )
+            prefs.setGmailSyncStats(errStats)
+
             Result.failure(workDataOf("error" to (e.localizedMessage ?: "Unknown error")))
         }
     }

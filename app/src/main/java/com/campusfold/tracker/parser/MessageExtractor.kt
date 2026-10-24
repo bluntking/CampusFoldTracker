@@ -182,12 +182,25 @@ object MessageExtractor {
     // ─── Step 1: Classification for Ignored Messages ──────────────────────────
 
     fun classifyIgnored(body: String): String? {
-        val lower = body.lowercase()
+        val hasCompletedMoneyMovement = COMPLETED_MONEY_VERBS.containsMatchIn(body)
 
-        // OTPs & verification codes (ignoring warning disclaimers like "never share OTP")
-        val bodyWithoutDisclaimer = body.replace(Regex("""(?i)\b(?:never|do not|don't)\s+share\s+(?:your\s+|this\s+)?(?:otp|password|pin)[^.\r\n]*"""), "")
-        if (OTP_PATTERN.containsMatchIn(bodyWithoutDisclaimer)) {
-            return "OTP / Verification Code"
+        // OTPs & verification codes
+        // If money movement has already completed (e.g. debited, credited, spent, paid),
+        // any mention of OTP/password/pin is purely in bank security advisory footers ("do not share OTP", etc.).
+        if (!hasCompletedMoneyMovement) {
+            // Strip any warning disclaimers like "Please do not share your Internet Banking details, such as user ID/password or your Credit/Debit Card number/CVV/OTP with anyone"
+            val disclaimerRegex = Regex("""(?i)\b(?:never|do not|don't|please do not)\s+share\s+[^.\r\n]*?(?:otp|password|pin|cvv)[^.\r\n]*""")
+            val bankNeverAsksRegex = Regex("""(?i)\b(?:bank|axis bank|sbi|hdfc|icici)\s+never\s+asks\s+[^.\r\n]*?(?:otp|password|pin|cvv)[^.\r\n]*""")
+            val bodyWithoutDisclaimer = body.replace(disclaimerRegex, "").replace(bankNeverAsksRegex, "")
+            if (OTP_PATTERN.containsMatchIn(bodyWithoutDisclaimer)) {
+                return "OTP / Verification Code"
+            }
+        } else {
+            // Money verbs present: Only classify as OTP if it is an explicit OTP authorization request for a pending txn
+            val isExplicitOtpRequest = Regex("""\b(?:otp\s+is|is\s+your\s+otp|use\s+otp|enter\s+otp|otp\s+to\s+(?:approve|authenticate|verify|complete)|verification\s+code\s+is)\b""", RegexOption.IGNORE_CASE).containsMatchIn(body)
+            if (isExplicitOtpRequest && !body.contains("was debited", ignoreCase = true) && !body.contains("was credited", ignoreCase = true) && !body.contains("Amount Debited", ignoreCase = true) && !body.contains("Amount Credited", ignoreCase = true)) {
+                return "OTP / Verification Code"
+            }
         }
 
         // ASBA / IPO fund earmarking
@@ -196,13 +209,13 @@ object MessageExtractor {
         }
 
         // Convert to EMI offers (only when not an actual debit)
-        if (CONVERT_TO_EMI_PATTERN.containsMatchIn(body) && !COMPLETED_MONEY_VERBS.containsMatchIn(body)) {
+        if (CONVERT_TO_EMI_PATTERN.containsMatchIn(body) && !hasCompletedMoneyMovement) {
             return "Convert to EMI Marketing Offer"
         }
 
         // Mandate & due reminders (when no money has moved yet, or future auto-debit)
         val isFutureDebit = Regex("""\b(?:will be|scheduled to be|set to be)\s+(?:auto-?)?debited\b""", RegexOption.IGNORE_CASE).containsMatchIn(body)
-        if (!COMPLETED_MONEY_VERBS.containsMatchIn(body) || isFutureDebit) {
+        if (!hasCompletedMoneyMovement || isFutureDebit) {
             for (pattern in MANDATE_REMINDER_PATTERNS) {
                 if (pattern.containsMatchIn(body)) {
                     return "Mandate / Due Date Reminder"
@@ -403,7 +416,7 @@ object MessageExtractor {
         // A. If email, try AxisBankEmailParser
         if (rawMessage.source == MessageSource.EMAIL || cleanBody.contains("<html>", ignoreCase = true) || sender.contains("@")) {
             val emailParsed = AxisBankEmailParser.parse(
-                subject = "",
+                subject = rawMessage.subject ?: "",
                 body = cleanBody,
                 emailTimestamp = timestamp,
                 accounts = knownAccounts

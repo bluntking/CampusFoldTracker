@@ -96,36 +96,45 @@ fun AccountsScreen(
 
             // Top Bar Header with Back Arrow
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.size(38.dp)
                 ) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
-                    }
-
-                    Column {
-                        Text(
-                            text = "ACCOUNTS & CARDS",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
-                            ),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "Manage Accounts",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
+                    Icon(
+                        Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "ACCOUNTS & CARDS",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Manage Accounts",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     if (accounts.size >= 2) {
                         OutlinedButton(
                             onClick = {
@@ -133,8 +142,8 @@ fun AccountsScreen(
                                 showMergeAccountsDialog = true
                             },
                             shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.height(36.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp)
+                            modifier = Modifier.height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp)
                         ) {
                             Icon(
                                 Icons.Default.CallMerge,
@@ -150,24 +159,22 @@ fun AccountsScreen(
                         }
                     }
 
-                    Button(
+                    FilledIconButton(
                         onClick = {
                             accountToEdit = null
                             showAddAccountDialog = true
                         },
-                        colors = ButtonDefaults.buttonColors(
+                        modifier = Modifier.size(38.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.height(36.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp)
+                        )
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            "+ Add",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "Add Account",
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -500,7 +507,7 @@ fun AccountReferenceCard(
                 .fillMaxWidth()
                 .padding(Dimensions.Padding.card)
         ) {
-            // Top Row: Bank Icon, "Bank Name ••1234", Balance on Right
+            // Row 1: Bank Icon, Account Name & Subtitle on left, 3-dot overflow menu on right
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -527,7 +534,7 @@ fun AccountReferenceCard(
                         )
                     }
 
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -555,8 +562,23 @@ fun AccountReferenceCard(
                             }
                         }
 
+                        val accountTypeLabel = when (account.type) {
+                            AccountType.SAVINGS -> "Savings Account"
+                            AccountType.CURRENT -> "Current Account"
+                            AccountType.CREDIT_CARD -> "Credit Card"
+                            AccountType.WALLET -> "Digital Wallet"
+                            AccountType.OTHER -> "Other Account"
+                            AccountType.UNASSIGNED -> "Account"
+                        }
+                        val subtitleText = if (account.displayName.isNotBlank() && !account.displayName.contains(account.bankName, ignoreCase = true)) {
+                            if (account.last4.isNotBlank()) "${account.bankName} ••${account.last4} • $accountTypeLabel"
+                            else "${account.bankName} • $accountTypeLabel"
+                        } else {
+                            accountTypeLabel
+                        }
+
                         Text(
-                            text = if (account.last4.isNotBlank()) "${account.bankName} ••${account.last4}" else account.bankName,
+                            text = subtitleText,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -565,8 +587,92 @@ fun AccountReferenceCard(
                     }
                 }
 
-                // Right: Balance & Status Label
-                Column(horizontalAlignment = Alignment.End) {
+                // 3-dot overflow menu on top right
+                Box {
+                    IconButton(
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "More Options",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Edit Details") },
+                            onClick = {
+                                menuExpanded = false
+                                onEdit()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) }
+                        )
+
+                        if (account.anchorSet && account.balanceSource == BalanceSource.MANUAL) {
+                            DropdownMenuItem(
+                                text = { Text("Clear Manual Balance") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onClearManualBalance()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) }
+                            )
+                        }
+
+                        DropdownMenuItem(
+                            text = { Text(if (account.isArchived) "Unarchive Account" else "Archive Account") },
+                            onClick = {
+                                menuExpanded = false
+                                onToggleArchive()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Archive, contentDescription = null) }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Merge into Another...") },
+                            onClick = {
+                                menuExpanded = false
+                                onMergeWith()
+                            },
+                            leadingIcon = { Icon(Icons.Default.CallMerge, contentDescription = null) }
+                        )
+
+                        if (activeMergeLog != null) {
+                            DropdownMenuItem(
+                                text = { Text("Undo Last Merge", color = NeonCyan) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onSplitUndoMerge(activeMergeLog.id)
+                                },
+                                leadingIcon = { Icon(Icons.Default.Undo, contentDescription = null, tint = NeonCyan) }
+                            )
+                        }
+
+                        DropdownMenuItem(
+                            text = { Text("Delete Account...", color = NeonCrimson) },
+                            onClick = {
+                                menuExpanded = false
+                                onDelete()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = NeonCrimson) }
+                        )
+                    }
+                }
+            }
+
+            // Row 2: Dedicated Balance and Update Balance Action
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
                     if (isCreditCard) {
                         Text(
                             text = "Owed: ${currencyFormatter.format(derived?.derivedOwed ?: 0.0)}",
@@ -593,6 +699,24 @@ fun AccountReferenceCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                }
+
+                OutlinedButton(
+                    onClick = onUpdateBalance,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.height(34.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Update Balance",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
                 }
             }
 
@@ -636,7 +760,8 @@ fun AccountReferenceCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (account.balanceSource == BalanceSource.MANUAL) {
+                    // Only show "entered manually" if anchor was actually set and source is MANUAL
+                    if (account.anchorSet && account.balanceSource == BalanceSource.MANUAL) {
                         Surface(
                             color = NeonCyan.copy(alpha = 0.15f),
                             shape = RoundedCornerShape(4.dp)
@@ -668,122 +793,6 @@ fun AccountReferenceCard(
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Bottom Actions: Outlined "Update Balance" button + 3-dot overflow menu
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedButton(
-                    onClick = onUpdateBalance,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.height(34.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Edit,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Update Balance",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-
-                Box {
-                    IconButton(
-                        onClick = { menuExpanded = true },
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.MoreVert,
-                            contentDescription = "More Options",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Edit Details") },
-                            onClick = {
-                                menuExpanded = false
-                                onEdit()
-                            },
-                            leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) }
-                        )
-
-                        if (account.balanceSource == BalanceSource.MANUAL) {
-                            DropdownMenuItem(
-                                text = { Text("Clear Manual Balance") },
-                                onClick = {
-                                    menuExpanded = false
-                                    onClearManualBalance()
-                                },
-                                leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) }
-                            )
-                        }
-
-                        DropdownMenuItem(
-                            text = { Text("Merge into Another...") },
-                            onClick = {
-                                menuExpanded = false
-                                onMergeWith()
-                            },
-                            leadingIcon = { Icon(Icons.Default.CallMerge, contentDescription = null) }
-                        )
-
-                        if (activeMergeLog != null) {
-                            DropdownMenuItem(
-                                text = { Text("Undo Last Merge") },
-                                onClick = {
-                                    menuExpanded = false
-                                    onSplitUndoMerge(activeMergeLog.id)
-                                },
-                                leadingIcon = { Icon(Icons.Default.Undo, contentDescription = null) }
-                            )
-                        }
-
-                        DropdownMenuItem(
-                            text = { Text(if (account.isArchived) "Unarchive Account" else "Archive Account") },
-                            onClick = {
-                                menuExpanded = false
-                                onToggleArchive()
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    if (account.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
-                                    contentDescription = null
-                                )
-                            }
-                        )
-
-                        HorizontalDivider()
-
-                        DropdownMenuItem(
-                            text = { Text("Delete Account", color = MaterialTheme.colorScheme.error) },
-                            onClick = {
-                                menuExpanded = false
-                                onDelete()
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            }
-                        )
                     }
                 }
             }

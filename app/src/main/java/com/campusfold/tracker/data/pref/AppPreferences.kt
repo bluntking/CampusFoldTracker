@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.campusfold.tracker.data.model.GmailSyncStats
 import com.campusfold.tracker.util.KeystoreHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -39,6 +40,7 @@ class AppPreferences(private val context: Context) {
         private val AUTO_USE_BANK_BALANCES = booleanPreferencesKey("auto_use_bank_balances")
         private val CUSTOM_BANK_SENDERS = stringSetPreferencesKey("custom_bank_senders")
         private val SCAN_ALL_SENDERS = booleanPreferencesKey("scan_all_senders")
+        private val GMAIL_LAST_SYNC_STATS_JSON = stringPreferencesKey("gmail_last_sync_stats_json")
     }
 
     // ─── Onboarding & Appearance Preferences ──────────────────────────────────
@@ -161,20 +163,70 @@ class AppPreferences(private val context: Context) {
 
     /**
      * Decrypts the Gmail app password with Android Keystore on flow emissions.
+     * Returns null if decryption fails (never returns raw ciphertext).
      */
     val gmailSyncAppPassword: Flow<String?> = context.dataStore.data.map { preferences ->
         val raw = preferences[GMAIL_SYNC_APP_PASSWORD]
-        raw?.let { KeystoreHelper.decrypt(it) ?: it }
+        if (raw.isNullOrBlank()) null
+        else if (raw.startsWith("PLAIN:")) raw.removePrefix("PLAIN:")
+        else KeystoreHelper.decrypt(raw)
+    }.flowOn(Dispatchers.IO)
+
+    val isKeystoreDecryptionFailed: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        val raw = preferences[GMAIL_SYNC_APP_PASSWORD]
+        if (!raw.isNullOrBlank() && !raw.startsWith("PLAIN:")) {
+            val decrypted = KeystoreHelper.decrypt(raw)
+            decrypted == null
+        } else {
+            false
+        }
     }.flowOn(Dispatchers.IO)
 
     val gmailLastSyncTimestamp: Flow<Long> = context.dataStore.data.map { preferences ->
         preferences[GMAIL_LAST_SYNC_TIMESTAMP] ?: 0L
     }
 
+    val gmailSyncStats: Flow<GmailSyncStats?> = context.dataStore.data.map { preferences ->
+        val jsonStr = preferences[GMAIL_LAST_SYNC_STATS_JSON]
+        if (!jsonStr.isNullOrBlank()) {
+            try {
+                val obj = org.json.JSONObject(jsonStr)
+                GmailSyncStats(
+                    timestamp = obj.optLong("timestamp", 0L),
+                    emailsFetched = obj.optInt("fetched", 0),
+                    filteredOut = obj.optInt("filteredOut", 0),
+                    parsed = obj.optInt("parsed", 0),
+                    sentToReview = obj.optInt("sentToReview", 0),
+                    saved = obj.optInt("saved", 0),
+                    lastError = obj.optString("lastError", "").takeIf { it.isNotBlank() }
+                )
+            } catch (_: Exception) {
+                null
+            }
+        } else null
+    }
+
+    suspend fun setGmailSyncStats(stats: GmailSyncStats) {
+        val json = org.json.JSONObject().apply {
+            put("timestamp", stats.timestamp)
+            put("fetched", stats.emailsFetched)
+            put("filteredOut", stats.filteredOut)
+            put("parsed", stats.parsed)
+            put("sentToReview", stats.sentToReview)
+            put("saved", stats.saved)
+            put("lastError", stats.lastError ?: "")
+        }.toString()
+        context.dataStore.edit { preferences ->
+            preferences[GMAIL_LAST_SYNC_STATS_JSON] = json
+        }
+    }
+
     suspend fun getGmailCredentialsSync(): Pair<String?, String?> {
         val prefs = context.dataStore.data.first()
         val rawPassword = prefs[GMAIL_SYNC_APP_PASSWORD]
-        val decryptedPassword = rawPassword?.let { KeystoreHelper.decrypt(it) ?: it }
+        val decryptedPassword = if (rawPassword.isNullOrBlank()) null
+        else if (rawPassword.startsWith("PLAIN:")) rawPassword.removePrefix("PLAIN:")
+        else KeystoreHelper.decrypt(rawPassword)
         return Pair(prefs[GMAIL_SYNC_EMAIL], decryptedPassword)
     }
 
