@@ -636,7 +636,7 @@ fun AccountReferenceCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (account.balanceSource == BalanceSource.MANUAL && isKnown) {
+                    if (account.balanceSource == BalanceSource.MANUAL) {
                         Surface(
                             color = NeonCyan.copy(alpha = 0.15f),
                             shape = RoundedCornerShape(4.dp)
@@ -904,7 +904,7 @@ fun SetManualBalanceDialog(
     onDismiss: () -> Unit,
     onSaveAnchor: (balancePaise: Long, owedPaise: Long, asOf: Long) -> Unit
 ) {
-    val isCreditCard = account.accountType == AccountType.CREDIT_CARD
+    val isCreditCard = account.type == AccountType.CREDIT_CARD
     val context = LocalContext.current
     val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
 

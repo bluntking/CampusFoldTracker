@@ -710,6 +710,13 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     fun getTransactionWithSplits(id: Long): Flow<TransactionWithSplits?> =
         repository.getTransactionWithSplits(id)
 
+    fun getSplitsForTransaction(transactionId: Long): Flow<List<SplitItemEntity>> =
+        repository.getSplitsForTransaction(transactionId)
+
+    fun saveVendorMapping(rawSmsKeyword: String, friendlyName: String, categoryId: Long?) {
+        saveVendorMappingForFuture(rawSmsKeyword, friendlyName, categoryId)
+    }
+
     fun saveVendorMappingForFuture(rawKeyword: String, friendlyName: String, categoryId: Long?) {
         viewModelScope.launch {
             repository.addVendorMapping(
