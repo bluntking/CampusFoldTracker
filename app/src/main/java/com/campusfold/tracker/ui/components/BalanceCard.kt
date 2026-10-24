@@ -24,16 +24,16 @@ import androidx.compose.ui.unit.sp
 import com.campusfold.tracker.data.entity.AccountEntity
 import com.campusfold.tracker.data.entity.BalanceSource
 import com.campusfold.tracker.data.model.NetBalanceOverview
-
-fun isAccountBalanceKnown(account: AccountEntity): Boolean {
-    return account.balanceSource == BalanceSource.MANUAL || account.anchorSet || account.balanceAsOf > 0L
-}
 import com.campusfold.tracker.ui.theme.*
 import com.campusfold.tracker.util.CurrencyUtils
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+fun isAccountBalanceKnown(account: AccountEntity): Boolean {
+    return account.balanceSource == BalanceSource.MANUAL || account.anchorSet || account.balanceAsOf > 0L
+}
 
 /**
  * Net Balance Card adhering strictly to Part 3 & Part 6:
