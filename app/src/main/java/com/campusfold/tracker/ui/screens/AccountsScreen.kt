@@ -565,10 +565,11 @@ fun AccountReferenceCard(
                         val accountTypeLabel = when (account.type) {
                             AccountType.SAVINGS -> "Savings Account"
                             AccountType.CURRENT -> "Current Account"
+                            AccountType.SALARY -> "Salary Account"
                             AccountType.CREDIT_CARD -> "Credit Card"
                             AccountType.WALLET -> "Digital Wallet"
-                            AccountType.OTHER -> "Other Account"
                             AccountType.UNASSIGNED -> "Account"
+                            else -> "Account"
                         }
                         val subtitleText = if (account.displayName.isNotBlank() && !account.displayName.contains(account.bankName, ignoreCase = true)) {
                             if (account.last4.isNotBlank()) "${account.bankName} ••${account.last4} • $accountTypeLabel"
