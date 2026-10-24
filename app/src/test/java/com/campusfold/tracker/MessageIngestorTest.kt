@@ -170,7 +170,7 @@ class MessageIngestorTest {
 
     @Test
     fun testDedupeTypeCorrectionOnOppositeDirection() = runBlocking {
-        val refNumber = "UPI998877665544"
+        val refNumber = "998877665544"
         val timestamp = 1700000000000L
 
         // Old row was saved incorrectly as EXPENSE
