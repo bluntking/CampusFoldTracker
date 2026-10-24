@@ -137,6 +137,9 @@ open class FakeBaseTransactionDao : TransactionDao {
         transactions.remove(transaction.id)
     }
 
+    override suspend fun getTransactionsForAccountSinceSync(accountId: Long, since: Long): List<TransactionEntity> =
+        transactions.values.filter { it.accountId == accountId && it.timestamp >= since }.sortedBy { it.timestamp }
+
     override suspend fun deleteTransactionById(id: Long) {
         transactions.remove(id)
     }

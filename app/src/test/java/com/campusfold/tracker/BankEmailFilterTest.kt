@@ -25,7 +25,7 @@ class BankEmailFilterTest {
 
     @Test
     fun testCustomBankSenderMatch() {
-        val customSenders = listOf("updates@jupiter.money", "alerts@fi.care")
+        val customSenders = setOf("updates@jupiter.money", "alerts@fi.care")
         assertTrue(BankEmailSyncConfig.isBankSender("updates@jupiter.money", customSenders))
         assertTrue(BankEmailSyncConfig.isBankSender("alerts@fi.care", customSenders))
         assertFalse(BankEmailSyncConfig.isBankSender("newsletter@random.com", customSenders))

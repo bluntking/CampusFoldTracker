@@ -72,16 +72,15 @@ class FriendPaidAndSplitsTest {
         // TransactionEntity for a friend-paid expense
         val txn = TransactionEntity(
             id = 1L,
-            rawMessageId = "manual_${System.currentTimeMillis()}",
-            sender = "MANUAL",
-            timestamp = System.currentTimeMillis(),
             amountPaise = myShare,
             myActualSharePaise = myShare,
             type = TransactionType.EXPENSE,
-            vendorName = "Zomato",
+            rawMerchant = "Zomato",
+            friendlyVendorName = "Zomato",
             paymentMode = "Paid by Aman",
             accountId = null, // No account debited!
-            paidByPersonId = friend.id
+            paidByPersonId = friend.id,
+            timestamp = System.currentTimeMillis()
         )
 
         val debtItem = SplitItemEntity(

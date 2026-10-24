@@ -14,5 +14,5 @@ data class PersonEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val name: String,
-    val exactSmsAliases: String // Comma-separated exact UPI / sender names
+    val exactSmsAliases: String = "" // Comma-separated exact UPI / sender names
 )

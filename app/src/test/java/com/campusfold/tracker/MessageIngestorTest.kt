@@ -417,6 +417,16 @@ class FakeAccountDao : AccountDao {
         }
         accounts[id] = existing.copy(balancePaise = balancePaise, balanceAsOf = balanceAsOf, balanceSource = source)
     }
+    override suspend fun updateAnchor(id: Long, balancePaise: Long, owedPaise: Long, asOf: Long, source: BalanceSource) {
+        val existing = accounts[id] ?: return
+        accounts[id] = existing.copy(
+            openingBalancePaise = balancePaise,
+            openingOwedPaise = owedPaise,
+            openingAsOf = asOf,
+            anchorSet = true,
+            balanceSource = source
+        )
+    }
 }
 
 class FakeAccountAliasDao : AccountAliasDao {

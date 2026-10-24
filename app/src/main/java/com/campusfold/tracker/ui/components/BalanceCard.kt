@@ -21,7 +21,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.campusfold.tracker.data.entity.AccountEntity
+import com.campusfold.tracker.data.entity.BalanceSource
 import com.campusfold.tracker.data.model.NetBalanceOverview
+
+fun isAccountBalanceKnown(account: AccountEntity): Boolean {
+    return account.balanceSource == BalanceSource.MANUAL || account.anchorSet || account.balanceAsOf > 0L
+}
 import com.campusfold.tracker.ui.theme.*
 import com.campusfold.tracker.util.CurrencyUtils
 import java.text.NumberFormat

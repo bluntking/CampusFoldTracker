@@ -859,6 +859,17 @@ class FakeMergeAccountDao : AccountDao {
             accounts[id] = it.copy(balancePaise = balancePaise, balanceAsOf = balanceAsOf, balanceSource = source)
         }
     }
+    override suspend fun updateAnchor(id: Long, balancePaise: Long, owedPaise: Long, asOf: Long, source: BalanceSource) {
+        accounts[id]?.let {
+            accounts[id] = it.copy(
+                openingBalancePaise = balancePaise,
+                openingOwedPaise = owedPaise,
+                openingAsOf = asOf,
+                anchorSet = true,
+                balanceSource = source
+            )
+        }
+    }
 }
 
 class FakeMergeAccountAliasDao : AccountAliasDao {

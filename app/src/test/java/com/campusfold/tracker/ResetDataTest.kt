@@ -19,16 +19,20 @@ class ResetDataTest {
             AccountEntity(
                 id = 1L,
                 bankName = "HDFC",
+                bankKey = "HDFC",
                 last4 = "4321",
-                accountType = AccountType.SAVINGS,
+                displayName = "HDFC Savings",
+                type = AccountType.SAVINGS,
                 openingBalancePaise = 25000_00L,
                 balancePaise = 18000_00L // Changed by transactions
             ),
             AccountEntity(
                 id = 2L,
                 bankName = "Axis Card",
+                bankKey = "AXIS",
                 last4 = "8765",
-                accountType = AccountType.CREDIT_CARD,
+                displayName = "Axis Card",
+                type = AccountType.CREDIT_CARD,
                 openingOwedPaise = 5000_00L,
                 balancePaise = 12000_00L // Changed by transactions
             )
@@ -37,12 +41,10 @@ class ResetDataTest {
         var transactions = listOf(
             TransactionEntity(
                 id = 1L,
-                rawMessageId = "m1",
-                sender = "HDFC",
                 timestamp = System.currentTimeMillis(),
                 amountPaise = 7000_00L,
                 type = TransactionType.EXPENSE,
-                vendorName = "Cafe"
+                friendlyVendorName = "Cafe"
             )
         )
 
@@ -55,7 +57,7 @@ class ResetDataTest {
             )
         )
 
-        val categories = listOf(CategoryEntity(id = 1L, name = "Food"))
+        val categories = listOf(CategoryEntity(id = 1L, name = "Food", color = "#10B981"))
         val rules = listOf(RuleEntity(id = 1L, name = "Food Rule", source = com.campusfold.tracker.data.entity.RuleSource.MANUAL))
 
         // Simulate clearTransactionsOnly
@@ -64,7 +66,7 @@ class ResetDataTest {
 
         // Revert accounts to opening anchors
         accounts = accounts.map { acc ->
-            if (acc.accountType == AccountType.CREDIT_CARD) {
+            if (acc.type == AccountType.CREDIT_CARD) {
                 acc.copy(balancePaise = acc.openingOwedPaise)
             } else {
                 acc.copy(balancePaise = acc.openingBalancePaise)
@@ -86,9 +88,24 @@ class ResetDataTest {
 
     @Test
     fun testResetEverythingWipesAll() {
-        var accounts = listOf(AccountEntity(id = 1L, bankName = "HDFC", last4 = "1234"))
-        var categories = listOf(CategoryEntity(id = 1L, name = "Custom Category"))
-        var transactions = listOf(TransactionEntity(id = 1L, rawMessageId = "m1", sender = "HDFC", timestamp = 0L, amountPaise = 100L))
+        var accounts = listOf(
+            AccountEntity(
+                id = 1L,
+                bankName = "HDFC",
+                bankKey = "HDFC",
+                last4 = "1234",
+                displayName = "HDFC"
+            )
+        )
+        var categories = listOf(CategoryEntity(id = 1L, name = "Custom Category", color = "#10B981"))
+        var transactions = listOf(
+            TransactionEntity(
+                id = 1L,
+                timestamp = 0L,
+                amountPaise = 100L,
+                type = TransactionType.EXPENSE
+            )
+        )
 
         // Simulate resetEverything
         accounts = emptyList()
