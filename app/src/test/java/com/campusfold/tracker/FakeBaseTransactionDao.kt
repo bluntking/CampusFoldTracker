@@ -140,6 +140,15 @@ open class FakeBaseTransactionDao : TransactionDao {
     override suspend fun getTransactionsForAccountSinceSync(accountId: Long, since: Long): List<TransactionEntity> =
         transactions.values.filter { it.accountId == accountId && it.timestamp >= since }.sortedBy { it.timestamp }
 
+    override fun getTransactionsForAccount(accountId: Long): Flow<List<TransactionEntity>> =
+        flowOf(transactions.values.filter { it.accountId == accountId }.sortedBy { it.timestamp })
+
+    override fun getEarliestTransactionTimestamp(): Flow<Long?> =
+        flowOf(transactions.values.minOfOrNull { it.timestamp })
+
+    override suspend fun getEarliestTransactionTimestampSync(): Long? =
+        transactions.values.minOfOrNull { it.timestamp }
+
     override suspend fun deleteTransactionById(id: Long) {
         transactions.remove(id)
     }

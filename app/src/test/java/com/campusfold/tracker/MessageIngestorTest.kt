@@ -507,6 +507,7 @@ class FakeSplitItemDao : SplitItemDao {
     override fun getSplitsForTransaction(transactionId: Long): Flow<List<SplitItemEntity>> = flowOf(emptyList())
     override suspend fun getSplitsForTransactionSync(transactionId: Long): List<SplitItemEntity> = emptyList()
     override suspend fun getUnsettledSplitsForPersonSync(personId: Long): List<SplitItemEntity> = emptyList()
+    override suspend fun getUnsettledSplitsForPersonAndDirectionSync(personId: Long, direction: SplitDirection): List<SplitItemEntity> = emptyList()
     override fun getUnsettledSplitsForPerson(personId: Long): Flow<List<SplitItemEntity>> = flowOf(emptyList())
     override fun getAllUnsettledSplits(): Flow<List<SplitItemEntity>> = flowOf(emptyList())
     override suspend fun getAllSplitsSync(): List<SplitItemEntity> = emptyList()
@@ -584,4 +585,5 @@ class FakeReviewItemDao : ReviewItemDao {
     override suspend fun getPendingReviewItemsSync(): List<ReviewItemEntity> = items.filter { it.status == ReviewStatus.PENDING }
     override suspend fun deleteReviewItem(item: ReviewItemEntity) { items.remove(item) }
     override suspend fun deleteReviewItemById(id: Long) { items.removeIf { it.id == id } }
+    override suspend fun clearAll() { items.clear() }
 }

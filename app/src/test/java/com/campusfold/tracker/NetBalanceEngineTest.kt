@@ -2,6 +2,7 @@ package com.campusfold.tracker
 
 import com.campusfold.tracker.data.entity.AccountEntity
 import com.campusfold.tracker.data.entity.AccountType
+import com.campusfold.tracker.data.entity.BalanceSource
 import com.campusfold.tracker.data.entity.TransactionEntity
 import com.campusfold.tracker.data.entity.TransactionType
 import com.campusfold.tracker.data.model.DerivedAccountBalance
@@ -19,70 +20,56 @@ class NetBalanceEngineTest {
         return accounts.map { account ->
             val anchorDate = if (account.anchorSet && account.openingAsOf > 0L) account.openingAsOf else 0L
             val relevantTxns = transactions.filter {
-                (it.accountId == account.id || it.toAccountId == account.id) && it.timestamp >= anchorDate
+                it.accountId == account.id && it.timestamp >= anchorDate
             }
 
-            if (account.accountType == AccountType.CREDIT_CARD) {
+            if (account.type == AccountType.CREDIT_CARD) {
                 val anchorOwed = if (account.anchorSet) account.openingOwedPaise else account.balancePaise
-                var debitsSince = 0L
-                var creditsSince = 0L
+                val increases = relevantTxns.filter {
+                    it.type == TransactionType.EXPENSE || it.type == TransactionType.EMI
+                }.sumOf { it.amountPaise }
+                val decreases = relevantTxns.filter {
+                    it.type == TransactionType.CC_BILL_TRANSFER ||
+                    it.type == TransactionType.REFUND ||
+                    it.type == TransactionType.INCOME
+                }.sumOf { it.amountPaise }
 
-                for (t in relevantTxns) {
-                    if (t.accountId == account.id) {
-                        when (t.type) {
-                            TransactionType.EXPENSE -> debitsSince += t.amountPaise
-                            TransactionType.INCOME, TransactionType.REFUND -> creditsSince += t.amountPaise
-                            TransactionType.CC_BILL_TRANSFER -> creditsSince += t.amountPaise
-                            TransactionType.SPLIT_SETTLEMENT -> creditsSince += t.amountPaise
-                            TransactionType.TRANSFER -> debitsSince += t.amountPaise
-                        }
-                    }
-                    if (t.toAccountId == account.id && t.type == TransactionType.CC_BILL_TRANSFER) {
-                        creditsSince += t.amountPaise
-                    }
-                }
-
-                val currentOwed = (anchorOwed + debitsSince - creditsSince).coerceAtLeast(0L)
-                val availableCredit = (account.creditLimitPaise - currentOwed).coerceAtLeast(0L)
+                val currentOwed = maxOf(0L, anchorOwed + increases - decreases)
+                val availableCredit = if (account.creditLimitPaise > 0L) maxOf(0L, account.creditLimitPaise - currentOwed) else 0L
 
                 DerivedAccountBalance(
                     account = account,
-                    derivedBalancePaise = -currentOwed,
+                    derivedBalancePaise = 0L,
                     derivedOwedPaise = currentOwed,
                     availableCreditPaise = availableCredit,
-                    anchorDate = anchorDate,
-                    isCreditCard = true,
-                    discrepancyPaise = Math.abs(currentOwed - account.balancePaise)
+                    hasDiscrepancy = false,
+                    discrepancyBankBalancePaise = null
                 )
             } else {
                 val anchorBal = if (account.anchorSet) account.openingBalancePaise else account.balancePaise
-                var debitsSince = 0L
-                var creditsSince = 0L
+                val credits = relevantTxns.filter {
+                    it.type == TransactionType.INCOME ||
+                    it.type == TransactionType.REFUND ||
+                    (it.type == TransactionType.OWN_TRANSFER && it.friendlyVendorName.contains("from", ignoreCase = true))
+                }.sumOf { it.amountPaise }
+                val debits = relevantTxns.filter {
+                    it.type == TransactionType.EXPENSE ||
+                    it.type == TransactionType.ATM ||
+                    it.type == TransactionType.EMI ||
+                    it.type == TransactionType.CC_BILL_TRANSFER ||
+                    it.type == TransactionType.SPLIT_SETTLEMENT ||
+                    (it.type == TransactionType.OWN_TRANSFER && !it.friendlyVendorName.contains("from", ignoreCase = true))
+                }.sumOf { it.amountPaise }
 
-                for (t in relevantTxns) {
-                    if (t.accountId == account.id) {
-                        when (t.type) {
-                            TransactionType.EXPENSE, TransactionType.CC_BILL_TRANSFER, TransactionType.SPLIT_SETTLEMENT ->
-                                debitsSince += t.amountPaise
-                            TransactionType.TRANSFER -> debitsSince += t.amountPaise
-                            TransactionType.INCOME, TransactionType.REFUND -> creditsSince += t.amountPaise
-                        }
-                    }
-                    if (t.toAccountId == account.id && t.type == TransactionType.TRANSFER) {
-                        creditsSince += t.amountPaise
-                    }
-                }
-
-                val currentBalance = anchorBal + creditsSince - debitsSince
+                val currentBalance = anchorBal + credits - debits
 
                 DerivedAccountBalance(
                     account = account,
                     derivedBalancePaise = currentBalance,
                     derivedOwedPaise = 0L,
                     availableCreditPaise = 0L,
-                    anchorDate = anchorDate,
-                    isCreditCard = false,
-                    discrepancyPaise = Math.abs(currentBalance - account.balancePaise)
+                    hasDiscrepancy = false,
+                    discrepancyBankBalancePaise = null
                 )
             }
         }
@@ -92,17 +79,19 @@ class NetBalanceEngineTest {
         derivedList: List<DerivedAccountBalance>,
         friendOwedPaise: Long = 0L
     ): NetBalanceOverview {
-        val totalSavings = derivedList.filter { !it.isCreditCard }.sumOf { it.derivedBalancePaise }
-        val totalCardOwed = derivedList.filter { it.isCreditCard }.sumOf { it.derivedOwedPaise }
+        val totalSavings = derivedList.filter { it.account.type != AccountType.CREDIT_CARD }.sumOf { it.derivedBalancePaise }
+        val totalCardOwed = derivedList.filter { it.account.type == AccountType.CREDIT_CARD }.sumOf { it.derivedOwedPaise }
         val netAvailable = totalSavings - totalCardOwed
-        val hasMissingAnchor = derivedList.any { !it.account.anchorSet }
+        val unanchored = derivedList.count { !it.account.anchorSet }
 
         return NetBalanceOverview(
             netAvailableBalancePaise = netAvailable,
-            totalSavingsPaise = totalSavings,
-            totalCreditCardOwedPaise = totalCardOwed,
+            totalSavingsBalancePaise = totalSavings,
+            totalCardOwedPaise = totalCardOwed,
             totalOwedToFriendsPaise = friendOwedPaise,
-            hasMissingAnchor = hasMissingAnchor
+            totalFriendsOweMePaise = 0L,
+            unanchoredAccountsCount = unanchored,
+            earliestTrackedTimestamp = System.currentTimeMillis()
         )
     }
 
@@ -111,8 +100,10 @@ class NetBalanceEngineTest {
         val savings = AccountEntity(
             id = 1L,
             bankName = "State Bank",
+            bankKey = "SBI",
             last4 = "1234",
-            accountType = AccountType.SAVINGS,
+            displayName = "State Bank",
+            type = AccountType.SAVINGS,
             anchorSet = true,
             openingBalancePaise = 50000_00L, // Rs 50,000
             balancePaise = 50000_00L
@@ -120,8 +111,10 @@ class NetBalanceEngineTest {
         val card = AccountEntity(
             id = 2L,
             bankName = "Axis Bank",
+            bankKey = "AXIS",
             last4 = "5678",
-            accountType = AccountType.CREDIT_CARD,
+            displayName = "Axis Bank CC",
+            type = AccountType.CREDIT_CARD,
             creditLimitPaise = 100000_00L, // Limit Rs 1,00,000
             anchorSet = true,
             openingOwedPaise = 15000_00L, // Owed Rs 15,000
@@ -133,8 +126,8 @@ class NetBalanceEngineTest {
 
         // Net = 50,000 - 15,000 = 35,000
         assertEquals(35000_00L, net.netAvailableBalancePaise)
-        assertEquals(50000_00L, net.totalSavingsPaise)
-        assertEquals(15000_00L, net.totalCreditCardOwedPaise)
+        assertEquals(50000_00L, net.totalSavingsBalancePaise)
+        assertEquals(15000_00L, net.totalCardOwedPaise)
 
         // Friend debt is displayed separately and NOT subtracted from net
         assertEquals(5000_00L, net.totalOwedToFriendsPaise)
@@ -146,16 +139,20 @@ class NetBalanceEngineTest {
         val savings = AccountEntity(
             id = 1L,
             bankName = "State Bank",
+            bankKey = "SBI",
             last4 = "1234",
-            accountType = AccountType.SAVINGS,
+            displayName = "State Bank",
+            type = AccountType.SAVINGS,
             anchorSet = true,
             openingBalancePaise = 50000_00L
         )
         val card = AccountEntity(
             id = 2L,
             bankName = "Axis Bank",
+            bankKey = "AXIS",
             last4 = "5678",
-            accountType = AccountType.CREDIT_CARD,
+            displayName = "Axis Bank CC",
+            type = AccountType.CREDIT_CARD,
             creditLimitPaise = 100000_00L,
             anchorSet = true,
             openingOwedPaise = 15000_00L
@@ -165,20 +162,25 @@ class NetBalanceEngineTest {
         val initialNet = computeNetOverview(initialDerived)
         assertEquals(35000_00L, initialNet.netAvailableBalancePaise)
 
-        // Pay Rs 10,000 credit card bill from savings account
-        val billTxn = TransactionEntity(
+        // Pay Rs 10,000 credit card bill from savings account (two legs)
+        val savingsDebitTxn = TransactionEntity(
             id = 101L,
-            rawMessageId = "msg_1",
-            sender = "AXISBK",
             timestamp = System.currentTimeMillis(),
             amountPaise = 10000_00L,
             type = TransactionType.CC_BILL_TRANSFER,
-            vendorName = "Axis Credit Card Bill",
-            accountId = savings.id, // Debited from savings
-            toAccountId = card.id    // Credited to card
+            friendlyVendorName = "Axis Credit Card Bill",
+            accountId = savings.id
+        )
+        val cardCreditTxn = TransactionEntity(
+            id = 102L,
+            timestamp = System.currentTimeMillis(),
+            amountPaise = 10000_00L,
+            type = TransactionType.CC_BILL_TRANSFER,
+            friendlyVendorName = "Payment Received",
+            accountId = card.id
         )
 
-        val afterDerived = computeDerivedBalances(listOf(savings, card), listOf(billTxn))
+        val afterDerived = computeDerivedBalances(listOf(savings, card), listOf(savingsDebitTxn, cardCreditTxn))
         val afterNet = computeNetOverview(afterDerived)
 
         // Savings is now Rs 40,000
@@ -198,16 +200,20 @@ class NetBalanceEngineTest {
         val acc1 = AccountEntity(
             id = 1L,
             bankName = "SBI",
+            bankKey = "SBI",
             last4 = "1111",
-            accountType = AccountType.SAVINGS,
+            displayName = "SBI",
+            type = AccountType.SAVINGS,
             anchorSet = true,
             openingBalancePaise = 30000_00L
         )
         val acc2 = AccountEntity(
             id = 2L,
             bankName = "HDFC",
+            bankKey = "HDFC",
             last4 = "2222",
-            accountType = AccountType.SAVINGS,
+            displayName = "HDFC",
+            type = AccountType.SAVINGS,
             anchorSet = true,
             openingBalancePaise = 20000_00L
         )
@@ -216,20 +222,25 @@ class NetBalanceEngineTest {
         val initialNet = computeNetOverview(initialDerived)
         assertEquals(50000_00L, initialNet.netAvailableBalancePaise)
 
-        // Transfer Rs 5,000 from SBI to HDFC
-        val transferTxn = TransactionEntity(
+        // Transfer Rs 5,000 from SBI to HDFC (two legs)
+        val debitLeg = TransactionEntity(
             id = 201L,
-            rawMessageId = "msg_2",
-            sender = "SBIINB",
             timestamp = System.currentTimeMillis(),
             amountPaise = 5000_00L,
-            type = TransactionType.TRANSFER,
-            vendorName = "Self Transfer",
-            accountId = acc1.id,
-            toAccountId = acc2.id
+            type = TransactionType.OWN_TRANSFER,
+            friendlyVendorName = "Transfer to HDFC",
+            accountId = acc1.id
+        )
+        val creditLeg = TransactionEntity(
+            id = 202L,
+            timestamp = System.currentTimeMillis(),
+            amountPaise = 5000_00L,
+            type = TransactionType.OWN_TRANSFER,
+            friendlyVendorName = "Transfer from SBI",
+            accountId = acc2.id
         )
 
-        val afterDerived = computeDerivedBalances(listOf(acc1, acc2), listOf(transferTxn))
+        val afterDerived = computeDerivedBalances(listOf(acc1, acc2), listOf(debitLeg, creditLeg))
         val afterNet = computeNetOverview(afterDerived)
 
         // Acc1 = 25,000, Acc2 = 25,000 -> Net = 50,000
@@ -243,8 +254,10 @@ class NetBalanceEngineTest {
         val card = AccountEntity(
             id = 1L,
             bankName = "HDFC Card",
+            bankKey = "HDFC",
             last4 = "9999",
-            accountType = AccountType.CREDIT_CARD,
+            displayName = "HDFC Card",
+            type = AccountType.CREDIT_CARD,
             creditLimitPaise = 200000_00L, // 2 Lakhs Limit
             anchorSet = true,
             openingOwedPaise = 10000_00L // Owed 10,000

@@ -58,7 +58,14 @@ class ResetDataTest {
         )
 
         val categories = listOf(CategoryEntity(id = 1L, name = "Food", color = "#10B981"))
-        val rules = listOf(RuleEntity(id = 1L, name = "Food Rule", source = com.campusfold.tracker.data.entity.RuleSource.MANUAL))
+        val rules = listOf(
+            RuleEntity(
+                id = 1L,
+                conditionsJson = "[]",
+                actionsJson = "[]",
+                source = com.campusfold.tracker.data.entity.RuleSource.USER
+            )
+        )
 
         // Simulate clearTransactionsOnly
         transactions = emptyList()
