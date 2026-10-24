@@ -1759,7 +1759,7 @@ class TransactionRepository(
         }
     }
 
-    suspend fun unlinkTransaction(transactionId: Long) = withContext(Dispatchers.IO) {
+    suspend fun unlinkTransaction(transactionId: Long): Unit = withContext(Dispatchers.IO) {
         db.withTransaction {
             val tx = transactionDao.getTransactionByIdSync(transactionId) ?: return@withTransaction
             val desc = tx.description ?: ""

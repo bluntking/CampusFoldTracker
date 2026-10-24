@@ -58,6 +58,7 @@ object AxisBankEmailParser {
         val cleanSubject = decodeMimeHeader(subject)
         val cleanBody = stripHtmlAndNormalize(body)
         val primaryBody = removeBoilerplateAndFooter(cleanBody)
+        val combined = "$cleanSubject\n$cleanBody"
 
         // Primary Signal Evaluation (in order of priority):
         // 1. Labelled field: "Amount Credited" vs "Amount Debited"
