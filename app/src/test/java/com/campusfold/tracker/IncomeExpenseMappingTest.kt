@@ -3,7 +3,7 @@ package com.campusfold.tracker
 import com.campusfold.tracker.data.entity.TransactionEntity
 import com.campusfold.tracker.data.entity.TransactionType
 import com.campusfold.tracker.util.CurrencyUtils
-import org.junit.Assert.assertEquals
+import org.junit.Assert.*
 import org.junit.Test
 
 class IncomeExpenseMappingTest {
