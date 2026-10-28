@@ -21,7 +21,7 @@ import com.campusfold.tracker.ui.theme.*
 /**
  * Recent Transactions Tile for Home (Part 3 #5):
  * - Header "Recent Transactions" with a "See All >" button that opens the Transactions screen.
- * - The latest 8 transactions in the existing transaction card style.
+ * - The latest 5 transactions in the existing transaction card style.
  * - Tapping a row opens the existing detail sheet.
  * - No inline expand, no search on Home.
  */
@@ -37,8 +37,8 @@ fun HomeRecentTransactionsTile(
         categories.associateBy { it.id }
     }
 
-    val recent8 = remember(transactions) {
-        transactions.take(8)
+    val recent5 = remember(transactions) {
+        transactions.take(5)
     }
 
     Column(
@@ -81,7 +81,7 @@ fun HomeRecentTransactionsTile(
             }
         }
 
-        if (recent8.isEmpty()) {
+        if (recent5.isEmpty()) {
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MatteCharcoal),
@@ -102,7 +102,7 @@ fun HomeRecentTransactionsTile(
                 }
             }
         } else {
-            recent8.forEach { tx ->
+            recent5.forEach { tx ->
                 val cat = categoryMap[tx.categoryId]
                 FoldTransactionFeedCard(
                     transaction = tx,

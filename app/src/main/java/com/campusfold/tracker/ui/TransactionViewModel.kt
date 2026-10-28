@@ -74,6 +74,7 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     val netBalanceOverview: StateFlow<NetBalanceOverview>
 
     // Sync state
+    val smsWorkFlow: Flow<List<androidx.work.WorkInfo>>
     val isSyncing: StateFlow<Boolean>
     val syncGmailOnOpen: StateFlow<Boolean>
     val autoUseBankBalances: StateFlow<Boolean>
@@ -340,8 +341,35 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
         )
 
         val workManager = androidx.work.WorkManager.getInstance(application)
-        val smsWorkFlow = workManager.getWorkInfosForUniqueWorkFlow("sms_inbox_scan")
+        smsWorkFlow = workManager.getWorkInfosForUniqueWorkFlow("sms_inbox_scan")
         val gmailWorkFlow = workManager.getWorkInfosForUniqueWorkFlow(com.campusfold.tracker.worker.GmailScanWorker.WORK_NAME)
+
+        viewModelScope.launch {
+            gmailWorkFlow.collect { workInfos ->
+                val info = workInfos.firstOrNull()
+                if (info != null) {
+                    val isRunning = info.state == androidx.work.WorkInfo.State.RUNNING || info.state == androidx.work.WorkInfo.State.ENQUEUED
+                    _isGmailSyncing.value = isRunning
+                    if (isRunning) {
+                        val status = info.progress.getString(com.campusfold.tracker.worker.GmailScanWorker.PROGRESS_STATUS)
+                        if (!status.isNullOrBlank()) {
+                            _gmailSyncProgress.value = status
+                        }
+                    } else if (info.state == androidx.work.WorkInfo.State.SUCCEEDED) {
+                        val read = info.outputData.getInt(com.campusfold.tracker.worker.GmailScanWorker.PROGRESS_READ, 0)
+                        val added = info.outputData.getInt(com.campusfold.tracker.worker.GmailScanWorker.PROGRESS_ADDED, 0)
+                        val msg = "✓ Synced $added new txns ($read emails read)"
+                        _gmailSyncProgress.value = msg
+                        _statusMessage.value = msg
+                    } else if (info.state == androidx.work.WorkInfo.State.FAILED) {
+                        val error = info.outputData.getString("error") ?: "Sync failed"
+                        val msg = "Gmail Sync: $error"
+                        _gmailSyncProgress.value = msg
+                        _statusMessage.value = msg
+                    }
+                }
+            }
+        }
 
         isSyncing = combine(
             smsWorkFlow,
@@ -471,6 +499,7 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             when {
                 filter == "EXPENSE" -> list.filter { it.type == TransactionType.EXPENSE }
                 filter == "INCOME" -> list.filter { it.type == TransactionType.INCOME }
+                filter == "INVESTMENT" -> list.filter { it.type == TransactionType.INVESTMENT }
                 filter == "CC_BILL" -> list.filter { it.type == TransactionType.CC_BILL_TRANSFER }
                 filter.startsWith("CATEGORY:") -> {
                     val rawCat = filter.removePrefix("CATEGORY:").substringBefore(":")
@@ -517,6 +546,11 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     fun filterByVendor(vendorName: String) {
         _selectedFilter.value = "VENDOR:${vendorName}"
     }
+
+    val totalCreditCardAvailable: Double
+        get() = derivedAccountBalances.value
+            .filter { it.account.type == com.campusfold.tracker.data.entity.AccountType.CREDIT_CARD }
+            .sumOf { it.availableCredit }
 
     // ─── Accounts CRUD ────────────────────────────────────────────────────────
 
@@ -1047,26 +1081,18 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
                     val prefs = AppPreferences(getApplication())
                     prefs.saveGmailCredentials(emailAddress, appPassword)
                 }
-                val stats = repository.syncAxisFromGmail(
-                    emailAddress = emailAddress,
-                    appPassword = appPassword,
+                repository.enqueueGmailSyncWorker(
+                    context = getApplication(),
                     startDateMillis = startDateMillis,
-                    onProgress = { current, total ->
-                        _gmailSyncProgress.value = "Fetching Axis email $current of $total..."
-                    }
+                    source = "MANUAL",
+                    policy = androidx.work.ExistingWorkPolicy.REPLACE
                 )
-                val totalImported = stats.importedDebits + stats.importedCredits
-                val summary = "✓ Synced $totalImported Axis txns (${stats.importedDebits} debits, ${stats.importedCredits} credits, ${stats.autoSettledCredits} settled, ${stats.skippedDuplicates} dupes skipped)"
-                _statusMessage.value = summary
-                _gmailSyncProgress.value = summary
-                onComplete?.invoke(stats, null)
             } catch (e: Exception) {
                 val errorMsg = e.localizedMessage ?: "Failed connecting to Gmail"
                 _statusMessage.value = "Gmail Sync Error: $errorMsg"
                 _gmailSyncProgress.value = errorMsg
-                onComplete?.invoke(null, errorMsg)
-            } finally {
                 _isGmailSyncing.value = false
+                onComplete?.invoke(null, errorMsg)
             }
         }
     }
@@ -1092,20 +1118,29 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
      * Triggers a Gmail sync via WorkManager if last sync was > 60 seconds ago.
      */
     fun checkAndAutoSyncGmail() {
-        try {
-            val email = gmailSyncEmail.value
-            val password = gmailSyncAppPassword.value
-            if (email.isNullOrBlank() || password.isNullOrBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val prefs = AppPreferences(getApplication())
+                val syncOnOpen = prefs.syncGmailOnOpen.first()
+                if (!syncOnOpen) return@launch
 
-            val lastSync = gmailLastSyncTimestamp.value
-            val debounceMillis = 60L * 1000L // 60s debounce
-            if (lastSync > 0L && (System.currentTimeMillis() - lastSync) <= debounceMillis) {
-                return
+                val (email, password) = prefs.getGmailCredentialsSync()
+                if (email.isNullOrBlank() || password.isNullOrBlank()) return@launch
+
+                val lastSync = prefs.gmailLastSyncTimestamp.first()
+                val debounceMillis = 60L * 1000L // 60s debounce
+                if (lastSync > 0L && (System.currentTimeMillis() - lastSync) <= debounceMillis) {
+                    return@launch
+                }
+
+                repository.enqueueGmailSyncWorker(
+                    context = getApplication(),
+                    source = "AUTO_OPEN",
+                    policy = androidx.work.ExistingWorkPolicy.KEEP
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("TransactionViewModel", "Silent Gmail auto-sync check error", e)
             }
-
-            repository.enqueueGmailSyncWorker(getApplication())
-        } catch (e: Exception) {
-            android.util.Log.e("TransactionViewModel", "Silent Gmail auto-sync check error", e)
         }
     }
 

@@ -28,7 +28,7 @@ import com.campusfold.tracker.data.entity.*
         AiCacheEntity::class,
         ScanHistoryEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -483,6 +483,96 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Add 4 new columns to transactions
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `linkedExpenseId` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `linkedIncomeId` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `reimbursedOffsetPaise` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `previousSharePaise` INTEGER DEFAULT NULL")
+
+                // 2. Migrate existing linked rows from description tags
+                val cursor = db.query("SELECT id, description, rawMerchant, friendlyVendorName, type FROM transactions WHERE description LIKE '%[LINKED_%' OR (type = 'SPLIT_SETTLEMENT' AND friendlyVendorName LIKE 'Reimbursement for %')")
+                val linkedToExpenseRegex = Regex("""\[LINKED_TO_EXPENSE:(\d+)\|OFFSET:(\d+)\|PREV_SHARE:(\d+)\]""")
+                val linkedIncomeRegex = Regex("""\[LINKED_INCOME:(\d+)\|OFFSET:(\d+)\]""")
+
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    val desc = cursor.getString(1) ?: ""
+                    val rawMerchant = cursor.getString(2) ?: ""
+                    val friendlyVendor = cursor.getString(3) ?: ""
+                    val txType = cursor.getString(4) ?: ""
+
+                    var linkedExpenseId: Long? = null
+                    var linkedIncomeId: Long? = null
+                    var offsetPaise: Long? = null
+                    var prevSharePaise: Long? = null
+                    var newDesc = desc
+
+                    val toExpMatch = linkedToExpenseRegex.find(desc)
+                    if (toExpMatch != null) {
+                        linkedExpenseId = toExpMatch.groupValues[1].toLongOrNull()
+                        offsetPaise = toExpMatch.groupValues[2].toLongOrNull()
+                        prevSharePaise = toExpMatch.groupValues[3].toLongOrNull()
+                        newDesc = newDesc.replace(toExpMatch.value, "").trim()
+                    }
+
+                    val incMatch = linkedIncomeRegex.find(desc)
+                    if (incMatch != null) {
+                        linkedIncomeId = incMatch.groupValues[1].toLongOrNull()
+                        if (offsetPaise == null) {
+                            offsetPaise = incMatch.groupValues[2].toLongOrNull()
+                        }
+                        newDesc = newDesc.replace(incMatch.value, "").trim()
+                    }
+
+                    val newFriendlyVendor = if (friendlyVendor.startsWith("Reimbursement for ") && rawMerchant.isNotBlank()) {
+                        rawMerchant
+                    } else {
+                        friendlyVendor
+                    }
+                    val newType = if (txType == "SPLIT_SETTLEMENT" && (toExpMatch != null || friendlyVendor.startsWith("Reimbursement for "))) {
+                        "INCOME"
+                    } else {
+                        txType
+                    }
+
+                    db.execSQL(
+                        """
+                        UPDATE transactions 
+                        SET linkedExpenseId = ?,
+                            linkedIncomeId = ?,
+                            reimbursedOffsetPaise = ?,
+                            previousSharePaise = ?,
+                            description = ?,
+                            friendlyVendorName = ?,
+                            type = ?
+                        WHERE id = ?
+                        """.trimIndent(),
+                        arrayOf<Any?>(
+                            linkedExpenseId,
+                            linkedIncomeId,
+                            offsetPaise,
+                            prevSharePaise,
+                            if (newDesc.isBlank()) null else newDesc,
+                            newFriendlyVendor,
+                            newType,
+                            id
+                        )
+                    )
+                }
+                cursor.close()
+
+                // 3. Clean up any wrongly saved future-debit mandate notices
+                db.execSQL("""
+                    DELETE FROM transactions 
+                    WHERE (rawSms LIKE '%will be debited%' OR rawSms LIKE '%upcoming mandate%')
+                      AND rawSms NOT LIKE '%was debited%'
+                      AND rawSms NOT LIKE '%has been debited%'
+                """.trimIndent())
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -490,7 +580,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "campus_fold_tracker.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .addCallback(DatabaseCallback())
                     .build()

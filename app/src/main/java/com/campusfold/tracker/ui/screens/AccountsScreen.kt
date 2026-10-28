@@ -45,7 +45,8 @@ import java.util.Calendar
 @Composable
 fun AccountsScreen(
     viewModel: TransactionViewModel,
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onAccountClick: (Long) -> Unit = {}
 ) {
     BackHandler { onBack() }
 
@@ -303,6 +304,7 @@ fun AccountsScreen(
                                 derived = derived,
                                 activeMergeLog = activeMergeLog,
                                 currencyFormatter = currencyFormatter,
+                                onClick = { onAccountClick(account.id) },
                                 onUpdateBalance = { accountForManualBalance = account },
                                 onUseBankBalance = {
                                     viewModel.updateAccountAnchor(
@@ -351,6 +353,7 @@ fun AccountsScreen(
                                 derived = derived,
                                 activeMergeLog = activeMergeLog,
                                 currencyFormatter = currencyFormatter,
+                                onClick = { onAccountClick(card.id) },
                                 onUpdateBalance = { accountForManualBalance = card },
                                 onUseBankBalance = {
                                     viewModel.updateAccountAnchor(
@@ -469,6 +472,7 @@ fun AccountReferenceCard(
     derived: com.campusfold.tracker.data.model.DerivedAccountBalance? = null,
     activeMergeLog: MergeLogEntity? = null,
     currencyFormatter: NumberFormat,
+    onClick: () -> Unit = {},
     onUpdateBalance: () -> Unit,
     onUseBankBalance: () -> Unit = {},
     onEdit: () -> Unit,
@@ -490,6 +494,7 @@ fun AccountReferenceCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
+            .clickable { onClick() }
             .border(
                 1.dp,
                 MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),

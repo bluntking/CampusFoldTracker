@@ -15,10 +15,10 @@ interface SplitItemDao {
     @Query("SELECT * FROM split_items WHERE transactionId = :transactionId ORDER BY id ASC")
     suspend fun getSplitsForTransactionSync(transactionId: Long): List<SplitItemEntity>
 
-    @Query("SELECT * FROM split_items WHERE personId = :personId AND isSettled = 0 ORDER BY createdAt ASC")
+    @Query("SELECT * FROM split_items WHERE personId = :personId AND direction = 'OWED_TO_ME' AND isSettled = 0 ORDER BY createdAt ASC")
     fun getUnsettledSplitsForPerson(personId: Long): Flow<List<SplitItemEntity>>
 
-    @Query("SELECT * FROM split_items WHERE personId = :personId AND isSettled = 0 ORDER BY createdAt ASC")
+    @Query("SELECT * FROM split_items WHERE personId = :personId AND direction = 'OWED_TO_ME' AND isSettled = 0 ORDER BY createdAt ASC")
     suspend fun getUnsettledSplitsForPersonSync(personId: Long): List<SplitItemEntity>
 
     @Query("SELECT * FROM split_items WHERE personId = :personId AND direction = :direction AND isSettled = 0 ORDER BY createdAt ASC")
@@ -33,10 +33,10 @@ interface SplitItemDao {
     @Query("SELECT * FROM split_items WHERE id = :id LIMIT 1")
     suspend fun getSplitById(id: Long): SplitItemEntity?
 
-    @Query("SELECT COALESCE(SUM(amountOwedPaise - amountPaidSoFarPaise), 0) FROM split_items WHERE personId = :personId AND isSettled = 0")
+    @Query("SELECT COALESCE(SUM(CASE WHEN direction = 'OWED_TO_ME' THEN (amountOwedPaise - amountPaidSoFarPaise) ELSE -(amountOwedPaise - amountPaidSoFarPaise) END), 0) FROM split_items WHERE personId = :personId AND isSettled = 0")
     fun getNetPendingBalanceForPerson(personId: Long): Flow<Long>
 
-    @Query("SELECT COALESCE(SUM(amountOwedPaise - amountPaidSoFarPaise), 0) FROM split_items WHERE personId = :personId AND isSettled = 0")
+    @Query("SELECT COALESCE(SUM(CASE WHEN direction = 'OWED_TO_ME' THEN (amountOwedPaise - amountPaidSoFarPaise) ELSE -(amountOwedPaise - amountPaidSoFarPaise) END), 0) FROM split_items WHERE personId = :personId AND isSettled = 0")
     suspend fun getNetPendingBalanceForPersonSync(personId: Long): Long
 
     @Query("""

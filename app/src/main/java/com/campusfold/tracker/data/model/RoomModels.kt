@@ -376,5 +376,8 @@ data class GmailSyncStats(
     val autoSettledCredits: Int = 0,
     val pendingSuggestionsCreated: Int = 0,
     val skippedDuplicates: Int = 0,
-    val errorMessage: String? = lastError
+    val errorMessage: String? = lastError,
+    val source: String = "BACKGROUND",
+    val lastAttemptResult: String = if (lastError == null) "COMPLETED" else "FAILED",
+    val lastSuccessTimestamp: Long = if (lastError == null) timestamp else 0L
 )

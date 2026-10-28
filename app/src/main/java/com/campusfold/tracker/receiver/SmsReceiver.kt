@@ -95,16 +95,14 @@ class SmsReceiver : BroadcastReceiver() {
                     Log.d(TAG, "SmsReceiver ingest result: $result")
 
                     when (result) {
-                        is IngestResult.Imported -> {
-                            val tx = db.transactionDao().getTransactionByIdSync(result.transactionId)
+                        is IngestResult.Imported, is IngestResult.Enriched -> {
+                            val txId = if (result is IngestResult.Imported) result.transactionId else (result as IngestResult.Enriched).transactionId
+                            val tx = db.transactionDao().getTransactionByIdSync(txId)
                             if (tx != null && tx.type != TransactionType.INCOME) {
-                                NotificationHelper.showTransactionNotification(appContext, tx)
-                            }
-                        }
-                        is IngestResult.Enriched -> {
-                            val tx = db.transactionDao().getTransactionByIdSync(result.transactionId)
-                            if (tx != null && tx.type != TransactionType.INCOME) {
-                                NotificationHelper.showTransactionNotification(appContext, tx)
+                                val categoryName = tx.categoryId?.let { catId ->
+                                    try { db.categoryDao().getCategoryById(catId)?.name } catch (_: Exception) { null }
+                                } ?: "Uncategorized"
+                                NotificationHelper.showTransactionNotification(appContext, tx, categoryName)
                             }
                         }
                         else -> {}

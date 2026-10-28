@@ -40,6 +40,7 @@ enum class TxTypeFilter(val label: String) {
     ALL("All"),
     EXPENSE("Expense"),
     INCOME("Income"),
+    INVESTMENT("Investment"),
     TRANSFERS("Transfers"),
     CARD_BILLS("Card Bills")
 }
@@ -61,6 +62,7 @@ fun TransactionsScreen(
     onBack: () -> Unit,
     initialCategoryFilter: Long? = null,
     initialVendorFilter: String? = null,
+    initialAccountFilter: Long? = null,
     modifier: Modifier = Modifier
 ) {
     BackHandler { onBack() }
@@ -71,8 +73,9 @@ fun TransactionsScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedTypeFilter by remember { mutableStateOf(TxTypeFilter.ALL) }
-    var selectedCategoryFilter by remember { mutableStateOf(initialCategoryFilter) }
-    var selectedVendorFilter by remember { mutableStateOf(initialVendorFilter) }
+    var selectedCategoryFilter by remember(initialCategoryFilter) { mutableStateOf(initialCategoryFilter) }
+    var selectedVendorFilter by remember(initialVendorFilter) { mutableStateOf(initialVendorFilter) }
+    var selectedAccountId by remember(initialAccountFilter) { mutableStateOf(initialAccountFilter) }
 
     // Multi-select state
     var isSelectionMode by remember { mutableStateOf(false) }
@@ -86,6 +89,9 @@ fun TransactionsScreen(
     var selectedTransactionForSheet by remember { mutableStateOf<TransactionEntity?>(null) }
 
     val categoryMap = remember(categories) { categories.associateBy { it.id } }
+    val selectedAccObj = remember(accounts, selectedAccountId) {
+        accounts.find { it.id == selectedAccountId }
+    }
 
     // Filter transactions
     val filteredList = remember(
@@ -93,7 +99,9 @@ fun TransactionsScreen(
         searchQuery,
         selectedTypeFilter,
         selectedCategoryFilter,
-        selectedVendorFilter
+        selectedVendorFilter,
+        selectedAccountId,
+        selectedAccObj
     ) {
         allTransactions.filter { tx ->
             // Search query filter
@@ -109,6 +117,7 @@ fun TransactionsScreen(
                 TxTypeFilter.ALL -> true
                 TxTypeFilter.EXPENSE -> tx.type == TransactionType.EXPENSE
                 TxTypeFilter.INCOME -> tx.type == TransactionType.INCOME
+                TxTypeFilter.INVESTMENT -> tx.type == TransactionType.INVESTMENT
                 TxTypeFilter.TRANSFERS -> tx.type == TransactionType.OWN_TRANSFER
                 TxTypeFilter.CARD_BILLS -> tx.type == TransactionType.CC_BILL_TRANSFER
             }
@@ -121,7 +130,16 @@ fun TransactionsScreen(
                     tx.vendor.equals(selectedVendorFilter, ignoreCase = true) ||
                     tx.rawMerchant.equals(selectedVendorFilter, ignoreCase = true)
 
-            matchesQuery && matchesType && matchesCategory && matchesVendor
+            // Account filter
+            val matchesAccount = selectedAccountId == null ||
+                    tx.accountId == selectedAccountId ||
+                    (tx.accountId == null && selectedAccObj != null && (
+                        tx.paymentMode.equals(selectedAccObj.displayName, ignoreCase = true) ||
+                        tx.paymentMode.equals(selectedAccObj.accountName, ignoreCase = true) ||
+                        (selectedAccObj.accountNumberSuffix.isNotBlank() && tx.paymentMode.contains(selectedAccObj.accountNumberSuffix))
+                    ))
+
+            matchesQuery && matchesType && matchesCategory && matchesVendor && matchesAccount
         }
     }
 
@@ -257,15 +275,24 @@ fun TransactionsScreen(
                     }
                 }
 
-                // Active Category or Vendor Filter Banner (from drill-down)
-                if (selectedCategoryFilter != null || selectedVendorFilter != null) {
+                // Active Category, Vendor or Account Filter Banner (from drill-down)
+                if (selectedCategoryFilter != null || selectedVendorFilter != null || selectedAccountId != null) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        selectedAccountId?.let { accId ->
+                            val accName = selectedAccObj?.displayName ?: "Account"
+                            AssistChip(
+                                onClick = { selectedAccountId = null },
+                                label = { Text("Account: $accName ✕", fontSize = 11.sp, color = NeonPurple) },
+                                border = androidx.compose.foundation.BorderStroke(1.dp, NeonPurple)
+                            )
+                        }
                         selectedCategoryFilter?.let { catId ->
                             val catName = categoryMap[catId]?.name ?: "Category"
                             AssistChip(

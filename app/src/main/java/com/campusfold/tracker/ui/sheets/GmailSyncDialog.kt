@@ -365,7 +365,7 @@ fun GmailSyncDialog(
                         ),
                         border = FilterChipDefaults.filterChipBorder(
                             enabled = true,
-                            selected = selectedPreset == "FROM_20_OCT",
+                            selected = selectedPreset == "20_OCT_2026",
                             borderColor = BorderCharcoal,
                             selectedBorderColor = NeonCyan.copy(alpha = 0.6f)
                         ),

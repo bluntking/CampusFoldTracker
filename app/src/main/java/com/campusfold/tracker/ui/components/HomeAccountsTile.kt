@@ -255,6 +255,7 @@ fun HomeAccountsTile(
     derivedBalances: List<DerivedAccountBalance>,
     isAmountHidden: Boolean,
     onManageAccounts: () -> Unit,
+    onAccountClick: (Long) -> Unit = { onManageAccounts() },
     modifier: Modifier = Modifier
 ) {
     val activeAccounts = remember(derivedBalances) {
@@ -329,7 +330,7 @@ fun HomeAccountsTile(
                 DashboardAccountCard(
                     derived = derived,
                     isAmountHidden = isAmountHidden,
-                    onClick = onManageAccounts
+                    onClick = { onAccountClick(derived.account.id) }
                 )
             }
 

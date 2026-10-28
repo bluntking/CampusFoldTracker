@@ -39,6 +39,7 @@ import java.util.Locale
 enum class ManualTxType {
     EXPENSE,
     INCOME,
+    INVESTMENT,
     CC_BILL,
     TRANSFER
 }
@@ -146,6 +147,7 @@ fun AddTransactionSheet(
                 listOf(
                     ManualTxType.EXPENSE to "Expense",
                     ManualTxType.INCOME to "Income",
+                    ManualTxType.INVESTMENT to "Investment",
                     ManualTxType.CC_BILL to "Card Bill",
                     ManualTxType.TRANSFER to "Transfer"
                 ).forEach { (type, label) ->
@@ -657,6 +659,7 @@ fun AddTransactionSheet(
                         val txType = when (selectedType) {
                             ManualTxType.EXPENSE -> TransactionType.EXPENSE
                             ManualTxType.INCOME -> TransactionType.INCOME
+                            ManualTxType.INVESTMENT -> TransactionType.INVESTMENT
                             ManualTxType.CC_BILL -> TransactionType.CC_BILL_TRANSFER
                             ManualTxType.TRANSFER -> TransactionType.OWN_TRANSFER
                         }

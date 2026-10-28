@@ -59,6 +59,7 @@ object AxisBankEmailParser {
         val cleanBody = stripHtmlAndNormalize(body)
         val primaryBody = removeBoilerplateAndFooter(cleanBody)
         val combined = "$cleanSubject\n$cleanBody"
+        if (com.campusfold.tracker.parser.MessageExtractor.classifyIgnored(combined) != null) return null
 
         // Primary Signal Evaluation (in order of priority):
         // 1. Labelled field: "Amount Credited" vs "Amount Debited"

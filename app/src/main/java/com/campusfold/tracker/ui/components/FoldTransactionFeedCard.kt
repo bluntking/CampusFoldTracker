@@ -52,6 +52,7 @@ fun FoldTransactionFeedCard(
     }
     val isCredit = transaction.type == TransactionType.INCOME
     val isCcBill = transaction.type == TransactionType.CC_BILL_TRANSFER
+    val isInvestment = transaction.type == TransactionType.INVESTMENT
 
     Card(
         modifier = modifier
@@ -97,6 +98,7 @@ fun FoldTransactionFeedCard(
                     .clip(CircleShape)
                     .background(
                         when {
+                            isInvestment -> NeonPurple.copy(alpha = 0.15f)
                             isCcBill -> NeonCyan.copy(alpha = 0.15f)
                             isCredit -> NeonEmerald.copy(alpha = 0.15f)
                             else -> MaterialTheme.colorScheme.surfaceVariant
@@ -106,12 +108,14 @@ fun FoldTransactionFeedCard(
             ) {
                 Icon(
                     imageVector = when {
+                        isInvestment -> Icons.Default.TrendingUp
                         isCcBill -> Icons.Default.CreditScore
                         isCredit -> Icons.Default.ArrowDownward
                         else -> Icons.Default.ArrowUpward
                     },
                     contentDescription = null,
                     tint = when {
+                        isInvestment -> NeonPurple
                         isCcBill -> NeonCyan
                         isCredit -> NeonEmerald
                         else -> MaterialTheme.colorScheme.error
@@ -196,6 +200,7 @@ fun FoldTransactionFeedCard(
             // Currency Amount Display
             Column(horizontalAlignment = Alignment.End) {
                 val sign = when {
+                    isInvestment -> "▲ "
                     isCcBill -> "⇌ "
                     isCredit -> "+"
                     else -> "-"
@@ -205,6 +210,7 @@ fun FoldTransactionFeedCard(
                     prefix = sign + "₹",
                     fontSize = 15.sp,
                     color = when {
+                        isInvestment -> NeonPurple
                         isCcBill -> NeonCyan
                         isCredit -> NeonEmerald
                         else -> MaterialTheme.colorScheme.onSurface

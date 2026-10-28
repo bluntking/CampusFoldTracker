@@ -8,6 +8,7 @@ enum class TransactionType {
     OWN_TRANSFER,
     REFUND,
     ATM,
-    EMI
+    EMI,
+    INVESTMENT
 }
 

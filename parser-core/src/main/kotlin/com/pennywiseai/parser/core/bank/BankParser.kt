@@ -218,7 +218,11 @@ abstract class BankParser {
         // ... by <date>"). These announce a future debit; the real debit arrives
         // as its own SMS, so booking them doubled the spend.
         if (lowerMessage.contains("will be auto-debited") ||
-            lowerMessage.contains("will be auto debited")
+            lowerMessage.contains("will be auto debited") ||
+            lowerMessage.contains("will be debited") ||
+            lowerMessage.contains("shall be debited") ||
+            lowerMessage.contains("upcoming mandate") ||
+            lowerMessage.contains("mandate set for")
         ) {
             return true
         }

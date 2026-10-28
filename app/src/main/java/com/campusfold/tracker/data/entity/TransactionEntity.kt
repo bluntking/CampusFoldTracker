@@ -61,7 +61,11 @@ data class TransactionEntity(
     val confidence: Float = 1.0f,
     val rawMessageHash: String? = null,
     val editedFields: String = "[]", // JSON list of field names user edited manually
-    val paidByPersonId: Long? = null
+    val paidByPersonId: Long? = null,
+    val linkedExpenseId: Long? = null,
+    val linkedIncomeId: Long? = null,
+    val reimbursedOffsetPaise: Long? = null,
+    val previousSharePaise: Long? = null
 ) {
     // Backward-compatibility accessors
     val amount: Double get() = amountPaise / 100.0

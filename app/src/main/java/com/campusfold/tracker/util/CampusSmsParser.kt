@@ -73,6 +73,11 @@ object CampusSmsParser {
         if (body.isNullOrBlank()) return null
         val cleanBody = body.trim()
 
+        // Filter out non-transaction / ignored notifications
+        if (com.campusfold.tracker.parser.MessageExtractor.classifyIgnored(cleanBody) != null) {
+            return null
+        }
+
         // Filter out OTPs and authentication verification codes
         if (Regex("""\b(otp|one time password|verification code|secret code|login code)\b""", RegexOption.IGNORE_CASE).containsMatchIn(cleanBody)) {
             return null
@@ -293,13 +298,16 @@ object CampusSmsParser {
 
         val amount = extractAmount(body) ?: return null
 
-        val isCredit = Regex("""\b(credited|received|cashback|refund|reversal)\b""", RegexOption.IGNORE_CASE).containsMatchIn(body)
+        val isCredit = !Regex("""\bipo\b""", RegexOption.IGNORE_CASE).containsMatchIn(body) &&
+            Regex("""\b(credited|received|cashback|refund|reversal)\b""", RegexOption.IGNORE_CASE).containsMatchIn(body)
 
         // Check if message is a CC bill payment via generic sender
         val isCcBill = outboundCcBillStrictPattern.containsMatchIn(body)
+        val isInvestment = Regex("""\b(?:ipo\s+allot(?:ment|ted)|mutual\s+fund|sip|zerodha|groww|upstox|angel\s*one|kuvera|coin\s+by\s+zerodha|indmoney|smallcase|nsdl|cdsl|demat)\b""", RegexOption.IGNORE_CASE).containsMatchIn(body)
 
         val type = when {
             isCcBill -> TransactionType.CC_BILL_TRANSFER
+            isInvestment && !isCredit -> TransactionType.INVESTMENT
             isCredit -> TransactionType.INCOME
             else -> TransactionType.EXPENSE
         }

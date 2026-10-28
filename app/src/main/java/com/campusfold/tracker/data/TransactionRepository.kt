@@ -257,27 +257,29 @@ class TransactionRepository(
         db.withTransaction {
             val vendor = vendorDao.getVendorById(vendorId) ?: return@withTransaction
             val oldName = vendor.displayName
+            val oldKey = vendor.normalizedKey
             val edited = parseEditedFields(vendor.editedFields).toMutableSet().apply { add("displayName") }
-            vendorDao.updateVendor(
-                vendor.copy(
-                    displayName = newName.trim(),
-                    normalizedKey = newName.trim().lowercase(java.util.Locale.US),
-                    editedFields = JSONArray(edited.toList()).toString()
-                )
+            val updated = vendor.copy(
+                displayName = newName.trim(),
+                normalizedKey = newName.trim().lowercase(java.util.Locale.US),
+                editedFields = JSONArray(edited.toList()).toString()
             )
-            transactionDao.updateVendorNameForTransactions(oldName, newName.trim())
+            vendorDao.updateVendor(updated)
+            backfillTransactionsForVendor(oldKey, oldName, updated)
         }
     }
 
     suspend fun reassignVendorCategory(vendorId: Long, newCategoryId: Long?) = withContext(Dispatchers.IO) {
-        val vendor = vendorDao.getVendorById(vendorId) ?: return@withContext
-        val edited = parseEditedFields(vendor.editedFields).toMutableSet().apply { add("categoryId") }
-        vendorDao.updateVendor(
-            vendor.copy(
+        db.withTransaction {
+            val vendor = vendorDao.getVendorById(vendorId) ?: return@withTransaction
+            val edited = parseEditedFields(vendor.editedFields).toMutableSet().apply { add("categoryId") }
+            val updated = vendor.copy(
                 categoryId = newCategoryId,
                 editedFields = JSONArray(edited.toList()).toString()
             )
-        )
+            vendorDao.updateVendor(updated)
+            backfillTransactionsForVendor(vendor.normalizedKey, vendor.displayName, updated)
+        }
     }
 
     suspend fun mergeVendors(survivingVendorId: Long, mergedVendorId: Long, survivingName: String, categoryId: Long?) = withContext(Dispatchers.IO) {
@@ -437,7 +439,11 @@ class TransactionRepository(
         val txsSinceAnchor = transactions.filter { it.accountId == account.id && it.timestamp >= account.openingAsOf }
 
         if (account.type == AccountType.CREDIT_CARD) {
-            val increases = txsSinceAnchor.filter { it.type == TransactionType.EXPENSE || it.type == TransactionType.EMI }.sumOf { it.amountPaise }
+            val increases = txsSinceAnchor.filter {
+                it.type == TransactionType.EXPENSE ||
+                it.type == TransactionType.EMI ||
+                it.type == TransactionType.INVESTMENT
+            }.sumOf { it.amountPaise }
             val decreases = txsSinceAnchor.filter {
                 it.type == TransactionType.CC_BILL_TRANSFER ||
                 it.type == TransactionType.REFUND ||
@@ -463,6 +469,7 @@ class TransactionRepository(
             val credits = txsSinceAnchor.filter {
                 it.type == TransactionType.INCOME ||
                 it.type == TransactionType.REFUND ||
+                it.linkedExpenseId != null ||
                 (it.type == TransactionType.SPLIT_SETTLEMENT && (it.friendlyVendorName.contains("Settlement from", ignoreCase = true) || it.friendlyVendorName.contains("Reimbursement", ignoreCase = true) || it.rawMerchant.contains("Credit", ignoreCase = true) || it.description?.contains("LINKED_TO_EXPENSE") == true)) ||
                 (it.type == TransactionType.OWN_TRANSFER && (it.friendlyVendorName.contains("from", ignoreCase = true) || it.rawMerchant.contains("Inflow", ignoreCase = true) || it.description?.contains("INCOMING", ignoreCase = true) == true))
             }.sumOf { it.amountPaise }
@@ -472,7 +479,8 @@ class TransactionRepository(
                 it.type == TransactionType.ATM ||
                 it.type == TransactionType.EMI ||
                 it.type == TransactionType.CC_BILL_TRANSFER ||
-                (it.type == TransactionType.SPLIT_SETTLEMENT && !it.friendlyVendorName.contains("Settlement from", ignoreCase = true) && !it.friendlyVendorName.contains("Reimbursement", ignoreCase = true) && it.description?.contains("LINKED_TO_EXPENSE") != true) ||
+                it.type == TransactionType.INVESTMENT ||
+                (it.type == TransactionType.SPLIT_SETTLEMENT && !it.friendlyVendorName.contains("Settlement from", ignoreCase = true) && !it.friendlyVendorName.contains("Reimbursement", ignoreCase = true) && it.linkedExpenseId == null && it.description?.contains("LINKED_TO_EXPENSE") != true) ||
                 (it.type == TransactionType.OWN_TRANSFER && !it.friendlyVendorName.contains("from", ignoreCase = true) && !it.rawMerchant.contains("Inflow", ignoreCase = true) && it.description?.contains("INCOMING", ignoreCase = true) != true)
             }.sumOf { it.amountPaise }
 
@@ -560,16 +568,78 @@ class TransactionRepository(
         vendorDao.insertVendor(vendor)
     }
 
+    private suspend fun backfillTransactionsForVendor(
+        oldNormalizedKey: String?,
+        oldDisplayName: String?,
+        updatedVendor: VendorEntity
+    ) {
+        val allTxs = transactionDao.getAllTransactionsSync()
+        val vendorList = listOf(updatedVendor)
+
+        for (tx in allTxs) {
+            val edited = parseEditedFields(tx.editedFields)
+
+            val cleanedRaw = com.campusfold.tracker.util.VendorResolver.cleanMerchantString(tx.rawMerchant)
+            val matchesNewKeyword =
+                (cleanedRaw.isNotBlank() && com.campusfold.tracker.util.VendorResolver.findMatchingVendor(cleanedRaw, vendorList) != null) ||
+                (tx.rawMerchant.isNotBlank() && com.campusfold.tracker.util.VendorResolver.findMatchingVendor(tx.rawMerchant, vendorList) != null) ||
+                tx.friendlyVendorName.equals(updatedVendor.displayName, ignoreCase = true) ||
+                tx.friendlyVendorName.equals(updatedVendor.normalizedKey, ignoreCase = true)
+
+            val matchesOldVendor =
+                (oldDisplayName != null && tx.friendlyVendorName.equals(oldDisplayName, ignoreCase = true)) ||
+                (oldNormalizedKey != null && (
+                    tx.friendlyVendorName.equals(oldNormalizedKey, ignoreCase = true) ||
+                    cleanedRaw.equals(oldNormalizedKey, ignoreCase = true)
+                ))
+
+            if (!matchesNewKeyword && !matchesOldVendor) continue
+
+            val newFriendlyName = if ("friendlyVendorName" !in edited) {
+                updatedVendor.displayName
+            } else {
+                tx.friendlyVendorName
+            }
+
+            val newCategoryId = if ("categoryId" !in edited && updatedVendor.categoryId != null) {
+                updatedVendor.categoryId
+            } else {
+                tx.categoryId
+            }
+
+            if (newFriendlyName != tx.friendlyVendorName || newCategoryId != tx.categoryId) {
+                transactionDao.updateTransaction(
+                    tx.copy(
+                        friendlyVendorName = newFriendlyName,
+                        categoryId = newCategoryId
+                    )
+                )
+            }
+        }
+    }
+
     suspend fun addVendorMapping(mapping: VendorEntity): Long = withContext(Dispatchers.IO) {
-        vendorDao.insertVendor(mapping)
+        db.withTransaction {
+            val id = vendorDao.insertVendor(mapping)
+            backfillTransactionsForVendor(null, null, mapping.copy(id = id))
+            id
+        }
     }
 
     suspend fun updateVendor(vendor: VendorEntity) = withContext(Dispatchers.IO) {
-        vendorDao.updateVendor(vendor)
+        db.withTransaction {
+            val old = vendorDao.getVendorById(vendor.id)
+            vendorDao.updateVendor(vendor)
+            backfillTransactionsForVendor(old?.normalizedKey, old?.displayName, vendor)
+        }
     }
 
     suspend fun updateVendorMapping(mapping: VendorEntity) = withContext(Dispatchers.IO) {
-        vendorDao.updateVendor(mapping)
+        db.withTransaction {
+            val old = vendorDao.getVendorById(mapping.id)
+            vendorDao.updateVendor(mapping)
+            backfillTransactionsForVendor(old?.normalizedKey, old?.displayName, mapping)
+        }
     }
 
     suspend fun deleteVendor(vendor: VendorEntity) = withContext(Dispatchers.IO) {
@@ -772,10 +842,25 @@ class TransactionRepository(
 
             transactionDao.updateTransaction(readyTx)
 
-            // Replace splits for this transaction
+            // Replace splits for this transaction while preserving settlement state for existing (personId, direction)
+            val existingSplits = splitDao.getSplitsForTransactionSync(updatedTx.id)
+            val existingStateMap = existingSplits.associateBy { Pair(it.personId, it.direction) }
+
             splitDao.deleteSplitsForTransaction(updatedTx.id)
             if (newSplits.isNotEmpty()) {
-                val splitsWithId = newSplits.map { it.copy(transactionId = updatedTx.id) }
+                val splitsWithId = newSplits.map { split ->
+                    val prior = existingStateMap[Pair(split.personId, split.direction)]
+                    if (prior != null) {
+                        split.copy(
+                            transactionId = updatedTx.id,
+                            amountPaidSoFarPaise = minOf(prior.amountPaidSoFarPaise, split.amountOwedPaise),
+                            isSettled = prior.isSettled && (prior.amountPaidSoFarPaise >= split.amountOwedPaise),
+                            settledAt = prior.settledAt
+                        )
+                    } else {
+                        split.copy(transactionId = updatedTx.id)
+                    }
+                }
                 splitDao.insertSplitItems(splitsWithId)
             }
         }
@@ -909,7 +994,7 @@ class TransactionRepository(
                 paymentMode = accountName,
                 rawMerchant = "Repayment to $friendName",
                 friendlyVendorName = "Repayment to $friendName",
-                accountId = accountId,
+                accountId = accountId?.takeIf { it > 0L },
                 timestamp = timestamp,
                 source = TransactionSource.MANUAL,
                 description = "Repayment of debt to $friendName"
@@ -924,7 +1009,7 @@ class TransactionRepository(
                     paymentMode = accountName,
                     rawMerchant = friendName,
                     friendlyVendorName = "Payment to $friendName",
-                    accountId = accountId,
+                    accountId = accountId?.takeIf { it > 0L },
                     timestamp = timestamp,
                     source = TransactionSource.MANUAL,
                     description = "Excess repayment to $friendName recorded as expense"
@@ -1278,6 +1363,49 @@ class TransactionRepository(
                             )
                         )
                     }
+                } else if (type == "ACCOUNT_ASSIGNMENT" || (json.has("assignedAccountId") && json.has("transactionId"))) {
+                    val txId = json.optLong("transactionId", 0L)
+                    val accId = json.optLong("assignedAccountId", 0L)
+                    if (txId > 0L && accId > 0L) {
+                        val tx = transactionDao.getTransactionByIdSync(txId)
+                        val acc = accountDao.getAccountById(accId)
+                        if (tx != null && acc != null) {
+                            transactionDao.updateTransaction(
+                                tx.copy(
+                                    accountId = acc.id,
+                                    paymentMode = acc.displayName
+                                )
+                            )
+                        }
+                    }
+                } else if (item.origin == ReviewOrigin.AI || json.has("amount")) {
+                    val amount = json.optDouble("amount", 0.0)
+                    if (amount > 0.0) {
+                        val typeStr = json.optString("type", "EXPENSE")
+                        val txType = try { TransactionType.valueOf(typeStr) } catch (_: Exception) { TransactionType.EXPENSE }
+                        val merchant = json.optString("merchant", "Unknown Merchant")
+                        val rawText = json.optString("rawText", "")
+                        val bankName = json.optString("bankName", "")
+                        val last4 = json.optString("accountLast4", "")
+
+                        val account = if (last4.isNotBlank()) {
+                            accountDao.getAccountByLast4Sync(last4)
+                        } else null
+
+                        val tx = TransactionEntity(
+                            amountPaise = CurrencyUtils.rupeesToPaise(amount),
+                            myActualSharePaise = CurrencyUtils.rupeesToPaise(amount),
+                            type = txType,
+                            paymentMode = account?.displayName ?: if (bankName.isNotBlank()) "$bankName ••$last4" else "Cash/Manual",
+                            rawMerchant = merchant,
+                            friendlyVendorName = merchant,
+                            accountId = account?.id,
+                            rawSms = rawText.takeIf { it.isNotBlank() },
+                            source = TransactionSource.AI,
+                            confidence = item.confidence
+                        )
+                        transactionDao.insertTransaction(tx)
+                    }
                 }
             }
 
@@ -1582,17 +1710,32 @@ class TransactionRepository(
 
     // ─── Direct Gmail IMAP Sync for Any Bank ────────────────────────────────
 
-    fun enqueueGmailSyncWorker(context: Context, startDateMillis: Long? = null): java.util.UUID {
+    fun enqueueGmailSyncWorker(
+        context: Context,
+        startDateMillis: Long? = null,
+        source: String = "BACKGROUND",
+        policy: androidx.work.ExistingWorkPolicy = androidx.work.ExistingWorkPolicy.KEEP
+    ): java.util.UUID {
+        val constraints = androidx.work.Constraints.Builder()
+            .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+            .build()
         val input = androidx.work.workDataOf(
-            com.campusfold.tracker.worker.GmailScanWorker.KEY_START_DATE to (startDateMillis ?: 0L)
+            com.campusfold.tracker.worker.GmailScanWorker.KEY_START_DATE to (startDateMillis ?: 0L),
+            com.campusfold.tracker.worker.GmailScanWorker.KEY_SOURCE to source
         )
         val request = androidx.work.OneTimeWorkRequestBuilder<com.campusfold.tracker.worker.GmailScanWorker>()
+            .setConstraints(constraints)
+            .setBackoffCriteria(
+                androidx.work.BackoffPolicy.EXPONENTIAL,
+                10,
+                java.util.concurrent.TimeUnit.SECONDS
+            )
             .setInputData(input)
             .addTag(com.campusfold.tracker.worker.GmailScanWorker.TAG)
             .build()
         androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
             com.campusfold.tracker.worker.GmailScanWorker.WORK_NAME,
-            androidx.work.ExistingWorkPolicy.KEEP,
+            policy,
             request
         )
         return request.id
@@ -1704,48 +1847,21 @@ class TransactionRepository(
             val expenseTx = transactionDao.getTransactionByIdSync(expenseTransactionId) ?: return@withTransaction
 
             val offsetPaise = customOffsetAmountPaise ?: incomeTx.amountPaise
-            val newMySharePaise = maxOf(0L, expenseTx.myActualSharePaise - offsetPaise)
 
-            // Store metadata in description to allow unambiguous unlinking
-            val linkMetaIncome = "[LINKED_TO_EXPENSE:${expenseTx.id}|OFFSET:$offsetPaise|PREV_SHARE:${expenseTx.myActualSharePaise}]"
-            val linkMetaExpense = "[LINKED_INCOME:${incomeTx.id}|OFFSET:$offsetPaise]"
-
-            val updatedIncomeDesc = if (incomeTx.description.isNullOrBlank()) linkMetaIncome else "${incomeTx.description} $linkMetaIncome"
-            val updatedExpenseDesc = if (expenseTx.description.isNullOrBlank()) linkMetaExpense else "${expenseTx.description} $linkMetaExpense"
-
-            // 1. Update expense with reduced true personal spend
-            transactionDao.updateTransaction(
-                expenseTx.copy(
-                    myActualSharePaise = newMySharePaise,
-                    description = updatedExpenseDesc
-                )
-            )
-
-            // 2. Mark income as SPLIT_SETTLEMENT
-            val expenseLabel = if (expenseTx.friendlyVendorName.isNotBlank()) {
-                expenseTx.friendlyVendorName
-            } else {
-                expenseTx.rawMerchant.ifBlank { "Expense #${expenseTx.id}" }
-            }
-            transactionDao.updateTransaction(
-                incomeTx.copy(
-                    type = TransactionType.SPLIT_SETTLEMENT,
-                    friendlyVendorName = "Reimbursement for $expenseLabel",
-                    description = updatedIncomeDesc
-                )
-            )
-
-            // 3. Settle any split items attached to this expense
+            // 1. Settle any OWED_TO_ME split items attached to this expense
             val splits = splitDao.getSplitsForTransactionSync(expenseTransactionId)
+                .filter { it.direction == SplitDirection.OWED_TO_ME }
+            var remainingPaise = offsetPaise
+            var absorbedBySplitsPaise = 0L
+
             if (splits.isNotEmpty()) {
-                var remainingPaise = offsetPaise
                 for (split in splits) {
                     if (remainingPaise <= 0L) break
                     val unpaidPaise = maxOf(0L, split.amountOwedPaise - split.amountPaidSoFarPaise)
                     if (unpaidPaise > 0L) {
                         val paying = minOf(remainingPaise, unpaidPaise)
                         val newPaid = split.amountPaidSoFarPaise + paying
-                        val isSettled = newPaid >= split.amountOwedPaise // Exact integer comparison
+                        val isSettled = newPaid >= split.amountOwedPaise
                         splitDao.updateSplitItem(
                             split.copy(
                                 amountPaidSoFarPaise = newPaid,
@@ -1753,79 +1869,125 @@ class TransactionRepository(
                             )
                         )
                         remainingPaise -= paying
+                        absorbedBySplitsPaise += paying
                     }
                 }
             }
+
+            // 2. Reduce personal share on expense by unabsorbed portion (or full offset if no splits exist)
+            val unabsorbedOffset = if (splits.isNotEmpty()) {
+                maxOf(0L, offsetPaise - absorbedBySplitsPaise)
+            } else {
+                offsetPaise
+            }
+            val newMySharePaise = maxOf(0L, expenseTx.myActualSharePaise - unabsorbedOffset)
+
+            // Update expense row with link column metadata and adjusted personal share
+            transactionDao.updateTransaction(
+                expenseTx.copy(
+                    myActualSharePaise = newMySharePaise,
+                    linkedIncomeId = incomeTx.id,
+                    reimbursedOffsetPaise = offsetPaise,
+                    previousSharePaise = expenseTx.myActualSharePaise
+                )
+            )
+
+            // 3. Keep income row as INCOME with original friendlyVendorName! Populate link columns
+            transactionDao.updateTransaction(
+                incomeTx.copy(
+                    linkedExpenseId = expenseTx.id,
+                    reimbursedOffsetPaise = offsetPaise
+                )
+            )
         }
     }
 
     suspend fun unlinkTransaction(transactionId: Long): Unit = withContext(Dispatchers.IO) {
         db.withTransaction {
             val tx = transactionDao.getTransactionByIdSync(transactionId) ?: return@withTransaction
-            val desc = tx.description ?: ""
 
-            val incomeLinkMatch = Regex("""\[LINKED_TO_EXPENSE:(\d+)\|OFFSET:(\d+)(?:\|PREV_SHARE:(\d+))?\]""").find(desc)
-            if (incomeLinkMatch != null || (tx.type == TransactionType.SPLIT_SETTLEMENT && tx.friendlyVendorName.startsWith("Reimbursement for", ignoreCase = true))) {
-                val expenseId = incomeLinkMatch?.groupValues?.get(1)?.toLongOrNull()
-                    ?: run {
-                        val label = tx.friendlyVendorName.removePrefix("Reimbursement for ").trim()
-                        val all = transactionDao.getAllTransactionsSync()
-                        all.firstOrNull { it.type == TransactionType.EXPENSE && (it.friendlyVendorName == label || it.rawMerchant == label) }?.id
-                    }
-                val offsetPaise = incomeLinkMatch?.groupValues?.get(2)?.toLongOrNull() ?: tx.amountPaise
-                val prevSharePaise = incomeLinkMatch?.groupValues?.getOrNull(3)?.toLongOrNull()
+            val isIncomeLeg = tx.linkedExpenseId != null || tx.type == TransactionType.INCOME ||
+                    (tx.type == TransactionType.SPLIT_SETTLEMENT && tx.friendlyVendorName.startsWith("Reimbursement for", ignoreCase = true)) ||
+                    tx.description?.contains("[LINKED_TO_EXPENSE:") == true
 
-                if (expenseId != null) {
-                    val expenseTx = transactionDao.getTransactionByIdSync(expenseId)
-                    if (expenseTx != null) {
-                        val restoredShare = prevSharePaise ?: minOf(expenseTx.amountPaise, expenseTx.myActualSharePaise + offsetPaise)
-                        val cleanedExpenseDesc = (expenseTx.description ?: "").replace(Regex("""\[LINKED_INCOME:\d+\|OFFSET:\d+\]"""), "").trim().ifBlank { null }
-                        transactionDao.updateTransaction(
-                            expenseTx.copy(
-                                myActualSharePaise = restoredShare,
-                                description = cleanedExpenseDesc
+            val (incomeTx, expenseTx) = if (isIncomeLeg) {
+                val expenseId = tx.linkedExpenseId ?: run {
+                    val descMatch = Regex("""\[LINKED_TO_EXPENSE:(\d+)""").find(tx.description ?: "")
+                    descMatch?.groupValues?.get(1)?.toLongOrNull()
+                } ?: run {
+                    val label = tx.friendlyVendorName.removePrefix("Reimbursement for ").trim()
+                    transactionDao.getAllTransactionsSync().firstOrNull {
+                        it.type == TransactionType.EXPENSE && (it.friendlyVendorName == label || it.rawMerchant == label)
+                    }?.id
+                }
+                val exp = expenseId?.let { transactionDao.getTransactionByIdSync(it) }
+                Pair(tx, exp)
+            } else {
+                val incomeId = tx.linkedIncomeId ?: run {
+                    val descMatch = Regex("""\[LINKED_INCOME:(\d+)""").find(tx.description ?: "")
+                    descMatch?.groupValues?.get(1)?.toLongOrNull()
+                }
+                val inc = incomeId?.let { transactionDao.getTransactionByIdSync(it) }
+                Pair(inc, tx)
+            }
+
+            if (expenseTx != null && incomeTx != null) {
+                val offsetPaise = incomeTx.reimbursedOffsetPaise
+                    ?: expenseTx.reimbursedOffsetPaise
+                    ?: incomeTx.amountPaise
+
+                val restoredShare = expenseTx.previousSharePaise
+                    ?: minOf(expenseTx.amountPaise, expenseTx.myActualSharePaise + offsetPaise)
+
+                val cleanedExpenseDesc = (expenseTx.description ?: "")
+                    .replace(Regex("""\[LINKED_INCOME:\d+\|OFFSET:\d+\]"""), "").trim().ifBlank { null }
+
+                transactionDao.updateTransaction(
+                    expenseTx.copy(
+                        myActualSharePaise = restoredShare,
+                        linkedIncomeId = null,
+                        reimbursedOffsetPaise = null,
+                        previousSharePaise = null,
+                        description = cleanedExpenseDesc
+                    )
+                )
+
+                // Revert split payments using running remainder across OWED_TO_ME splits
+                val splits = splitDao.getSplitsForTransactionSync(expenseTx.id)
+                    .filter { it.direction == SplitDirection.OWED_TO_ME }
+                    .sortedByDescending { it.id }
+                var remainingToReverse = offsetPaise
+                for (split in splits) {
+                    if (remainingToReverse <= 0L) break
+                    if (split.amountPaidSoFarPaise > 0L) {
+                        val reversing = minOf(remainingToReverse, split.amountPaidSoFarPaise)
+                        val newPaid = maxOf(0L, split.amountPaidSoFarPaise - reversing)
+                        splitDao.updateSplitItem(
+                            split.copy(
+                                amountPaidSoFarPaise = newPaid,
+                                isSettled = newPaid >= split.amountOwedPaise
                             )
                         )
-
-                        // Revert splits
-                        val splits = splitDao.getSplitsForTransactionSync(expenseId)
-                        for (split in splits) {
-                            if (split.amountPaidSoFarPaise > 0L) {
-                                val newPaid = maxOf(0L, split.amountPaidSoFarPaise - offsetPaise)
-                                splitDao.updateSplitItem(
-                                    split.copy(
-                                        amountPaidSoFarPaise = newPaid,
-                                        isSettled = newPaid >= split.amountOwedPaise
-                                    )
-                                )
-                            }
-                        }
+                        remainingToReverse -= reversing
                     }
                 }
 
-                // Restore Income
-                val cleanedIncomeDesc = desc.replace(Regex("""\[LINKED_TO_EXPENSE:\d+\|OFFSET:\d+(?:\|PREV_SHARE:\d+)?\]"""), "").trim().ifBlank { null }
-                val restoredVendor = if (tx.friendlyVendorName.startsWith("Reimbursement for", ignoreCase = true)) {
-                    tx.rawMerchant.ifBlank { "Income" }
-                } else tx.friendlyVendorName
+                // Restore income row
+                val cleanedIncomeDesc = (incomeTx.description ?: "")
+                    .replace(Regex("""\[LINKED_TO_EXPENSE:\d+\|OFFSET:\d+(?:\|PREV_SHARE:\d+)?\]"""), "").trim().ifBlank { null }
+                val restoredVendor = if (incomeTx.friendlyVendorName.startsWith("Reimbursement for", ignoreCase = true)) {
+                    incomeTx.rawMerchant.ifBlank { "Income" }
+                } else incomeTx.friendlyVendorName
 
                 transactionDao.updateTransaction(
-                    tx.copy(
+                    incomeTx.copy(
                         type = TransactionType.INCOME,
                         friendlyVendorName = restoredVendor,
+                        linkedExpenseId = null,
+                        reimbursedOffsetPaise = null,
                         description = cleanedIncomeDesc
                     )
                 )
-                return@withTransaction
-            }
-
-            // Check if this tx is the Expense leg
-            val expenseLinkMatch = Regex("""\[LINKED_INCOME:(\d+)\|OFFSET:(\d+)\]""").find(desc)
-            if (expenseLinkMatch != null) {
-                val incomeId = expenseLinkMatch.groupValues[1].toLongOrNull()
-                if (incomeId != null) {
-                    unlinkTransaction(incomeId)
-                }
             }
         }
     }

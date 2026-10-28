@@ -494,4 +494,52 @@ class MessageExtractorTest {
         val tx = (result as ExtractionResult.Transaction).transaction
         assertEquals("Friend paying back on same account must NOT be swallowed as OWN_TRANSFER", TransactionType.INCOME, tx.type)
     }
+
+    @Test
+    fun testUpcomingMandateDebitNoticeIgnored() {
+        val sms = "For the upcoming mandate set for 25-10-26, INR 89.00 will be debited from your A/c towards Google Play for UPI Mandate, 660303724524. To stop execution, pause mandate - Axis Bank"
+        val raw = RawMessage(MessageSource.SMS, "AXISBK", sms)
+        val result = MessageExtractor.extract(raw, sampleKnownAccounts)
+        assertTrue("Upcoming mandate debit notice must be ignored", result is ExtractionResult.Ignored)
+        val ignored = result as ExtractionResult.Ignored
+        assertEquals("Upcoming mandate debit notice", ignored.reason)
+    }
+
+    @Test
+    fun testRealUpiMandateDebitProcessedAsTransaction() {
+        val sms = "Dear Customer, INR 89.00 was debited from your Axis Bank A/c no. XX2003 on 25-10-26 towards Google Play for UPI Mandate 660303724524. Bal INR 5,200.00 - Axis Bank"
+        val raw = RawMessage(MessageSource.SMS, "AXISBK", sms)
+        val result = MessageExtractor.extract(raw, sampleKnownAccounts)
+        assertTrue(result is ExtractionResult.Transaction)
+        val tx = (result as ExtractionResult.Transaction).transaction
+        assertEquals(8900L, tx.amountPaise)
+        assertEquals(Direction.DEBIT, tx.direction)
+        assertEquals(TransactionType.EXPENSE, tx.type)
+    }
+
+    @Test
+    fun testNseilIpoCollectRequestIgnored() {
+        val sms = "Dear HCLXXXXX6E IPO Jio Platforms Limited : App no ABCD12458 UPI ID user@okaxis for Rs 13428.00 received. Please check for UPI-Mandate collect request for blocking of funds- NSEIL"
+        val raw = RawMessage(MessageSource.SMS, "NSEIL", sms)
+        val result = MessageExtractor.extract(raw, sampleKnownAccounts)
+        assertTrue("NSEIL IPO collect request must be ignored", result is ExtractionResult.Ignored)
+        val ignored = result as ExtractionResult.Ignored
+        assertEquals("ASBA / IPO Fund Blocking", ignored.reason)
+
+        // Also test CampusSmsParser directly
+        val campusParsed = CampusSmsParser.parse(sms, "NSEIL", knownAccounts = sampleKnownAccounts)
+        assertNull("CampusSmsParser must return null for IPO notices", campusParsed)
+    }
+
+    @Test
+    fun testInvestmentDebitDetectedAsInvestmentType() {
+        val sms = "INR 5000.00 debited\nA/c no. XX2003\n25-10-26, 11:00:00\nUPI/P2M/777123456789/ZERODHA BROKING"
+        val raw = RawMessage(MessageSource.SMS, "AXISBK", sms)
+        val result = MessageExtractor.extract(raw, sampleKnownAccounts)
+        assertTrue(result is ExtractionResult.Transaction)
+        val tx = (result as ExtractionResult.Transaction).transaction
+        assertEquals(500000L, tx.amountPaise)
+        assertEquals(Direction.DEBIT, tx.direction)
+        assertEquals(TransactionType.INVESTMENT, tx.type)
+    }
 }

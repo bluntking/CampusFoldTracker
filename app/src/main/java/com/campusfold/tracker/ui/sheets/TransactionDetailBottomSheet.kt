@@ -201,6 +201,7 @@ fun TransactionDetailBottomSheet(
                         amount = currentAmount,
                         fontSize = 28.sp,
                         color = when (selectedType) {
+                            TransactionType.INVESTMENT -> NeonPurple
                             TransactionType.CC_BILL_TRANSFER -> NeonCyan
                             TransactionType.INCOME -> NeonEmerald
                             else -> NeonCrimson
@@ -211,6 +212,7 @@ fun TransactionDetailBottomSheet(
                 // Type status pill
                 StatusPill(
                     text = when (selectedType) {
+                        TransactionType.INVESTMENT -> "INVESTMENT"
                         TransactionType.CC_BILL_TRANSFER -> "CC BILL"
                         TransactionType.INCOME -> "INCOME"
                         TransactionType.SPLIT_SETTLEMENT -> "SETTLEMENT"
@@ -221,11 +223,13 @@ fun TransactionDetailBottomSheet(
                         TransactionType.EXPENSE -> "EXPENSE"
                     },
                     bgColor = when (selectedType) {
+                        TransactionType.INVESTMENT -> NeonPurple.copy(alpha = 0.2f)
                         TransactionType.CC_BILL_TRANSFER -> PillBgCcBill
                         TransactionType.INCOME -> PillBgIncome
                         else -> PillBgExpense
                     },
                     textColor = when (selectedType) {
+                        TransactionType.INVESTMENT -> NeonPurple
                         TransactionType.CC_BILL_TRANSFER -> PillTextCcBill
                         TransactionType.INCOME -> PillTextIncome
                         else -> PillTextExpense
@@ -276,8 +280,15 @@ fun TransactionDetailBottomSheet(
                 }
             }
 
-            // Map Income to Expense / Offset with Income Card
-            if (allTransactions.isNotEmpty()) {
+            // Unlink or Map Reimbursement Card
+            val isLinkedIncome = transaction.linkedExpenseId != null ||
+                    transaction.description?.contains("LINKED_TO_EXPENSE") == true ||
+                    transaction.friendlyVendorName.startsWith("Reimbursement for", ignoreCase = true)
+            val isLinkedExpense = transaction.linkedIncomeId != null ||
+                    transaction.description?.contains("LINKED_INCOME") == true
+
+            // Map Income to Expense / Offset with Income Card (when not yet linked)
+            if (allTransactions.isNotEmpty() && !isLinkedIncome && !isLinkedExpense) {
                 Spacer(modifier = Modifier.height(10.dp))
                 if (selectedType == TransactionType.INCOME) {
                     FoldCard(
@@ -361,11 +372,6 @@ fun TransactionDetailBottomSheet(
             }
 
             // Unlink Reimbursement Card (when already linked)
-            val isLinkedIncome = selectedType == TransactionType.SPLIT_SETTLEMENT &&
-                    (transaction.description?.contains("LINKED_TO_EXPENSE") == true || transaction.friendlyVendorName.startsWith("Reimbursement for", ignoreCase = true))
-            val isLinkedExpense = selectedType == TransactionType.EXPENSE &&
-                    transaction.description?.contains("LINKED_INCOME") == true
-
             if (isLinkedIncome || isLinkedExpense) {
                 Spacer(modifier = Modifier.height(10.dp))
                 FoldCard(
@@ -792,6 +798,7 @@ fun TransactionDetailBottomSheet(
                 val types = listOf(
                     TransactionType.EXPENSE to "Expense",
                     TransactionType.INCOME to "Income",
+                    TransactionType.INVESTMENT to "Investment",
                     TransactionType.OWN_TRANSFER to "Own Transfer",
                     TransactionType.CC_BILL_TRANSFER to "CC Bill",
                     TransactionType.SPLIT_SETTLEMENT to "Settlement"
@@ -1422,7 +1429,7 @@ fun LinkIncomeExpenseDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 200.dp)
+                            .heightIn(min = 180.dp, max = 340.dp)
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -1515,8 +1522,8 @@ fun LinkIncomeExpenseDialog(
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                     modifier = Modifier
-                                        .width(100.dp)
-                                        .height(40.dp),
+                                        .width(130.dp)
+                                        .heightIn(min = 48.dp),
                                     shape = RoundedCornerShape(6.dp),
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedContainerColor = MatteCharcoal,

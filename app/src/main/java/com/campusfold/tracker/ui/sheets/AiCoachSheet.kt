@@ -466,6 +466,7 @@ fun AiCoachSheet(
                                         .take(5),
                                     personsWithBalances.filter { it.totalOwedToMe > 0 }
                                         .map { it.name to it.totalOwedToMe },
+                                    viewModel.totalCreditCardAvailable,
                                     coroutineScope
                                 )
                             }
@@ -585,6 +586,7 @@ fun AiCoachSheet(
                                         .take(5),
                                     personsWithBalances.filter { it.totalOwedToMe > 0 }
                                         .map { it.name to it.totalOwedToMe },
+                                    viewModel.totalCreditCardAvailable,
                                     coroutineScope
                                 )
                             }
@@ -613,6 +615,7 @@ fun AiCoachSheet(
                                     .take(5),
                                 personsWithBalances.filter { it.totalOwedToMe > 0 }
                                     .map { it.name to it.totalOwedToMe },
+                                viewModel.totalCreditCardAvailable,
                                 coroutineScope
                             )
                         }
@@ -641,6 +644,7 @@ private fun executePrompt(
     categoryBreakdown: List<Pair<String, Double>>,
     topVendors: List<Pair<String, Double>>,
     unsettledFriends: List<Pair<String, Double>>,
+    creditLimit: Double,
     scope: kotlinx.coroutines.CoroutineScope
 ) {
     scope.launch {
@@ -649,7 +653,7 @@ private fun executePrompt(
             currentMonthSpend = trueSpend,
             categoryBreakdown = categoryBreakdown,
             topVendors = topVendors,
-            creditLimit = 0.0,
+            creditLimit = creditLimit,
             unsettledFriends = unsettledFriends
         )
     }

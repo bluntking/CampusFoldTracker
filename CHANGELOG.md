@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.2] - 2026-10-28
+
+### Fixed & Enhanced
+- **Gmail IMAP Sync & UID-Checkpoint Healing (TODO #7)**:
+  - **Prevented `[Gmail]/All Mail` Poisoning**: Tracked `activeFolderIsInbox` so fallback UID lookups in `[Gmail]/All Mail` are never saved under `INBOX`'s UID checkpoint (`serverUidValidity`), eliminating silent sync freeze.
+  - **Auto-Healing for Poisoned Checkpoints**: Automatically heals existing poisoned checkpoints on first run if `effectiveLastUid >= inboxUidNext`, resetting to start so poisoned folders resume syncing instantly.
+  - **"Sync from date" Reliability**: Explicit start date syncs bypass UID checkpoint filtering and update the checkpoint via `maxOf(storedLastUid, chunkHighestUid)` so checkpoints never move backward.
+  - **Unified Manual & Background Sync**: Routed manual "Sync Now" / "Sync from date" (`REPLACE`) and app-open auto-sync (`KEEP`) through `GmailScanWorker` with `NetworkType.CONNECTED` constraint and exponential backoff.
+  - **Real-Time Step Diagnostics**: Live sync progress (`"Connecting..."`, `"Downloading N of M..."`, `"Saving..."`) streamed directly from WorkManager; recorded both "Last attempt" (with plain-English errors) and "Last successful sync" in Settings.
+  - **Cold-Start Auto-Sync Race Fix**: Directly collected credentials and settings from DataStore, eliminating false early-exit. Fixed chip border preset typo in `GmailSyncDialog`.
+- **Ignore Future-Debit Mandate & ASBA Notices (TODO #1 & TODO #3)**:
+  - **Pre-Check Filter**: Automatically ignored future-debit mandate reminders (`will be debited`, `upcoming mandate set for`) before money movement logic can misclassify them as completed debits.
+  - **IPO Application Notices Ignored**: Prevented ASBA / IPO UPI collect requests and fund blocking notices (e.g. NSEIL) from being falsely categorized as incoming `INCOME`.
+- **Real DB Columns for Reimbursements & Normal Row Preservation (TODO #9 & TODO #11)**:
+  - **Room Database Migration (`v5 -> v6`)**: Added `linkedExpenseId`, `linkedIncomeId`, `reimbursedOffsetPaise`, and `previousSharePaise` to `TransactionEntity`. Converted legacy bracketed tags and restored `SPLIT_SETTLEMENT` rows back to normal `TransactionType.INCOME` with original vendor names preserved.
+  - **Uncorrupted Income & Spend**: Reimbursed income rows remain normal `INCOME` rows and are excluded from Total Income in `HomeSpendingTile`; personal share reductions are stored directly in `reimbursedOffsetPaise`.
+  - **Split Ledger Accounting**: Filtered unsettled friend splits strictly by `direction = 'OWED_TO_ME'`, fixed net pending balance to signed accounting, preserved prior split item settlement states upon bill edits, and sanitized account references on debt repayments.
+  - **Accurate Split Owed Metric**: Spending tile "Split Owed" now uses `netOverview.totalFriendsOweMePaise` directly rather than flawed gross minus true spend arithmetic.
+- **`INVESTMENT` Transaction Type (TODO #3)**:
+  - Full first-class support for `TransactionType.INVESTMENT` across database, parsers (`parser-core`, `MessageExtractor`, `CampusSmsParser`), and UI (badges, feed card with trending icon and purple styling, type selector chips, filter chips, and notifications). Excluded from budget alerts and monthly personal spend calculations.
+- **Account Filtering & Tap-to-Filter (TODO #6)**:
+  - Tap any account card on the Dashboard or Accounts screen to open `TransactionsScreen` pre-filtered to that account.
+  - Added removable filter chip in `TransactionsScreen` with account display name.
+- **Automatic Vendor Rule Backfill (TODO #2)**:
+  - Adding, editing, renaming, or re-categorizing vendor mappings now backfills matching past unmapped/default transactions retroactively across the database.
+- **Notification Privacy (TODO #12)**:
+  - Stripped raw SMS bodies and payment modes from notifications; notifications now show clean, private `"$vendor · $category"` with amount and title.
+- **UI & Layout Polish (TODO #8, #4, #10)**:
+  - **Home Recent Transactions (TODO #8)**: Displays exactly the latest 5 transactions instead of 8.
+  - **Rules & Budgets Screen (TODO #4)**: Added `.statusBarsPadding()`, fixed header title clipping and single-line "Sync & Data" button, lifted FAB above the bottom pill bar with navigation padding, and replaced truncated category chips with a horizontally scrollable picker.
+  - **Map Reimbursement Dialog (TODO #10)**: Expanded candidate list container with breathing room and fixed bottom-clipping on the offset currency input field.
+  - **Theme Switching & AI Coach**: Fixed case sensitivity in dark/light theme switching, and wired `totalCreditCardAvailable` into AI Coach sheet.
+- **Onboarding AI Model Picker & Real Scan Progress (TODO #5)**:
+  - Dynamic AI model picker during onboarding with choice of Qwen 2.5 1.5B or ultra-lightweight Qwen 2.5 0.5B (~547 MB), device RAM checks, "Recommended" badge, dynamic download button text, and prominent "Skip for now" option.
+  - Replaced simulated fake delays with real-time WorkManager inbox scanning observation and progress reporting.
+
 ## [2.0.1] - 2026-10-24
 
 ### Fixed & Enhanced

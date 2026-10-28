@@ -12,8 +12,8 @@ android {
         applicationId = "com.campusfold.tracker"
         minSdk = 26
         targetSdk = 34
-        versionCode = 201
-        versionName = "2.0.1"
+        versionCode = 202
+        versionName = "2.0.2"
         manifestPlaceholders["appName"] = "CampusFold"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

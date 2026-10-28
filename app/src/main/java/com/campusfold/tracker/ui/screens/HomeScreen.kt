@@ -36,7 +36,7 @@ import com.campusfold.tracker.ui.theme.*
  * 2. Needs-attention strip: slim strip when non-empty (review items, duplicates, auto-merge undo, suggestions).
  * 3. Net balance card (Part 6): Net available balance headline, savings vs card owed breakdown, small owed-to-friends line, tracked since.
  * 4. Total spends tile: Month/Week toggle, period picker, Gross Spend, Split Owed, You Owe, Total Income, True Spend headline & budget gauge.
- * 5. Recent Transactions tile: latest 8 transactions, "See All >" button to Transactions screen, tap to detail sheet.
+ * 5. Recent Transactions tile: latest 5 transactions, "See All >" button to Transactions screen, tap to detail sheet.
  * 6. My Accounts tile: up to 4 account cards in DashboardAccountCard/BankAvatarLogo style, "Manage >" and "Show all".
  * 7. Activity Heatmap tile: 14 weeks activity, active days & total spent, month dividers, tap day for tooltip.
  */
@@ -46,6 +46,7 @@ fun HomeScreen(
     onOpenAiCoach: () -> Unit,
     onNavigateToTransactions: () -> Unit,
     onNavigateToAccounts: () -> Unit,
+    onNavigateToAccountTransactions: (Long) -> Unit = {},
     onNavigateToSplits: () -> Unit,
     onNavigateToSettingsReview: () -> Unit,
     initialSelectedTransaction: TransactionEntity? = null,
@@ -323,7 +324,8 @@ fun HomeScreen(
             HomeAccountsTile(
                 derivedBalances = derivedBalances,
                 isAmountHidden = isBalanceHidden,
-                onManageAccounts = onNavigateToAccounts
+                onManageAccounts = onNavigateToAccounts,
+                onAccountClick = onNavigateToAccountTransactions
             )
         }
 

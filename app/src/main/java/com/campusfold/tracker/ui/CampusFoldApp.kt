@@ -33,7 +33,7 @@ enum class AppNavScreen {
 }
 
 sealed class PushedScreen {
-    data class Transactions(val categoryId: Long? = null, val vendorName: String? = null) : PushedScreen()
+    data class Transactions(val categoryId: Long? = null, val vendorName: String? = null, val accountId: Long? = null) : PushedScreen()
     object Accounts : PushedScreen()
 }
 
@@ -120,13 +120,17 @@ fun CampusFoldApp(
                             viewModel = viewModel,
                             onBack = { pushedScreen = null },
                             initialCategoryFilter = activePushed.categoryId,
-                            initialVendorFilter = activePushed.vendorName
+                            initialVendorFilter = activePushed.vendorName,
+                            initialAccountFilter = activePushed.accountId
                         )
                     }
                     is PushedScreen.Accounts -> {
                         AccountsScreen(
                             viewModel = viewModel,
-                            onBack = { pushedScreen = null }
+                            onBack = { pushedScreen = null },
+                            onAccountClick = { accId ->
+                                pushedScreen = PushedScreen.Transactions(accountId = accId)
+                            }
                         )
                     }
                 }
@@ -146,6 +150,9 @@ fun CampusFoldApp(
                                 onOpenAiCoach = { showAiCoachSheet = true },
                                 onNavigateToTransactions = { pushedScreen = PushedScreen.Transactions() },
                                 onNavigateToAccounts = { pushedScreen = PushedScreen.Accounts },
+                                onNavigateToAccountTransactions = { accId ->
+                                    pushedScreen = PushedScreen.Transactions(accountId = accId)
+                                },
                                 onNavigateToSplits = { currentScreen = AppNavScreen.SPLITS },
                                 onNavigateToSettingsReview = { currentScreen = AppNavScreen.SETTINGS },
                                 initialSelectedTransaction = highlightTransaction

@@ -1149,8 +1149,15 @@ fun SyncAndDataSubScreen(
 
                             if (syncStats != null) {
                                 val s = syncStats!!
-                                val timeText = if (s.timestamp > 0L) dateFormatter.format(Date(s.timestamp)) else "N/A"
-                                Text("Time: $timeText", fontSize = 11.sp, color = TextPrimary)
+                                val attemptTimeText = if (s.timestamp > 0L) dateFormatter.format(Date(s.timestamp)) else "N/A"
+                                val successTimeText = if (s.lastSuccessTimestamp > 0L) {
+                                    dateFormatter.format(Date(s.lastSuccessTimestamp))
+                                } else if (gmailLastSync > 0L) {
+                                    dateFormatter.format(Date(gmailLastSync))
+                                } else "Never"
+
+                                Text("Last attempt: $attemptTimeText (${s.source}) · ${if (s.lastError == null) "Success" else "Failed"}", fontSize = 11.sp, color = TextPrimary)
+                                Text("Last successful sync: $successTimeText", fontSize = 11.sp, color = NeonEmerald)
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),

@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
             val dynamicColor by viewModel.dynamicColor.collectAsStateWithLifecycle()
             val amoledMode by viewModel.amoledMode.collectAsStateWithLifecycle()
 
-            val isDark = when (themeMode) {
+            val isDark = when (themeMode.uppercase()) {
                 "DARK" -> true
                 "LIGHT" -> false
                 else -> isSystemInDarkTheme()
@@ -99,11 +99,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         updatePermissionStatus()
-        val now = System.currentTimeMillis()
-        if (now - lastGmailSyncTime > 60_000L) {
-            lastGmailSyncTime = now
-            viewModel.syncGmailOnAppOpen()
-        }
+        viewModel.syncGmailOnAppOpen()
     }
 
     private fun updatePermissionStatus() {

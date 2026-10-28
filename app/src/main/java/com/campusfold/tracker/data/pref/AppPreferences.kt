@@ -191,6 +191,7 @@ class AppPreferences(private val context: Context) {
         if (!jsonStr.isNullOrBlank()) {
             try {
                 val obj = org.json.JSONObject(jsonStr)
+                val err = obj.optString("lastError", "").takeIf { it.isNotBlank() }
                 GmailSyncStats(
                     timestamp = obj.optLong("timestamp", 0L),
                     emailsFetched = obj.optInt("fetched", 0),
@@ -198,7 +199,10 @@ class AppPreferences(private val context: Context) {
                     parsed = obj.optInt("parsed", 0),
                     sentToReview = obj.optInt("sentToReview", 0),
                     saved = obj.optInt("saved", 0),
-                    lastError = obj.optString("lastError", "").takeIf { it.isNotBlank() }
+                    lastError = err,
+                    source = obj.optString("source", "BACKGROUND"),
+                    lastAttemptResult = obj.optString("lastAttemptResult", if (err == null) "COMPLETED" else "FAILED"),
+                    lastSuccessTimestamp = obj.optLong("lastSuccessTimestamp", if (err == null) obj.optLong("timestamp", 0L) else 0L)
                 )
             } catch (_: Exception) {
                 null
@@ -215,6 +219,9 @@ class AppPreferences(private val context: Context) {
             put("sentToReview", stats.sentToReview)
             put("saved", stats.saved)
             put("lastError", stats.lastError ?: "")
+            put("source", stats.source)
+            put("lastAttemptResult", stats.lastAttemptResult)
+            put("lastSuccessTimestamp", stats.lastSuccessTimestamp)
         }.toString()
         context.dataStore.edit { preferences ->
             preferences[GMAIL_LAST_SYNC_STATS_JSON] = json

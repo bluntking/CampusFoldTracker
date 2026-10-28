@@ -93,7 +93,7 @@ object GmailImapClient {
         chunkSize: Int = 100,
         isCancelled: (() -> Boolean)? = null,
         onProgress: ((current: Int, total: Int) -> Unit)? = null,
-        onChunkReady: suspend (chunk: List<FetchedEmail>, serverUidValidity: Long, chunkHighestUid: Long, chunkFilteredCount: Int) -> Unit
+        onChunkReady: suspend (chunk: List<FetchedEmail>, serverUidValidity: Long, chunkHighestUid: Long, chunkFilteredCount: Int, isInbox: Boolean) -> Unit
     ): Int = withContext(Dispatchers.IO) {
         val cleanEmail = emailAddress.trim()
         val cleanPassword = appPassword.replace(" ", "").trim()
@@ -133,6 +133,7 @@ object GmailImapClient {
             folder = store.getFolder("INBOX") as? IMAPFolder
                 ?: throw GmailImapException("Unable to open INBOX folder on Gmail IMAP.")
             folder.open(Folder.READ_ONLY)
+            var activeFolderIsInbox = true
 
             val serverUidValidity = folder.uidValidity
             val (storedUidValidity, storedLastUid) = if (appPreferences != null) {
@@ -141,14 +142,23 @@ object GmailImapClient {
                 Pair(0L, 0L)
             }
 
-            val effectiveLastUid = if (storedUidValidity != serverUidValidity) {
+            var effectiveLastUid = if (storedUidValidity != serverUidValidity) {
                 Log.d(TAG, "UIDVALIDITY changed ($storedUidValidity -> $serverUidValidity), resetting last UID.")
                 0L
             } else {
                 storedLastUid
             }
 
-            var messagesToProcess: Array<out Message> = if (effectiveLastUid > 0L) {
+            // Auto-heal existing poisoned checkpoints: if stored UID is higher than or equal to INBOX's uidNext,
+            // it came from [Gmail]/All Mail and would cause INBOX to skip all new messages. Reset to 0L.
+            val inboxUidNext = try { folder.uidNext } catch (_: Exception) { -1L }
+            if (effectiveLastUid > 0L && inboxUidNext > 0L && effectiveLastUid >= inboxUidNext) {
+                Log.w(TAG, "Poisoned INBOX UID checkpoint detected (effectiveLastUid=$effectiveLastUid >= uidNext=$inboxUidNext). Auto-healing: resetting effectiveLastUid to 0.")
+                effectiveLastUid = 0L
+            }
+
+            val isExplicitDateSync = startDateMillis != null && startDateMillis > 0L
+            var messagesToProcess: Array<out Message> = if (effectiveLastUid > 0L && !isExplicitDateSync) {
                 Log.d(TAG, "Incremental sync: fetching messages with UID > $effectiveLastUid")
                 try {
                     folder.getMessagesByUID(effectiveLastUid + 1, UIDFolder.LASTUID)
@@ -163,7 +173,7 @@ object GmailImapClient {
                 } else {
                     Date(System.currentTimeMillis() - 30L * 86400000L)
                 }
-                Log.d(TAG, "Initial sync: fetching messages since $filterDate")
+                Log.d(TAG, "Initial or date sync: fetching messages since $filterDate (explicitDateSync=$isExplicitDateSync)")
                 folder.search(ReceivedDateTerm(ComparisonTerm.GE, filterDate))
             }
 
@@ -182,6 +192,7 @@ object GmailImapClient {
                         if (allMailMessages.isNotEmpty()) {
                             try { folder.close(false) } catch (_: Exception) {}
                             folder = allMailFolder
+                            activeFolderIsInbox = false
                             messagesToProcess = allMailMessages
                         } else {
                             try { allMailFolder.close(false) } catch (_: Exception) {}
@@ -269,9 +280,10 @@ object GmailImapClient {
 
                 if (chunkFetchedEmails.isNotEmpty()) {
                     totalFetchedCount += chunkFetchedEmails.size
-                    onChunkReady(chunkFetchedEmails, serverUidValidity, chunkHighestUid, chunkFilteredCount)
-                } else if (chunkHighestUid > 0L) {
-                    appPreferences?.setGmailUidSyncState(serverUidValidity, chunkHighestUid)
+                    onChunkReady(chunkFetchedEmails, serverUidValidity, chunkHighestUid, chunkFilteredCount, activeFolderIsInbox)
+                } else if (chunkHighestUid > 0L && activeFolderIsInbox) {
+                    val (_, storedLastUid) = appPreferences?.getGmailUidSyncState() ?: Pair(0L, 0L)
+                    appPreferences?.setGmailUidSyncState(serverUidValidity, maxOf(storedLastUid, chunkHighestUid))
                 }
             }
 
@@ -301,7 +313,7 @@ object GmailImapClient {
             chunkSize = 100,
             isCancelled = isCancelled,
             onProgress = onProgress,
-            onChunkReady = { chunk, _, _, _ ->
+            onChunkReady = { chunk, _, _, _, _ ->
                 result.addAll(chunk)
             }
         )

@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -83,6 +84,7 @@ fun VendorsCategoriesScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(OledBlack)
+            .statusBarsPadding()
     ) {
         Column(
             modifier = Modifier
@@ -97,26 +99,32 @@ fun VendorsCategoriesScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     if (onBack != null) {
                         IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary)
                         }
                         Spacer(modifier = Modifier.width(6.dp))
                     }
-                    Column {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
                             text = "MANAGE REPOSITORIES",
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = TextMuted
+                            color = TextMuted,
+                            maxLines = 1
                         )
                         Text(
                             text = "Campus Rules & Budgets",
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
-                            color = TextPrimary
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -144,7 +152,9 @@ fun VendorsCategoriesScreen(
                         text = "Sync & Data",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -403,7 +413,8 @@ fun VendorsCategoriesScreen(
                 contentColor = OledBlack,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(24.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 96.dp, end = 24.dp)
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Add New")
             }
@@ -789,14 +800,14 @@ fun AddEditVendorDialog(
                 )
 
                 Text("Default Category:", fontSize = 11.sp, color = TextMuted)
-                Row(
+                LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    categories.take(3).forEach { cat ->
+                    items(categories) { cat ->
                         FilterChip(
                             selected = selectedCategoryId == cat.id,
-                            onClick = { selectedCategoryId = cat.id },
+                            onClick = { selectedCategoryId = if (selectedCategoryId == cat.id) null else cat.id },
                             label = { Text(cat.name, fontSize = 10.sp) }
                         )
                     }
@@ -2085,6 +2096,7 @@ fun CreateTransactionFromUnparsedDialog(
                     listOf(
                         TransactionType.EXPENSE to "Expense",
                         TransactionType.INCOME to "Income",
+                        TransactionType.INVESTMENT to "Investment",
                         TransactionType.OWN_TRANSFER to "Transfer"
                     ).forEach { (type, label) ->
                         FilterChip(

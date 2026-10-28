@@ -32,7 +32,11 @@ object NotificationHelper {
         }
     }
 
-    fun showTransactionNotification(context: Context, transaction: TransactionEntity) {
+    fun showTransactionNotification(
+        context: Context,
+        transaction: TransactionEntity,
+        categoryName: String = "Uncategorized"
+    ) {
         createNotificationChannel(context)
 
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -48,6 +52,7 @@ object NotificationHelper {
         val formatter = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
         val formattedAmount = formatter.format(transaction.amount)
         val title = when (transaction.type) {
+            TransactionType.INVESTMENT -> "Investment Tracked: $formattedAmount"
             TransactionType.INCOME -> "Money Received: $formattedAmount"
             TransactionType.CC_BILL_TRANSFER -> "CC Bill Payment: $formattedAmount"
             TransactionType.SPLIT_SETTLEMENT -> "Split Settlement: $formattedAmount"
@@ -57,13 +62,15 @@ object NotificationHelper {
             TransactionType.EMI -> "EMI Payment: $formattedAmount"
             TransactionType.EXPENSE -> "Expense Tracked: $formattedAmount"
         }
-        val content = "${transaction.friendlyVendorName} via ${transaction.paymentMode}"
+        val vendor = transaction.friendlyVendorName.ifBlank { transaction.rawMerchant }.ifBlank { "Unknown Merchant" }
+        val cleanCategory = categoryName.ifBlank { "Uncategorized" }
+        val content = "$vendor · $cleanCategory"
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(content)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$content\n\"${transaction.rawSms}\""))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(content))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)

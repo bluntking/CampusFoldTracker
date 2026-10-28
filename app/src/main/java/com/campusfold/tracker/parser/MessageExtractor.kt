@@ -48,15 +48,21 @@ object MessageExtractor {
 
     // Mandate / bill reminder patterns (only active when no completed money verb is present)
     private val MANDATE_REMINDER_PATTERNS = listOf(
+        Regex("""\b(?:will|shall)\s+be\s+(?:auto[-\s]?)?debited\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(?:upcoming\s+mandate|mandate\s+set\s+for)\b""", RegexOption.IGNORE_CASE),
         Regex("""\b(?:will be auto-debited|will be auto debited|will be debited on)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(?:mandate\s+(?:created|scheduled|active|notification)|e-mandate\s+(?:set up|created))\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(?:mandate\s+(?:created|scheduled|active|notification|set)|e-mandate\s+(?:set up|created))\b""", RegexOption.IGNORE_CASE),
         Regex("""\b(?:is due on|bill due date|due date is|bill of (?:INR|Rs\.?|₹)?.*?due on|payment due on|minimum amount due|min amount due|pay before|pay by)\b""", RegexOption.IGNORE_CASE),
         Regex("""\b(?:payment request|has requested|collect request from|requests rs|requesting payment)\b""", RegexOption.IGNORE_CASE),
         Regex("""\b(?:reminder:|bill generated|invoice generated|statement generated)\b""", RegexOption.IGNORE_CASE)
     )
 
     // ASBA / IPO blocking notices (funds blocked, not spent)
-    private val ASBA_PATTERN = Regex("""\b(?:asba|is blocked in your|earmarked)\b""", RegexOption.IGNORE_CASE)
+    private val ASBA_PATTERN = Regex(
+        """\b(?:asba|is blocked in your|earmarked|blocking\s+of\s+funds|upi[-\s]?mandate\s+collect\s+request|collect\s+request\s+for\s+blocking|unblocked|revoked\s+mandate)\b|""" +
+        """\bipo\b.*\b(?:app\s*no|application\s*no|application|collect\s+request|blocking\s+of\s+funds|bid\s+received|received.*collect\s+request|bid)\b""",
+        RegexOption.IGNORE_CASE
+    )
 
     // Convert-to-EMI offers (marketing invitations, not actual EMI debits)
     private val CONVERT_TO_EMI_PATTERN = Regex(
@@ -99,6 +105,12 @@ object MessageExtractor {
 
     // EMI Payment patterns
     private val EMI_PATTERN = Regex("""\b(towards\s+(?:smart\s*)?emi|smartemi|loan\s+emi|smartemi\s+debited|debited\s+towards\s+(?:smart\s*)?emi|emi\s+debited|auto-debited\s+towards\s+emi)\b""", RegexOption.IGNORE_CASE)
+
+    // Investment / Mutual Funds / SIP / Brokerage patterns
+    private val INVESTMENT_PATTERN = Regex(
+        """\b(?:ipo\s+allot(?:ment|ted)|mutual\s+fund|sip\s+(?:debit|purchase|installment)|sip\b|zerodha|groww|upstox|angel\s*one|kuvera|coin\s+by\s+zerodha|indmoney|smallcase|nsdl|cdsl|demat)\b""",
+        RegexOption.IGNORE_CASE
+    )
 
     // Refund / Reversal patterns
     private val REFUND_PATTERN = Regex("""\b(refund|reversal|refunded|reversed|cashback)\b""", RegexOption.IGNORE_CASE)
@@ -212,6 +224,18 @@ object MessageExtractor {
     // ─── Step 1: Classification for Ignored Messages ──────────────────────────
 
     fun classifyIgnored(body: String): String? {
+        // Hard pre-check for future-debit mandate notices (e.g. "will be debited from", "upcoming mandate set for")
+        // Must NOT match past debits like "was debited" or "has been debited"
+        val isFutureMandateNotice = Regex("""\b(?:will|shall)\s+be\s+(?:auto[-\s]?)?debited\b|\bupcoming\s+mandate\b|\bmandate\s+set\s+for\b""", RegexOption.IGNORE_CASE).containsMatchIn(body)
+        val isCompletedPastDebit = body.contains("was debited", ignoreCase = true) ||
+                body.contains("has been debited", ignoreCase = true) ||
+                body.contains("has debited", ignoreCase = true) ||
+                body.contains("is debited", ignoreCase = true)
+
+        if (isFutureMandateNotice && !isCompletedPastDebit) {
+            return "Upcoming mandate debit notice"
+        }
+
         val hasCompletedMoneyMovement = COMPLETED_MONEY_VERBS.containsMatchIn(body)
 
         // OTPs & verification codes
@@ -409,6 +433,7 @@ object MessageExtractor {
 
                 val txType = when {
                     isCcBill -> TransactionType.CC_BILL_TRANSFER
+                    INVESTMENT_PATTERN.containsMatchIn(body) || INVESTMENT_PATTERN.containsMatchIn(parsedTx.merchant ?: "") -> TransactionType.INVESTMENT
                     ATM_PATTERN.containsMatchIn(body) -> TransactionType.ATM
                     EMI_PATTERN.containsMatchIn(body) -> TransactionType.EMI
                     else -> TransactionType.EXPENSE
@@ -424,7 +449,7 @@ object MessageExtractor {
             }
 
             com.pennywiseai.parser.core.TransactionType.INVESTMENT -> {
-                Direction.DEBIT to TransactionType.EXPENSE
+                Direction.DEBIT to TransactionType.INVESTMENT
             }
 
             com.pennywiseai.parser.core.TransactionType.BALANCE_UPDATE -> {
@@ -543,13 +568,15 @@ object MessageExtractor {
         val isRefund = REFUND_PATTERN.containsMatchIn(cleanBody)
         val isAtm = ATM_PATTERN.containsMatchIn(cleanBody)
         val isEmi = EMI_PATTERN.containsMatchIn(cleanBody)
+        val isInvestment = INVESTMENT_PATTERN.containsMatchIn(cleanBody)
 
         val type = when {
             isCcBill -> TransactionType.CC_BILL_TRANSFER
             isRefund -> TransactionType.REFUND
             isAtm -> TransactionType.ATM
             isEmi -> TransactionType.EMI
-            direction == Direction.CREDIT -> TransactionType.INCOME
+            isInvestment && direction == Direction.DEBIT -> TransactionType.INVESTMENT
+            direction == Direction.CREDIT && !cleanBody.contains("ipo", ignoreCase = true) -> TransactionType.INCOME
             else -> TransactionType.EXPENSE
         }
 

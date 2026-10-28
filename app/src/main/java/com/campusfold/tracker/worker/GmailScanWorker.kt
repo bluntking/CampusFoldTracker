@@ -27,6 +27,7 @@ class GmailScanWorker(
         const val TAG = "GmailScanWorker"
         const val WORK_NAME = "gmail_sync_work"
         const val KEY_START_DATE = "start_date"
+        const val KEY_SOURCE = "key_source"
 
         const val PROGRESS_READ = "progress_read"
         const val PROGRESS_ADDED = "progress_added"
@@ -39,7 +40,7 @@ class GmailScanWorker(
         val db = AppDatabase.getDatabase(appContext)
         val prefs = AppPreferences(appContext)
         val repo = TransactionRepository(db, prefs, appContext)
-        val aiService = com.campusfold.tracker.ai.AiFallbackService(db.aiCacheDao(), prefs)
+        val aiService = com.campusfold.tracker.ai.AiFallbackService(db.aiCacheDao(), prefs).takeIf { it.isAiAvailable() }
         val resolver = DefaultEntityResolver(
             accountDao = db.accountDao(),
             accountAliasDao = db.accountAliasDao(),
@@ -52,6 +53,7 @@ class GmailScanWorker(
         )
         val ingestor = MessageIngestor(db, resolver, repo, appContext, prefs, aiService)
 
+        val syncSource = inputData.getString(KEY_SOURCE) ?: "BACKGROUND"
         val (email, password) = prefs.getGmailCredentialsSync()
         if (email.isNullOrBlank() || password.isNullOrBlank()) {
             Log.d(TAG, "No Gmail credentials configured. Skipping sync.")
@@ -82,7 +84,7 @@ class GmailScanWorker(
                     PROGRESS_READ to 0,
                     PROGRESS_ADDED to 0,
                     PROGRESS_DUPLICATES to 0,
-                    PROGRESS_STATUS to "CONNECTING"
+                    PROGRESS_STATUS to "Connecting..."
                 )
             )
 
@@ -99,13 +101,22 @@ class GmailScanWorker(
                             PROGRESS_READ to current,
                             PROGRESS_ADDED to totalAdded,
                             PROGRESS_DUPLICATES to totalDuplicates,
-                            PROGRESS_STATUS to "FETCHING ($current/$total)"
+                            PROGRESS_STATUS to "Downloading $current of $total..."
                         )
                     )
                 },
-                onChunkReady = { chunkEmails, serverUidValidity, chunkHighestUid, chunkFilteredCount ->
+                onChunkReady = { chunkEmails, serverUidValidity, chunkHighestUid, chunkFilteredCount, isInbox ->
                     totalFilteredOut += chunkFilteredCount
                     totalRead += chunkEmails.size
+
+                    setProgressAsync(
+                        workDataOf(
+                            PROGRESS_READ to totalRead,
+                            PROGRESS_ADDED to totalAdded,
+                            PROGRESS_DUPLICATES to totalDuplicates,
+                            PROGRESS_STATUS to "Saving ${chunkEmails.size} emails..."
+                        )
+                    )
 
                     var lastHandledUid = 0L
 
@@ -120,7 +131,10 @@ class GmailScanWorker(
                         )
 
                         try {
-                            val res = ingestor.ingest(rawMessage)
+                            val res = kotlinx.coroutines.withTimeoutOrNull(15_000L) {
+                                ingestor.ingest(rawMessage)
+                            } ?: IngestResult.Unparsed
+
                             when (res) {
                                 is IngestResult.Imported -> {
                                     totalAdded++
@@ -170,9 +184,10 @@ class GmailScanWorker(
                         }
                     }
 
-                    // Advance UID checkpoint ONLY for emails that were safely handled
-                    if (lastHandledUid > 0L) {
-                        prefs.setGmailUidSyncState(serverUidValidity, lastHandledUid)
+                    // Advance UID checkpoint ONLY for emails that were safely handled on INBOX
+                    if (lastHandledUid > 0L && isInbox) {
+                        val (_, storedLastUid) = prefs.getGmailUidSyncState()
+                        prefs.setGmailUidSyncState(serverUidValidity, maxOf(storedLastUid, lastHandledUid))
                     }
                 }
             )
@@ -191,20 +206,24 @@ class GmailScanWorker(
                 )
             }
 
+            val now = System.currentTimeMillis()
             val finalStats = com.campusfold.tracker.data.model.GmailSyncStats(
-                timestamp = System.currentTimeMillis(),
+                timestamp = now,
                 emailsFetched = totalRead,
                 filteredOut = totalFilteredOut,
                 parsed = totalParsed,
                 sentToReview = totalUnparsed,
                 saved = totalAdded,
-                lastError = null
+                lastError = null,
+                source = syncSource,
+                lastAttemptResult = "COMPLETED",
+                lastSuccessTimestamp = now
             )
             prefs.setGmailSyncStats(finalStats)
 
-            if (totalRead > 0) {
-                prefs.setGmailLastSyncTimestamp(System.currentTimeMillis())
-            }
+            // Always update lastSyncTimestamp on successful sync completion even if 0 new emails found
+            prefs.setGmailLastSyncTimestamp(now)
+
             try {
                 repo.runAutoMergePass()
             } catch (_: Exception) {}
@@ -242,18 +261,40 @@ class GmailScanWorker(
                 )
             }
 
+            val plainError = when {
+                e is com.campusfold.tracker.util.GmailImapException && e.cause is jakarta.mail.AuthenticationFailedException ->
+                    "Gmail authentication failed. Check your email & 16-character App Password."
+                e is com.campusfold.tracker.util.GmailImapException && (e.message?.contains("Couldn't connect", ignoreCase = true) == true || e.message?.contains("timeout", ignoreCase = true) == true) ->
+                    "Can't reach Gmail (connection timeout). Check your internet connection."
+                e.message?.contains("Authentication failed", ignoreCase = true) == true ->
+                    "Gmail authentication failed. Please verify your App Password."
+                e.message?.contains("timeout", ignoreCase = true) == true || e.message?.contains("host", ignoreCase = true) == true ->
+                    "Can't reach Gmail (connection timeout). Check your network."
+                else -> e.localizedMessage ?: "Gmail sync failed"
+            }
+
+            val now = System.currentTimeMillis()
             val errStats = com.campusfold.tracker.data.model.GmailSyncStats(
-                timestamp = System.currentTimeMillis(),
+                timestamp = now,
                 emailsFetched = totalRead,
                 filteredOut = totalFilteredOut,
                 parsed = totalParsed,
                 sentToReview = totalUnparsed,
                 saved = totalAdded,
-                lastError = e.localizedMessage ?: "Gmail IMAP scan failed"
+                lastError = plainError,
+                source = syncSource,
+                lastAttemptResult = "FAILED: $plainError"
             )
             prefs.setGmailSyncStats(errStats)
 
-            Result.failure(workDataOf("error" to (e.localizedMessage ?: "Unknown error")))
+            val isAuthError = (e is com.campusfold.tracker.util.GmailImapException && e.cause is jakarta.mail.AuthenticationFailedException) ||
+                    e.message?.contains("Authentication failed", ignoreCase = true) == true
+
+            if (!isAuthError && runAttemptCount < 3) {
+                Result.retry()
+            } else {
+                Result.failure(workDataOf("error" to plainError))
+            }
         }
     }
 }

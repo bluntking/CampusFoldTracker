@@ -116,13 +116,12 @@ fun HomeSpendingTile(
         periodExpenses.filter { it.paidByPersonId == null }.sumOf { it.amountPaise }
     }
     val totalPeriodIncomePaise = remember(periodTransactions) {
-        periodTransactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amountPaise }
+        periodTransactions.filter { it.type == TransactionType.INCOME && it.linkedExpenseId == null }.sumOf { it.amountPaise }
     }
 
-    // Reimbursement owed in period
-    val periodSplitOwedPaise = remember(grossSpendPaise, trueSpendPaise, netOverview.totalFriendsOweMePaise) {
-        val diff = grossSpendPaise - trueSpendPaise
-        if (diff > 0) diff else netOverview.totalFriendsOweMePaise
+    // Reimbursement owed (unsettled friend debt owed to me)
+    val periodSplitOwedPaise = remember(netOverview.totalFriendsOweMePaise) {
+        netOverview.totalFriendsOweMePaise
     }
 
     Card(

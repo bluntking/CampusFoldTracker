@@ -86,7 +86,9 @@ fun OnboardingScreen(
     }
 
     // AI Model State
-    val recommendedModel = remember { AiModelCatalog.QWEN_1_5B }
+    val systemRecommendedModel = remember { AiModelCatalog.recommendModel(context) ?: AiModelCatalog.QWEN_1_5B }
+    var selectedAiModel by remember { mutableStateOf(systemRecommendedModel) }
+    val availableModels = remember { listOf(AiModelCatalog.QWEN_1_5B, AiModelCatalog.QWEN_0_5B) }
     val aiStatus by LocalAiManager.modelStatus.collectAsStateWithLifecycle()
     var isTestingAi by remember { mutableStateOf(false) }
     var aiTestResult by remember { mutableStateOf<Boolean?>(null) }
@@ -120,6 +122,37 @@ fun OnboardingScreen(
     val allTransactions by viewModel.allTransactions.collectAsStateWithLifecycle()
     val vendorMappings by viewModel.vendorMappings.collectAsStateWithLifecycle()
     val suggestedDuplicates by viewModel.suggestedDuplicates.collectAsStateWithLifecycle()
+    val smsWorkInfos by viewModel.smsWorkFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    LaunchedEffect(isScanningInbox, smsWorkInfos) {
+        if (!isScanningInbox) return@LaunchedEffect
+        val info = smsWorkInfos.firstOrNull() ?: return@LaunchedEffect
+        when (info.state) {
+            androidx.work.WorkInfo.State.RUNNING -> {
+                val read = info.progress.getInt(com.campusfold.tracker.worker.SmsScanWorker.PROGRESS_READ, 0)
+                val added = info.progress.getInt(com.campusfold.tracker.worker.SmsScanWorker.PROGRESS_ADDED, 0)
+                scanProgressPercent = 50
+                scanStatusText = if (read > 0) "Scanning SMS... $read read, $added txns found" else "Scanning SMS inbox..."
+            }
+            androidx.work.WorkInfo.State.SUCCEEDED -> {
+                val read = info.outputData.getInt(com.campusfold.tracker.worker.SmsScanWorker.PROGRESS_READ, 0)
+                val added = info.outputData.getInt(com.campusfold.tracker.worker.SmsScanWorker.PROGRESS_ADDED, 0)
+                scanProgressPercent = 100
+                scanStatusText = "Scan Complete! $added transactions found ($read scanned)"
+                kotlinx.coroutines.delay(600)
+                isScanningInbox = false
+                currentStep = OnboardingStep.DISCOVERY_REVIEW
+            }
+            androidx.work.WorkInfo.State.FAILED, androidx.work.WorkInfo.State.CANCELLED -> {
+                scanProgressPercent = 100
+                scanStatusText = "Scan finished"
+                kotlinx.coroutines.delay(400)
+                isScanningInbox = false
+                currentStep = OnboardingStep.DISCOVERY_REVIEW
+            }
+            else -> {}
+        }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -388,66 +421,78 @@ fun OnboardingScreen(
 
                                 Spacer(modifier = Modifier.height(20.dp))
 
-                                // Model Spec Card
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(16.dp),
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
+                                // Model Spec Cards (Choice of Recommended vs Light)
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    availableModels.forEach { model ->
+                                        val isSelected = selectedAiModel.id == model.id
+                                        val isRecommended = model.id == systemRecommendedModel.id
+                                        val sizeStr = if (model.id == AiModelCatalog.QWEN_0_5B.id) "~547 MB" else "~1.5 GB"
+                                        val ramReq = if (model.id == AiModelCatalog.QWEN_0_5B.id) "Requires 3 GB RAM" else "Requires 6 GB RAM"
+
+                                        Surface(
+                                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                            shape = RoundedCornerShape(16.dp),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                if (isSelected) 2.dp else 1.dp,
+                                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                            ),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { selectedAiModel = model }
                                         ) {
-                                            Text(
-                                                text = recommendedModel.displayName,
-                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Surface(
-                                                color = MaterialTheme.colorScheme.primaryContainer,
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
+                                            Column(modifier = Modifier.padding(14.dp)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        RadioButton(
+                                                            selected = isSelected,
+                                                            onClick = { selectedAiModel = model },
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                        Text(
+                                                            text = model.displayName,
+                                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                            color = MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                    }
+                                                    if (isRecommended) {
+                                                        Surface(
+                                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                                            shape = RoundedCornerShape(8.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = "Recommended",
+                                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
+                                                Spacer(modifier = Modifier.height(6.dp))
                                                 Text(
-                                                    text = "Recommended",
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                    text = model.description,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
-                                            }
-                                        }
 
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = recommendedModel.description,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-
-                                        Spacer(modifier = Modifier.height(14.dp))
-                                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                        Spacer(modifier = Modifier.height(14.dp))
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Column {
-                                                Text("Download Size", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                Text("~1.5 GB", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
-                                            }
-                                            Column {
-                                                Text("Free Storage", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                Text("%.1f GB free".format(freeStorageGb), style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
-                                            }
-                                            Column {
-                                                Text("Connection", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                Text("Wi-Fi recommended", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Text("Size: $sizeStr", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                                                    Text(ramReq, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    Text("%.1f GB free".format(freeStorageGb), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                                }
                                             }
                                         }
                                     }
@@ -498,7 +543,7 @@ fun OnboardingScreen(
                                     Button(
                                         onClick = {
                                             coroutineScope.launch {
-                                                LocalAiManager.downloadModel(context, recommendedModel)
+                                                LocalAiManager.downloadModel(context, selectedAiModel)
                                             }
                                         },
                                         enabled = aiStatus !is AiModelStatus.Loading,
@@ -509,7 +554,8 @@ fun OnboardingScreen(
                                     ) {
                                         Icon(Icons.Default.Download, contentDescription = null)
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Download Model (~1.5 GB)", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                                        val btnSize = if (selectedAiModel.id == AiModelCatalog.QWEN_0_5B.id) "~547 MB" else "~1.5 GB"
+                                        Text("Download ${selectedAiModel.displayName.substringBefore(" ")} ($btnSize)", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
                                     }
                                 }
 
@@ -856,21 +902,9 @@ fun OnboardingScreen(
                                 Button(
                                     onClick = {
                                         isScanningInbox = true
-                                        scanProgressPercent = 15
+                                        scanProgressPercent = 10
                                         scanStatusText = "Scanning SMS inbox..."
-
-                                        coroutineScope.launch {
-                                            viewModel.scanSmsMessages(selectedScanMonths)
-                                            delay(700)
-                                            scanProgressPercent = 60
-                                            scanStatusText = "Extracting accounts & transactions..."
-                                            delay(800)
-                                            scanProgressPercent = 100
-                                            scanStatusText = "Scan Complete!"
-                                            delay(400)
-                                            isScanningInbox = false
-                                            currentStep = OnboardingStep.DISCOVERY_REVIEW
-                                        }
+                                        viewModel.scanSmsMessages(selectedScanMonths)
                                     },
                                     enabled = !isScanningInbox,
                                     shape = RoundedCornerShape(12.dp),
@@ -880,7 +914,7 @@ fun OnboardingScreen(
                                 ) {
                                     Icon(Icons.Default.Search, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Scan My Messages", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                                    Text(if (isScanningInbox) "Scanning Inbox..." else "Scan My Messages", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
                                 }
 
                                 OutlinedButton(
