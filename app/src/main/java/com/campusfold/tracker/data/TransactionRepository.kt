@@ -579,10 +579,10 @@ class TransactionRepository(
         for (tx in allTxs) {
             val edited = parseEditedFields(tx.editedFields)
 
-            val cleanedRaw = com.campusfold.tracker.util.VendorResolver.cleanMerchantString(tx.rawMerchant)
+            val cleanedRaw = com.campusfold.tracker.data.resolver.VendorResolver.cleanMerchantString(tx.rawMerchant)
             val matchesNewKeyword =
-                (cleanedRaw.isNotBlank() && com.campusfold.tracker.util.VendorResolver.findMatchingVendor(cleanedRaw, vendorList) != null) ||
-                (tx.rawMerchant.isNotBlank() && com.campusfold.tracker.util.VendorResolver.findMatchingVendor(tx.rawMerchant, vendorList) != null) ||
+                (cleanedRaw.isNotBlank() && com.campusfold.tracker.data.resolver.VendorResolver.findMatchingVendor(cleanedRaw, tx.rawMerchant, vendorList) != null) ||
+                (tx.rawMerchant.isNotBlank() && com.campusfold.tracker.data.resolver.VendorResolver.findMatchingVendor(cleanedRaw, tx.rawMerchant, vendorList) != null) ||
                 tx.friendlyVendorName.equals(updatedVendor.displayName, ignoreCase = true) ||
                 tx.friendlyVendorName.equals(updatedVendor.normalizedKey, ignoreCase = true)
 
@@ -854,8 +854,7 @@ class TransactionRepository(
                         split.copy(
                             transactionId = updatedTx.id,
                             amountPaidSoFarPaise = minOf(prior.amountPaidSoFarPaise, split.amountOwedPaise),
-                            isSettled = prior.isSettled && (prior.amountPaidSoFarPaise >= split.amountOwedPaise),
-                            settledAt = prior.settledAt
+                            isSettled = prior.isSettled && (prior.amountPaidSoFarPaise >= split.amountOwedPaise)
                         )
                     } else {
                         split.copy(transactionId = updatedTx.id)
@@ -1389,7 +1388,7 @@ class TransactionRepository(
                         val last4 = json.optString("accountLast4", "")
 
                         val account = if (last4.isNotBlank()) {
-                            accountDao.getAccountByLast4Sync(last4)
+                            accountDao.getAllAccountsSync().find { it.last4 == last4 }
                         } else null
 
                         val tx = TransactionEntity(
@@ -1401,7 +1400,7 @@ class TransactionRepository(
                             friendlyVendorName = merchant,
                             accountId = account?.id,
                             rawSms = rawText.takeIf { it.isNotBlank() },
-                            source = TransactionSource.AI,
+                            source = TransactionSource.SMS,
                             confidence = item.confidence
                         )
                         transactionDao.insertTransaction(tx)
