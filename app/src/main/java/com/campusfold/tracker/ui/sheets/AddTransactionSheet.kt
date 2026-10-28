@@ -371,7 +371,7 @@ fun AddTransactionSheet(
 
             // Account Selection based on Type
             when (selectedType) {
-                ManualTxType.EXPENSE -> {
+                ManualTxType.EXPENSE, ManualTxType.INVESTMENT -> {
                     if (expensePayer == ExpensePayer.I_PAID) {
                         Text(
                             text = "PAID FROM ACCOUNT",

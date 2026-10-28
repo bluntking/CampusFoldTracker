@@ -135,8 +135,8 @@ fun TransactionsScreen(
                     tx.accountId == selectedAccountId ||
                     (tx.accountId == null && selectedAccObj != null && (
                         tx.paymentMode.equals(selectedAccObj.displayName, ignoreCase = true) ||
-                        tx.paymentMode.equals(selectedAccObj.accountName, ignoreCase = true) ||
-                        (selectedAccObj.accountNumberSuffix.isNotBlank() && tx.paymentMode.contains(selectedAccObj.accountNumberSuffix))
+                        tx.paymentMode.equals(selectedAccObj.bankName, ignoreCase = true) ||
+                        (selectedAccObj.last4.isNotBlank() && tx.paymentMode.contains(selectedAccObj.last4))
                     ))
 
             matchesQuery && matchesType && matchesCategory && matchesVendor && matchesAccount

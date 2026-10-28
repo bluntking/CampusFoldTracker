@@ -133,7 +133,7 @@ class GmailScanWorker(
                         try {
                             val res = kotlinx.coroutines.withTimeoutOrNull(15_000L) {
                                 ingestor.ingest(rawMessage)
-                            } ?: IngestResult.Unparsed
+                            } ?: IngestResult.Unparsed(0L, "")
 
                             when (res) {
                                 is IngestResult.Imported -> {
@@ -262,7 +262,7 @@ class GmailScanWorker(
             }
 
             val plainError = when {
-                e is com.campusfold.tracker.util.GmailImapException && e.cause is jakarta.mail.AuthenticationFailedException ->
+                e is com.campusfold.tracker.util.GmailImapException && e.cause is javax.mail.AuthenticationFailedException ->
                     "Gmail authentication failed. Check your email & 16-character App Password."
                 e is com.campusfold.tracker.util.GmailImapException && (e.message?.contains("Couldn't connect", ignoreCase = true) == true || e.message?.contains("timeout", ignoreCase = true) == true) ->
                     "Can't reach Gmail (connection timeout). Check your internet connection."
@@ -287,7 +287,7 @@ class GmailScanWorker(
             )
             prefs.setGmailSyncStats(errStats)
 
-            val isAuthError = (e is com.campusfold.tracker.util.GmailImapException && e.cause is jakarta.mail.AuthenticationFailedException) ||
+            val isAuthError = (e is com.campusfold.tracker.util.GmailImapException && e.cause is javax.mail.AuthenticationFailedException) ||
                     e.message?.contains("Authentication failed", ignoreCase = true) == true
 
             if (!isAuthError && runAttemptCount < 3) {
