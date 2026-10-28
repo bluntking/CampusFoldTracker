@@ -6,6 +6,7 @@ import com.campusfold.tracker.data.entity.TransactionEntity
 import com.campusfold.tracker.data.entity.TransactionType
 import com.campusfold.tracker.parser.MessageExtractor
 import com.campusfold.tracker.parser.model.*
+import com.campusfold.tracker.util.CampusSmsParser
 import org.junit.Assert.*
 import org.junit.Test
 
