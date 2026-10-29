@@ -103,6 +103,12 @@ object CampusSmsParser {
         timestampFallback: Long,
         knownAccounts: List<AccountEntity> = emptyList()
     ): ParsedCampusSms? {
+        val isExplicitCredit = body.contains("Amount Credited", ignoreCase = true) ||
+                body.contains("was credited", ignoreCase = true) ||
+                body.contains("credited to", ignoreCase = true) ||
+                body.contains("credited with", ignoreCase = true)
+        if (isExplicitCredit) return null
+
         val cardMatch = cardPattern.find(body)
         val isCard = cardMatch != null || (body.contains("Credit Card", ignoreCase = true) || body.contains(" CC ", ignoreCase = true))
 

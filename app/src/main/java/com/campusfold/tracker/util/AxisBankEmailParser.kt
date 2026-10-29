@@ -64,21 +64,33 @@ object AxisBankEmailParser {
         // Primary Signal Evaluation (in order of priority):
         // 1. Labelled field: "Amount Credited" vs "Amount Debited"
         val hasLabelCredit = AMOUNT_CREDITED_PATTERN.matcher(cleanBody).find() ||
-                Regex("""(?i)\bAmount\s+Credited\b""").containsMatchIn(cleanBody)
+                Regex("""(?i)\b(?:Amount|Amt\.?)\s+(?:Credited|Credit)\b|\b(?:Credited|Credit)\s+Amount\b|\bAmount\s+Credited\b""").containsMatchIn(cleanBody)
         val hasLabelDebit = AMOUNT_DEBITED_PATTERN.matcher(cleanBody).find() ||
-                Regex("""(?i)\bAmount\s+Debited\b""").containsMatchIn(cleanBody)
+                Regex("""(?i)\b(?:Amount|Amt\.?)\s+(?:Debited|Debit)\b|\b(?:Debited|Debit)\s+Amount\b|\bAmount\s+Debited\b""").containsMatchIn(cleanBody)
 
         // 2. Subject sentence: "was credited" / "credited to your" vs "was debited" / "debited from your"
         val hasSubjCredit = cleanSubject.contains("was credited", ignoreCase = true) ||
-                cleanSubject.contains("credited to your", ignoreCase = true)
+                cleanSubject.contains("credited to your", ignoreCase = true) ||
+                cleanSubject.contains("has been credited", ignoreCase = true) ||
+                cleanSubject.contains("credited with", ignoreCase = true) ||
+                Regex("""(?i)\b(?:INR|Rs\.?|₹)?\s*[\d,]+(?:\.\d{1,2})?\s*(?:was\s+|is\s+|has been\s+)?credited\b""").containsMatchIn(cleanSubject)
         val hasSubjDebit = cleanSubject.contains("was debited", ignoreCase = true) ||
-                cleanSubject.contains("debited from your", ignoreCase = true)
+                cleanSubject.contains("debited from your", ignoreCase = true) ||
+                cleanSubject.contains("has been debited", ignoreCase = true) ||
+                cleanSubject.contains("debited with", ignoreCase = true) ||
+                Regex("""(?i)\b(?:INR|Rs\.?|₹)?\s*[\d,]+(?:\.\d{1,2})?\s*(?:was\s+|is\s+|has been\s+)?debited\b""").containsMatchIn(cleanSubject)
 
         // 3. Body sentence in primary body (excluding boilerplate/footer)
         val hasBodyCredit = primaryBody.contains("was credited", ignoreCase = true) ||
-                primaryBody.contains("credited to your", ignoreCase = true)
+                primaryBody.contains("credited to your", ignoreCase = true) ||
+                primaryBody.contains("has been credited", ignoreCase = true) ||
+                primaryBody.contains("credited with", ignoreCase = true) ||
+                primaryBody.contains("Amount Credited", ignoreCase = true)
         val hasBodyDebit = primaryBody.contains("was debited", ignoreCase = true) ||
-                primaryBody.contains("debited from your", ignoreCase = true)
+                primaryBody.contains("debited from your", ignoreCase = true) ||
+                primaryBody.contains("has been debited", ignoreCase = true) ||
+                primaryBody.contains("debited with", ignoreCase = true) ||
+                primaryBody.contains("Amount Debited", ignoreCase = true)
 
         // Check for genuine conflicts between signals
         val labelSignal = when {
@@ -102,7 +114,7 @@ object AxisBankEmailParser {
             else -> SignalDirection.NONE
         }
 
-        if (labelSignal == SignalDirection.CONFLICT || subjSignal == SignalDirection.CONFLICT || bodySignal == SignalDirection.CONFLICT) {
+        if (labelSignal == SignalDirection.CONFLICT || subjSignal == SignalDirection.CONFLICT || (bodySignal == SignalDirection.CONFLICT && labelSignal == SignalDirection.NONE && subjSignal == SignalDirection.NONE)) {
             val dummyTx = TransactionEntity(amountPaise = 0L, type = TransactionType.EXPENSE)
             return ParsedEmailTransaction(transaction = dummyTx, senderOrMerchant = "", isCredit = false, isUpi = false, isConflict = true)
         }
@@ -156,6 +168,12 @@ object AxisBankEmailParser {
             val gm = GENERIC_AMOUNT_PATTERN.matcher(primaryBody.ifBlank { cleanBody })
             if (gm.find()) {
                 amount = gm.group(1)?.replace(",", "")?.toDoubleOrNull()
+            }
+        }
+        if (amount == null) {
+            val smGen = GENERIC_AMOUNT_PATTERN.matcher(cleanSubject)
+            if (smGen.find()) {
+                amount = smGen.group(1)?.replace(",", "")?.toDoubleOrNull()
             }
         }
 
@@ -272,7 +290,7 @@ object AxisBankEmailParser {
     }
 
     fun removeBoilerplateAndFooter(body: String): String {
-        val cutoffRegex = Regex("""(?i)\b(Call us at:|To block UPI:|Feel free to connect|Footerimg|\*\*\*\*This is a system generated|Reach us at:|Please do not share your Internet Banking|RBI never deals|This email is confidential|If this transaction was not initiated by you)""")
+        val cutoffRegex = Regex("""(?i)\b(Call us at:|To block UPI:|Feel free to connect|Footerimg|\*\*\*\*This is a system generated|Reach us at:|Please do not share your Internet Banking|RBI never deals|This email is confidential|If this transaction was not initiated by you|In case you did not initiate|Make UPI spends rewarding|Terms & Conditions apply|Copyright Axis Bank)""")
         val match = cutoffRegex.find(body)
         return if (match != null) body.substring(0, match.range.first) else body
     }

@@ -377,10 +377,15 @@ class MessageIngestor(
                     // New transaction
                     val source = if (rawMessage.source == MessageSource.SMS) TransactionSource.SMS else TransactionSource.EMAIL
                     val desc = if (rawMessage.source == MessageSource.EMAIL) "Email alert: ${rawMessage.sender}" else null
+                    val resolvedType = when {
+                        extracted.direction == Direction.CREDIT && (extracted.type == TransactionType.EXPENSE || extracted.type == TransactionType.ATM || extracted.type == TransactionType.EMI) -> TransactionType.INCOME
+                        extracted.direction == Direction.DEBIT && extracted.type == TransactionType.INCOME -> TransactionType.EXPENSE
+                        else -> extracted.type
+                    }
                     val newTx = TransactionEntity(
                         amountPaise = extracted.amountPaise,
                         myActualSharePaise = extracted.amountPaise,
-                        type = extracted.type,
+                        type = resolvedType,
                         paymentMode = account.displayName,
                         rawMerchant = extracted.merchantRaw ?: extracted.bankName ?: "Merchant",
                         friendlyVendorName = vendorName,
@@ -401,9 +406,9 @@ class MessageIngestor(
                     }
 
                     // Income / Friend Split Settlement handling
-                    if (extracted.type == TransactionType.INCOME && insertedTxId > 0 && repository != null) {
+                    if (resolvedType == TransactionType.INCOME && insertedTxId > 0 && repository != null) {
                         handleIncomeSettlement(insertedTxId, newTx)
-                    } else if (extracted.type == TransactionType.EXPENSE && insertedTxId > 0 && repository != null) {
+                    } else if (resolvedType == TransactionType.EXPENSE && insertedTxId > 0 && repository != null) {
                         handleOutgoingRepaymentSuggestion(insertedTxId, newTx)
                     }
 

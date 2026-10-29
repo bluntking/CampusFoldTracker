@@ -79,6 +79,19 @@ class AxisBankParser : BaseIndianBankParser() {
             }
         }
 
+        val amountCreditedPattern = Regex(
+            """Amount\s+Credited:?\s*(?:INR|Rs\.?|₹)?\s*([0-9,]+(?:\.\d{1,2})?)""",
+            RegexOption.IGNORE_CASE
+        )
+        amountCreditedPattern.find(message)?.let { match ->
+            val amount = match.groupValues[1].replace(",", "")
+            return try {
+                BigDecimal(amount)
+            } catch (e: NumberFormatException) {
+                null
+            }
+        }
+
         val paymentPattern = Regex(
             """Payment\s+of\s+INR\s+([0-9,]+(?:\.\d{2})?)""",
             RegexOption.IGNORE_CASE
@@ -175,6 +188,17 @@ class AxisBankParser : BaseIndianBankParser() {
             }
         }
 
+        val upiLinePattern = Regex(
+            """UPI/(?:P2A|P2M|P2P)/[^/]+/([^/\r\n]+)""",
+            RegexOption.IGNORE_CASE
+        )
+        upiLinePattern.find(message)?.let { match ->
+            val merchant = cleanMerchantName(match.groupValues[1].trim())
+            if (isValidMerchantName(merchant)) {
+                return merchant
+            }
+        }
+
         val upiPersonPattern = Regex(
             """UPI/P2A/[^/]+/([^\n]+?)(?:\s*Not you|\s*$)""",
             RegexOption.IGNORE_CASE
@@ -206,7 +230,7 @@ class AxisBankParser : BaseIndianBankParser() {
         super.extractAccountLast4(message)?.let { return it }
         // Pattern 1: "A/c no. XXNNNN" or "A/c no. XXxxxxy"
         val acNoPattern = Regex(
-            """A/c\s+no\.\s+([X*xX\d]+)""",
+            """(?:A/c\s+no\.?|Account\s+Number:?)\s*([X*xX\d]+)""",
             RegexOption.IGNORE_CASE
         )
         acNoPattern.find(message)?.let { match ->
@@ -263,6 +287,16 @@ class AxisBankParser : BaseIndianBankParser() {
 
     override fun extractTransactionType(message: String): TransactionType? {
         val lowerMessage = message.lowercase()
+
+        // Prioritize explicit credit phrasing before checking credit card spend keywords
+        if (lowerMessage.contains("amount credited") ||
+            lowerMessage.contains("was credited") ||
+            lowerMessage.contains("credited to your") ||
+            lowerMessage.contains("credited to a/c") ||
+            lowerMessage.contains("credited with")
+        ) {
+            return TransactionType.INCOME
+        }
 
         // Credit card transactions: if message contains "Avl Limit" or "Avl Lmt", it's a credit card
         if (lowerMessage.contains("avl limit") || lowerMessage.contains("avl lmt")) {

@@ -65,6 +65,11 @@ fun CampusFoldApp(
     var showAddTransactionSheet by remember { mutableStateOf(false) }
     var preselectFriendPaid by remember { mutableStateOf(false) }
     var showAiCoachSheet by remember { mutableStateOf(false) }
+    var isBottomBarVisible by remember { mutableStateOf(true) }
+
+    LaunchedEffect(currentScreen, pushedScreen) {
+        isBottomBarVisible = true
+    }
 
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -121,7 +126,8 @@ fun CampusFoldApp(
                             onBack = { pushedScreen = null },
                             initialCategoryFilter = activePushed.categoryId,
                             initialVendorFilter = activePushed.vendorName,
-                            initialAccountFilter = activePushed.accountId
+                            initialAccountFilter = activePushed.accountId,
+                            onScrollVisibilityChange = { isBottomBarVisible = it }
                         )
                     }
                     is PushedScreen.Accounts -> {
@@ -196,21 +202,27 @@ fun CampusFoldApp(
                 }
             }
 
-            // Floating Pill-Shaped Bottom Navigation Bar (visible across all screens, pushed screens keep bar visible with Home highlighted)
-            FloatingPillBottomBar(
-                currentScreen = currentScreen,
-                onNavigate = { screen ->
-                    pushedScreen = null
-                    highlightTransaction = null
-                    currentScreen = screen
-                },
-                onAddTransaction = {
-                    preselectFriendPaid = false
-                    showAddTransactionSheet = true
-                },
-                isPushedScreenActive = pushedScreen != null,
+            // Floating Pill-Shaped Bottom Navigation Bar (visible across all screens, responsive on transactions scroll)
+            AnimatedVisibility(
+                visible = if (pushedScreen is PushedScreen.Transactions) isBottomBarVisible else true,
+                enter = slideInVertically(initialOffsetY = { it * 2 }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it * 2 }) + fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter)
-            )
+            ) {
+                FloatingPillBottomBar(
+                    currentScreen = currentScreen,
+                    onNavigate = { screen ->
+                        pushedScreen = null
+                        highlightTransaction = null
+                        currentScreen = screen
+                    },
+                    onAddTransaction = {
+                        preselectFriendPaid = false
+                        showAddTransactionSheet = true
+                    },
+                    isPushedScreenActive = pushedScreen != null
+                )
+            }
         }
     }
 

@@ -255,4 +255,43 @@ class AxisBankEmailParserTest {
         val result = MessageExtractor.extract(raw)
         assertTrue("Conflicting debit/credit signals must be routed to Review/Unparsed, not guessed", result is ExtractionResult.Unparsed)
     }
+
+    @Test
+    fun testAxisBankCreditPdfExact() {
+        val subject = "INR 66.67 was credited to your A/c."
+        val body = """
+            29-10-2026Dear Sahil Gupta,Here's the summary of your transaction:Amount Credited:INR 66.67Account Number:XX2003Date & Time:29-10-26, 23:04:25 ISTTransaction Info:UPI/P2A/630274894830/PRATOSH R/HDFC/UPI
+            Gmail - INR 66.67 was credited to your A/c. https://mail.google.com/mail/u/1/?ik=a070fc7d84&view=pt&search=al...
+            1 of 229-10-2026, 23:40
+
+            Call us at:18001035577(Toll Free)18604195555(Charges Applicable)Feel free to connect with us for any clarification.Always open to help you.Regards,Axis Bank Ltd.Footerimg****This is a system generated email and does not require signature. ****E003598117_09_2024Reach us at: 
+            CHAT WEB Support Mobile app INTERNET BANKING WHATSAPP BRANCH LOCATORCopyright Axis Bank Ltd. All rights reserved. Terms & Conditions apply.Please do not share your Internet Banking details, such as user ID/password or your Credit/Debit Card number/CVV/OTPwith anyone, either over phone or through email.RBI never deals with individuals for Savings Account, Current Account, Credit Card, Debit Card, etc. Don't be victim to suchoffers coming to you on phone or email in the name of RBI.Do not click on Links from unknown/unsecure Sources that seek your confidential information.This email is confidential. It may also be legally privileged. If you are not the addressee, you may not copy, forward,disclose or use any part of it. Internet communications cannot be guaranteed to be timely, secure, error or virus-free.The sender does not accept liability for any errors or omissions. We maintain strict security standards and procedures toprevent unauthorised access to information about you. Know more >>
+            Gmail - INR 66.67 was credited to your A/c. https://mail.google.com/mail/u/1/?ik=a070fc7d84&view=pt&search=al...
+            2 of 229-10-2026, 23:40
+        """.trimIndent()
+
+        val parsed = AxisBankEmailParser.parse(subject, body)
+        assertNotNull("Should parse Axis credit email from PDF", parsed)
+        val tx = parsed!!.transaction
+        assertEquals(66.67, tx.amount, 0.001)
+        assertEquals(TransactionType.INCOME, tx.type)
+        assertEquals("PRATOSH R", tx.rawMerchant)
+        assertEquals("630274894830", tx.upiRef)
+        assertEquals("Axis Bank XX2003", tx.paymentMode)
+        assertTrue(parsed.isCredit)
+
+        val raw = RawMessage(
+            source = MessageSource.EMAIL,
+            sender = "Axis Bank Alerts <alerts@axis.bank.in>",
+            body = body,
+            subject = subject
+        )
+        val result = MessageExtractor.extract(raw)
+        assertTrue("MessageExtractor must extract transaction", result is ExtractionResult.Transaction)
+        val extracted = (result as ExtractionResult.Transaction).transaction
+        assertEquals(Direction.CREDIT, extracted.direction)
+        assertEquals(TransactionType.INCOME, extracted.type)
+        assertEquals(6667L, extracted.amountPaise)
+        assertEquals("630274894830", extracted.reference)
+    }
 }

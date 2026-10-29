@@ -428,17 +428,29 @@ object MessageExtractor {
 
             com.pennywiseai.parser.core.TransactionType.CREDIT,
             com.pennywiseai.parser.core.TransactionType.EXPENSE -> {
-                val isCcBill = OUTBOUND_CC_BILL_PATTERN.containsMatchIn(parsedTx.merchant ?: "") ||
-                        OUTBOUND_CC_BILL_PATTERN.containsMatchIn(body)
+                // If the message body or subject explicitly states credited or money received,
+                // it is an INCOME transaction, not an expense!
+                val hasCreditPhrase = lower.contains("was credited") ||
+                        lower.contains("amount credited") ||
+                        lower.contains("credited to your") ||
+                        lower.contains("credited to a/c") ||
+                        lower.contains("credited with")
 
-                val txType = when {
-                    isCcBill -> TransactionType.CC_BILL_TRANSFER
-                    INVESTMENT_PATTERN.containsMatchIn(body) || INVESTMENT_PATTERN.containsMatchIn(parsedTx.merchant ?: "") -> TransactionType.INVESTMENT
-                    ATM_PATTERN.containsMatchIn(body) -> TransactionType.ATM
-                    EMI_PATTERN.containsMatchIn(body) -> TransactionType.EMI
-                    else -> TransactionType.EXPENSE
+                if (hasCreditPhrase && !lower.contains("was debited") && !lower.contains("amount debited")) {
+                    Direction.CREDIT to TransactionType.INCOME
+                } else {
+                    val isCcBill = OUTBOUND_CC_BILL_PATTERN.containsMatchIn(parsedTx.merchant ?: "") ||
+                            OUTBOUND_CC_BILL_PATTERN.containsMatchIn(body)
+
+                    val txType = when {
+                        isCcBill -> TransactionType.CC_BILL_TRANSFER
+                        INVESTMENT_PATTERN.containsMatchIn(body) || INVESTMENT_PATTERN.containsMatchIn(parsedTx.merchant ?: "") -> TransactionType.INVESTMENT
+                        ATM_PATTERN.containsMatchIn(body) -> TransactionType.ATM
+                        EMI_PATTERN.containsMatchIn(body) -> TransactionType.EMI
+                        else -> TransactionType.EXPENSE
+                    }
+                    Direction.DEBIT to txType
                 }
-                Direction.DEBIT to txType
             }
 
             com.pennywiseai.parser.core.TransactionType.TRANSFER -> {

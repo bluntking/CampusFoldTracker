@@ -44,9 +44,15 @@ object MimeMessageDecoder {
                                 if (nested.isNotBlank()) plainSb.append(nested).append("\n")
                             }
                         }
-                        if (plainSb.isNotBlank()) plainSb.toString().trim()
-                        else if (htmlSb.isNotBlank()) htmlToPlainText(htmlSb.toString())
-                        else ""
+                        val plainText = if (plainSb.isNotBlank()) plainSb.toString().trim() else ""
+                        val htmlText = if (htmlSb.isNotBlank()) htmlToPlainText(htmlSb.toString()).trim() else ""
+
+                        val financialMarkerRegex = Regex("""(?i)\b(?:amount\s+(?:credited|debited)|account\s+number|transaction\s+info|upi/[a-z0-9]+)\b""")
+                        when {
+                            htmlText.isNotBlank() && financialMarkerRegex.containsMatchIn(htmlText) -> htmlText
+                            plainText.isNotBlank() -> plainText
+                            else -> htmlText
+                        }
                     } else {
                         readStream(part)
                     }

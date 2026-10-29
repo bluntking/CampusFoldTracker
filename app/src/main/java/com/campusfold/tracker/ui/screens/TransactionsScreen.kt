@@ -1,7 +1,7 @@
 package com.campusfold.tracker.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,6 +9,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,7 +20,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -63,6 +68,7 @@ fun TransactionsScreen(
     initialCategoryFilter: Long? = null,
     initialVendorFilter: String? = null,
     initialAccountFilter: Long? = null,
+    onScrollVisibilityChange: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     BackHandler { onBack() }
@@ -80,6 +86,50 @@ fun TransactionsScreen(
     // Multi-select state
     var isSelectionMode by remember { mutableStateOf(false) }
     val selectedIds = remember { mutableStateListOf<Long>() }
+
+    // Responsive scroll & visibility state
+    val listState = rememberLazyListState()
+    var isBarsVisible by remember { mutableStateOf(true) }
+
+    val isAtTop by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+        }
+    }
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta < -12f) { // User scrolling down -> hide bars
+                    if (isBarsVisible && !isSelectionMode) {
+                        isBarsVisible = false
+                    }
+                } else if (delta > 12f) { // User scrolling up -> show bars
+                    if (!isBarsVisible) {
+                        isBarsVisible = true
+                    }
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
+    LaunchedEffect(isAtTop, isSelectionMode) {
+        if (isAtTop || isSelectionMode) {
+            isBarsVisible = true
+        }
+    }
+
+    LaunchedEffect(isBarsVisible) {
+        onScrollVisibilityChange?.invoke(isBarsVisible)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            onScrollVisibilityChange?.invoke(true)
+        }
+    }
 
     // Dialogs for bulk actions
     var showRecategorizeDialog by remember { mutableStateOf(false) }
@@ -170,12 +220,17 @@ fun TransactionsScreen(
 
     Scaffold(
         topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(OledBlack)
-                    .statusBarsPadding()
+            AnimatedVisibility(
+                visible = isBarsVisible || isSelectionMode || isAtTop,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
             ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(OledBlack)
+                        .statusBarsPadding()
+                ) {
                 // Top App Bar
                 Row(
                     modifier = Modifier
@@ -311,16 +366,19 @@ fun TransactionsScreen(
                     }
                 }
             }
-        },
-        containerColor = OledBlack
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp, start = 16.dp, end = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        }
+    },
+    containerColor = OledBlack
+) { innerPadding ->
+    LazyColumn(
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding)
+            .nestedScroll(nestedScrollConnection),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp, start = 16.dp, end = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
             if (filteredList.isEmpty()) {
                 item {
                     Box(

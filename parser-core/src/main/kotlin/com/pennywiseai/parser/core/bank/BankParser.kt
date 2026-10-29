@@ -294,6 +294,16 @@ abstract class BankParser {
             return TransactionType.INVESTMENT
         }
 
+        // Prioritize explicit credited phrases over incidental mentions of 'spent', 'paid' or 'purchase'
+        if (lowerMessage.contains("amount credited") ||
+            lowerMessage.contains("was credited") ||
+            lowerMessage.contains("credited to your") ||
+            lowerMessage.contains("credited to a/c") ||
+            lowerMessage.contains("credited with")
+        ) {
+            return TransactionType.INCOME
+        }
+
         return when {
             lowerMessage.contains("debited") -> TransactionType.EXPENSE
             lowerMessage.contains("withdrawn") -> TransactionType.EXPENSE

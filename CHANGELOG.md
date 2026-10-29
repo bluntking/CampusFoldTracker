@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.3] - 2026-10-30
+
+### Fixed & Enhanced
+- **Axis Bank Credit Email Ingestion as Income**:
+  - **HTML-First Content Extraction (`MimeMessageDecoder`)**: When email HTML contains financial transactional markers (`amount credited`, `account number`, `transaction info`, `upi/`), it is prioritized over minimal or truncated plain-text bodies, preserving complete notification details.
+  - **Early Income Classification (`AxisBankParser` & `BankParser`)**: Evaluates credit keywords (`amount credited`, `was credited`, `credited to your`) before debit and card spend keywords, preventing promotional footer text (e.g. "Make UPI spends rewarding with AXIS BANK RUPAY Credit Card") from misclassifying credit emails as credit card expenses.
+  - **Merchant & Account Extraction**: Enhanced UPI P2A/P2M path pattern to accurately extract counterparty merchant names (e.g., `PRATOSH R`) and support `Account Number: XXNNNN`.
+  - **Defensive Direction & Type Guard (`MessageExtractor` & `MessageIngestor`)**: Explicitly overrides any parser ambiguity to ensure `Direction.CREDIT` messages with credit phrasing are strictly saved as `TransactionType.INCOME`.
+  - **Unit Tests**: Added test coverage in `TestAxisBankParser.kt` and `AxisBankEmailParserTest.kt` validating exact parsing of Axis Bank credit email notifications.
+- **Responsive Scrolling Bars on Transactions Screen**:
+  - **Auto-Hiding Top Bar**: The search, filter, and header bar in `TransactionsScreen` smoothly collapses on downward scroll and expands on upward scroll or when reaching the top of the list.
+  - **Auto-Hiding Floating Pill Bottom Bar**: The floating navigation pill bar in `CampusFoldApp` slides down out of view when scrolling down through transactions and slides back in on upward scroll.
+  - **Selection Mode Pinning**: Top app bar stays pinned whenever multi-select bulk actions are active.
+
 ## [2.0.2] - 2026-10-28
 
 ### Fixed & Enhanced

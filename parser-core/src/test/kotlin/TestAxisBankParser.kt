@@ -215,6 +215,26 @@ Not you? SMS BLOCK 6018 to 919951860002""",
                     accountLast4 = "2225",
                     balance = BigDecimal("10000.00")
                 )
+            ),
+
+            ParserTestCase(
+                name = "Credit Notification - Amount Credited with Promo in Footer",
+                message = """Dear Customer,
+Here's the summary of your transaction:
+Amount Credited: INR 66.67
+Account Number: XX2003
+Transaction Info: UPI/P2A/630274894830/PRATOSH R/HDFC/UPI
+Make UPI spends rewarding with AXIS BANK RUPAY Credit Card
+Call us at: 18001035577""",
+                sender = "alerts@axis.bank.in",
+                expected = ExpectedTransaction(
+                    amount = BigDecimal("66.67"),
+                    currency = "INR",
+                    type = com.pennywiseai.parser.core.TransactionType.INCOME,
+                    merchant = "PRATOSH R",
+                    accountLast4 = "2003",
+                    reference = "630274894830"
+                )
             )
         )
 
