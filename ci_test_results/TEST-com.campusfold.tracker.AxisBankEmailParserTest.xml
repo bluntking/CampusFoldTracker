@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.campusfold.tracker.AxisBankEmailParserTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-10-29T19:20:57.209Z" hostname="runnervm48cm3" time="0.078">
+  <properties/>
+  <testcase name="testAxisBankHtmlEmailParsingSanitized" classname="com.campusfold.tracker.AxisBankEmailParserTest" time="0.027"/>
+  <testcase name="testAxisBankEmailWithOtpDisclaimerNotIgnored" classname="com.campusfold.tracker.AxisBankEmailParserTest" time="0.011"/>
+  <testcase name="testAxisBankCreditPdfExact" classname="com.campusfold.tracker.AxisBankEmailParserTest" time="0.021"/>
+  <testcase name="testAxisBankConflictingSignalsSentToReviewQueue" classname="com.campusfold.tracker.AxisBankEmailParserTest" time="0.002"/>
+  <testcase name="testAxisBankDebitNotificationSanitized" classname="com.campusfold.tracker.AxisBankEmailParserTest" time="0.002"/>
+  <testcase name="testAxisBankCreditNotificationSanitized" classname="com.campusfold.tracker.AxisBankEmailParserTest" time="0.002"/>
+  <testcase name="testQuotedPrintableAndMimeHeaderSanitized" classname="com.campusfold.tracker.AxisBankEmailParserTest" time="0.002"/>
+  <testcase name="testAxisBankCreditNotificationRealPdfStructure" classname="com.campusfold.tracker.AxisBankEmailParserTest" time="0.004"/>
+  <testcase name="testAxisBankCreditEmailWithDebitBoilerplateInFooter" classname="com.campusfold.tracker.AxisBankEmailParserTest" time="0.002"/>
+  <testcase name="testAxisBankDebitNotificationRealPdfStructure" classname="com.campusfold.tracker.AxisBankEmailParserTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

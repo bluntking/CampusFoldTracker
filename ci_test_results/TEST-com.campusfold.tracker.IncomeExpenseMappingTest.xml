@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.campusfold.tracker.IncomeExpenseMappingTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-29T19:20:57.432Z" hostname="runnervm48cm3" time="0.008">
+  <properties/>
+  <testcase name="testReimbursementReducesExpenseShare" classname="com.campusfold.tracker.IncomeExpenseMappingTest" time="0.0"/>
+  <testcase name="testReimbursementExceedingShareClampsToZero" classname="com.campusfold.tracker.IncomeExpenseMappingTest" time="0.0"/>
+  <testcase name="testUnlinkRestoresExpenseShareAndIncomeType" classname="com.campusfold.tracker.IncomeExpenseMappingTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
