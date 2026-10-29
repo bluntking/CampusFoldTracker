@@ -1,0 +1,142 @@
+Starting a Gradle Daemon (subsequent builds will be faster)
+> Task :app:preBuild UP-TO-DATE
+> Task :parser-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:generateDebugResources FROM-CACHE
+> Task :app:packageDebugResources FROM-CACHE
+> Task :app:processDebugNavigationResources FROM-CACHE
+> Task :parser-core:processResources NO-SOURCE
+> Task :app:parseDebugLocalResources FROM-CACHE
+> Task :app:generateDebugRFile FROM-CACHE
+> Task :app:javaPreCompileDebug FROM-CACHE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets
+> Task :app:compressDebugAssets FROM-CACHE
+> Task :app:generateDebugGlobalSynthetics FROM-CACHE
+> Task :app:desugarDebugFileDependencies FROM-CACHE
+> Task :app:checkDebugDuplicateClasses
+> Task :app:checkDebugAarMetadata
+> Task :app:mergeExtDexDebug FROM-CACHE
+> Task :app:mapDebugSourceSetPaths
+> Task :app:compileDebugNavigationResources FROM-CACHE
+> Task :app:mergeDebugResources FROM-CACHE
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug FROM-CACHE
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :app:mergeDebugJniLibFolders
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:writeDebugSigningConfigVersions
+> Task :app:processDebugManifestForPackage
+> Task :app:processDebugResources
+> Task :parser-core:compileKotlin
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/parser-core/src/main/kotlin/com/pennywiseai/parser/core/bank/HDFCBankParser.kt:643:28 Unnecessary non-null assertion (!!) on a non-null receiver of type 'BigDecimal'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/parser-core/src/main/kotlin/com/pennywiseai/parser/core/bank/HDFCBankParser.kt:714:28 Unnecessary non-null assertion (!!) on a non-null receiver of type 'BigDecimal'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/parser-core/src/main/kotlin/com/pennywiseai/parser/core/bank/KTCCreditCardParser.kt:26:32 Elvis operator (?:) always returns the left operand of non-nullable type 'TransactionType'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/parser-core/src/main/kotlin/com/pennywiseai/parser/core/bank/SBIBankParser.kt:674:28 Unnecessary non-null assertion (!!) on a non-null receiver of type 'BigDecimal'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/parser-core/src/main/kotlin/com/pennywiseai/parser/core/bank/SouthIndianBankParser.kt:5:8 'typealias Instant = Instant' is deprecated. This type is deprecated in favor of `kotlin.time.Instant`.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/parser-core/src/main/kotlin/com/pennywiseai/parser/core/bank/SouthIndianBankParser.kt:69:52 'typealias Instant = Instant' is deprecated. This type is deprecated in favor of `kotlin.time.Instant`.
+
+> Task :parser-core:compileJava NO-SOURCE
+> Task :parser-core:classes UP-TO-DATE
+> Task :parser-core:jar
+> Task :app:mergeDebugNativeLibs
+
+> Task :app:stripDebugDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libdatastore_shared_counter.so, liblitertlm_jni.so. Run with --info option to learn more.
+
+> Task :app:mergeLibDexDebug
+> Task :app:kspDebugKotlin
+> Task :app:compileDebugKotlin
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/data/AppDatabase.kt:584:22 'fun fallbackToDestructiveMigrationOnDowngrade(): RoomDatabase.Builder<AppDatabase>' is deprecated. Replace by overloaded version with parameter to indicate if all tables should be dropped or not.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/data/TransactionRepository.kt:344:40 Elvis operator (?:) always returns the left operand of non-nullable type 'Float'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/data/TransactionRepository.kt:996:38 Unnecessary safe call on a non-null receiver of type 'Long'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/data/TransactionRepository.kt:1011:42 Unnecessary safe call on a non-null receiver of type 'Long'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/data/TransactionRepository.kt:1461:67 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Long'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/data/TransactionRepository.kt:1516:67 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Long'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/data/ingest/MessageIngestor.kt:280:89 Unnecessary non-null assertion (!!) on a non-null receiver of type 'String'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/data/ingest/MessageIngestor.kt:281:80 Unnecessary non-null assertion (!!) on a non-null receiver of type 'String'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/AccountMergeComponents.kt:75:53 'val Icons.Filled.CallMerge: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallMerge.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/AccountMergeComponents.kt:134:53 'val Icons.Filled.Undo: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Undo.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/AccountMergeComponents.kt:272:57 'val Icons.Filled.CallMerge: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallMerge.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/AccountMergeComponents.kt:560:87 Unnecessary non-null assertion (!!) on a non-null receiver of type 'AccountEntity'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/AccountMergeComponents.kt:560:120 Unnecessary non-null assertion (!!) on a non-null receiver of type 'AccountEntity'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/AccountMergeComponents.kt:561:87 Unnecessary non-null assertion (!!) on a non-null receiver of type 'AccountEntity'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/AccountMergeComponents.kt:561:113 Unnecessary non-null assertion (!!) on a non-null receiver of type 'AccountEntity'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/AccountMergeComponents.kt:562:89 Unnecessary non-null assertion (!!) on a non-null receiver of type 'AccountEntity'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/AccountMergeComponents.kt:562:116 Unnecessary non-null assertion (!!) on a non-null receiver of type 'AccountEntity'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/AccountMergeComponents.kt:565:50 Unnecessary non-null assertion (!!) on a non-null receiver of type 'AccountEntity'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/AccountMergeComponents.kt:566:50 Unnecessary non-null assertion (!!) on a non-null receiver of type 'AccountEntity'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/BalanceCard.kt:146:13 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/FloatingPillBottomBar.kt:117:46 'val Icons.Filled.CallSplit: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallSplit.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/FoldTransactionFeedCard.kt:111:55 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/HomeAccountsTile.kt:196:13 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/HomeMetricsCarousel.kt:215:69 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/components/HomeSpendingTile.kt:273:13 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/AccountsScreen.kt:111:39 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/AccountsScreen.kt:150:47 'val Icons.Filled.CallMerge: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallMerge.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/AccountsScreen.kt:577:29 'when' is exhaustive so 'else' is redundant here.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/AccountsScreen.kt:648:64 'val Icons.Filled.CallMerge: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallMerge.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/AccountsScreen.kt:658:68 'val Icons.Filled.Undo: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Undo.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/AnalyticsScreen.kt:665:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/AnalyticsScreen.kt:751:67 'val Icons.Filled.ReceiptLong: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ReceiptLong.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/AnalyticsScreen.kt:1188:53 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/AnalyticsScreen.kt:1303:13 'fun LinearProgressIndicator(progress: Float, modifier: Modifier = ..., color: Color = ..., trackColor: Color = ..., strokeCap: StrokeCap = ...): Unit' is deprecated. Use the overload that takes `progress` as a lambda.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/AnalyticsScreen.kt:1416:13 'fun LinearProgressIndicator(progress: Float, modifier: Modifier = ..., color: Color = ..., trackColor: Color = ..., strokeCap: StrokeCap = ...): Unit' is deprecated. Use the overload that takes `progress` as a lambda.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/DiagnosticsScreen.kt:70:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/RulesScreen.kt:337:53 'val Icons.Filled.AltRoute: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.AltRoute.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SettingsScreen.kt:289:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SettingsScreen.kt:319:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SettingsScreen.kt:331:48 'val Icons.Filled.Rule: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Rule.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SettingsScreen.kt:379:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SettingsScreen.kt:436:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SettingsScreen.kt:490:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SettingsScreen.kt:537:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SettingsScreen.kt:810:40 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SettingsScreen.kt:991:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SettingsScreen.kt:1360:40 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SplitsScreen.kt:128:43 'val Icons.Filled.ReceiptLong: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ReceiptLong.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SplitsScreen.kt:348:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/SplitsScreen.kt:624:13 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/TransactionsScreen.kt:242:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/TransactionsScreen.kt:256:48 'val Icons.Filled.Label: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Label.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/VendorsCategoriesScreen.kt:108:48 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/VendorsCategoriesScreen.kt:612:52 'val Icons.Filled.CallMerge: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallMerge.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/VendorsCategoriesScreen.kt:688:56 'val Icons.Filled.CallMerge: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallMerge.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/VendorsCategoriesScreen.kt:735:25 'fun LinearProgressIndicator(progress: Float, modifier: Modifier = ..., color: Color = ..., trackColor: Color = ..., strokeCap: StrokeCap = ...): Unit' is deprecated. Use the overload that takes `progress` as a lambda.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/onboarding/OnboardingScreen.kt:505:37 'fun LinearProgressIndicator(progress: Float, modifier: Modifier = ..., color: Color = ..., trackColor: Color = ..., strokeCap: StrokeCap = ...): Unit' is deprecated. Use the overload that takes `progress` as a lambda.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/screens/onboarding/OnboardingScreen.kt:889:45 'fun LinearProgressIndicator(progress: Float, modifier: Modifier = ..., color: Color = ..., trackColor: Color = ..., strokeCap: StrokeCap = ...): Unit' is deprecated. Use the overload that takes `progress` as a lambda.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/sheets/AiCoachSheet.kt:630:53 'val Icons.Filled.Send: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Send.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/sheets/GmailSyncDialog.kt:206:48 'val Icons.Filled.OpenInNew: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.OpenInNew.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/sheets/TransactionDetailBottomSheet.kt:428:57 'val Icons.Filled.CallMerge: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallMerge.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/sheets/TransactionDetailBottomSheet.kt:498:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/sheets/TransactionDetailBottomSheet.kt:922:61 'val Icons.Filled.CallSplit: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallSplit.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/sheets/TransactionDetailBottomSheet.kt:972:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/sheets/TransactionDetailBottomSheet.kt:1267:37 Condition is always 'true'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/sheets/TransactionDetailBottomSheet.kt:1295:40 Condition is always 'true'.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/sheets/TransactionDetailBottomSheet.kt:1542:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/app/src/main/java/com/campusfold/tracker/ui/sheets/TransactionDetailBottomSheet.kt:1635:49 'val Icons.Filled.CallMerge: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallMerge.
+
+> Task :app:compileDebugJavaWithJavac NO-SOURCE
+> Task :app:processDebugJavaRes
+> Task :app:mergeDebugJavaResource
+> Task :app:dexBuilderDebug
+> Task :app:mergeProjectDexDebug
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_2-1793301515635.json
+
+[Incubating] Problems report is available at: file:///home/runner/work/CampusFoldTracker/CampusFoldTracker/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.7.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 2m 10s
+39 actionable tasks: 26 executed, 13 from cache
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.7.1/userguide/configuration_cache_enabling.html
